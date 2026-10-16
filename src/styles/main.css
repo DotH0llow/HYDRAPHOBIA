@@ -47,36 +47,36 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .scene > img { width: 100%; height: 100%; object-fit: cover; display: block; transform: scale(1.015); }
 .scene-grade { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 46%, transparent 35%, #010201a8 100%), linear-gradient(0deg, #0008, transparent 20% 75%, #0007); box-shadow: inset 0 0 7vw #000; }
 .scene-noise { z-index: 2; }
-.hotspot { --x: 0%; --y: 0%; --w: 10%; --h: 10%; position: absolute; z-index: 5; left: var(--x); top: var(--y); width: var(--w); height: var(--h); padding: 0; border: 1px solid transparent; background: transparent; cursor: pointer; transition: border .18s, background .18s, box-shadow .18s; }
+.hotspot { --x: 0%; --y: 0%; --w: 10%; --h: 10%; position: absolute; z-index: 5; left: var(--x); top: var(--y); width: var(--w); height: var(--h); padding: 0; border: 1px dotted #d7df775e; background-color: #10120e16; background-image: radial-gradient(circle, #e8e8bd70 .7px, transparent .9px); background-size: 7px 7px; cursor: pointer; transition: border .18s, background-color .18s, box-shadow .18s; }
 .hotspot::before, .hotspot::after { content: ''; position: absolute; width: 12px; height: 12px; opacity: 0; transition: opacity .18s; }
 .hotspot::before { left: -1px; top: -1px; border-left: 2px solid var(--acid); border-top: 2px solid var(--acid); }
 .hotspot::after { right: -1px; bottom: -1px; border-right: 2px solid var(--acid); border-bottom: 2px solid var(--acid); }
-.hotspot span { position: absolute; left: 50%; bottom: -32px; transform: translateX(-50%); width: max-content; max-width: 180px; padding: .38rem .55rem; color: #11140d; background: var(--acid); opacity: 0; pointer-events: none; text-transform: uppercase; font: 600 .56rem/1.3 "Courier New", monospace; letter-spacing: .08em; }
-.hotspot:hover, .hotspot:focus-visible { border-color: #d7df7790; background: #d7df7712; box-shadow: 0 0 24px #d7df772c, inset 0 0 18px #d7df7718; }
+.hotspot span { position: absolute; left: 50%; bottom: -32px; transform: translateX(-50%); width: max-content; max-width: 180px; padding: .38rem .55rem; color: #000; background: var(--acid); opacity: 0; pointer-events: none; text-transform: uppercase; font: 700 .56rem/1.3 "Courier New", monospace; letter-spacing: .08em; }
+.hotspot:hover, .hotspot:focus-visible { border-color: #d7df77b8; background-color: #d7df771c; box-shadow: 0 0 24px #d7df772c, inset 0 0 18px #d7df7718; }
 .hotspot:hover::before, .hotspot:hover::after, .hotspot:hover span, .hotspot:focus-visible::before, .hotspot:focus-visible::after, .hotspot:focus-visible span { opacity: 1; }
 
 .game-header { position: absolute; z-index: 10; top: 0; left: 0; right: 0; min-height: 82px; padding: 1rem 1.25rem; display: flex; align-items: flex-start; justify-content: space-between; background: linear-gradient(#050705ed, #050705b9 60%, transparent); pointer-events: none; }
 .room-id { min-width: 230px; border-left: 3px solid var(--acid); padding-left: .8rem; }
 .room-id small { display: block; color: #8e9069; font-size: .52rem; }
 .room-id strong { display: block; margin-top: .25rem; color: #e7e3cd; font-size: .83rem; letter-spacing: .04em; }
-.survival-bars { display: flex; gap: .55rem; }
-.stat { width: clamp(105px, 10vw, 145px); padding: .5rem .65rem; border: 1px solid #5a5a49; background: #0b0d0bd9; }
+.survival-bars { position: absolute; left: 1.25rem; top: 88px; display: flex; flex-direction: column; gap: .5rem; }
+.stat { width: clamp(130px, 13vw, 180px); padding: 0; border: 0; background: transparent; text-shadow: 0 1px 4px #000; }
 .stat span { color: #999984; font: .5rem "Courier New", monospace; letter-spacing: .14em; }
 .stat > b { float: right; color: #d8d6c3; font: .66rem "Courier New", monospace; }
-.stat > div { clear: both; height: 3px; margin-top: .42rem; background: #2c2e28; overflow: hidden; }
-.stat i { display: block; height: 100%; background: var(--acid); transition: width .25s; }
-.stat.warning i { background: #db9f4d; }
-.stat.danger { border-color: #8b3e37; animation: critical 1.2s ease-in-out infinite; }
-.stat.danger i { background: var(--red); }
-.pause-button { position: relative; pointer-events: all; width: 42px; height: 42px; border: 1px solid #575748; background: #0a0c0ad9; cursor: pointer; }
+.stat > div { clear: both; height: 5px; margin-top: .28rem; background: #ffffff1c; box-shadow: 0 1px 4px #000; overflow: hidden; }
+.stat i { display: block; height: 100%; transition: width .25s; }
+.stat[data-stat="health"] i { background: #d3483f; }
+.stat[data-stat="thirst"] i { background: #3f9ed1; }
+.stat[data-stat="hunger"] i { background: #df8738; }
+.stat.warning i { filter: brightness(.82) saturate(1.2); }
+.stat.danger { animation: critical 1.2s ease-in-out infinite; }
 
 /* Navigation */
 .movement button { position: absolute; z-index: 8; width: 110px; height: 72px; border: 0; background: transparent; cursor: pointer; filter: drop-shadow(0 4px 5px #000); }
-.movement button i { display: grid; place-items: center; width: 46px; height: 46px; margin: auto; border: 1px solid #bbb98b; color: #e9e5ba; background: #090b09a8; font: normal 1.35rem "Courier New", monospace; transform: rotate(45deg); transition: background .18s, transform .18s; }
-.movement button i::first-line { transform: rotate(-45deg); }
+.movement button i { display: grid; place-items: center; width: 46px; height: 46px; margin: auto; border: 0; color: #f0edc3; background: transparent; text-shadow: 0 2px 6px #000, 0 0 12px #000; font: normal 2rem "Courier New", monospace; transition: color .18s, transform .18s; }
 .movement button span { display: block; margin-top: .55rem; color: #d8d6bb; text-align: center; text-shadow: 0 2px 6px #000; text-transform: uppercase; font: .52rem "Courier New", monospace; letter-spacing: .1em; opacity: .72; }
-.movement button:hover i { color: #11130d; background: var(--acid); transform: rotate(45deg) scale(1.08); }
-.movement button.locked i { border-color: #8a4a42; color: #c96a60; }
+.movement button:hover i { color: var(--acid); transform: scale(1.18); }
+.movement button.locked i { color: #c96a60; }
 .movement button.locked span::after { content: ' · TRANCADO'; color: #c96a60; }
 .move-forward { top: 16%; left: 50%; transform: translateX(-50%); }
 .move-back { bottom: 18%; left: 50%; transform: translateX(-50%); }
@@ -99,7 +99,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .inventory-panel > header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid #4e4e40; padding-bottom: 1rem; }
 .inventory-panel header small, .item-details small { color: #858665; font-size: .52rem; }
 .inventory-panel h2 { margin: .25rem 0 0; font-size: 2rem; font-weight: 300; }
-.inventory-panel header > button { width: 40px; height: 40px; border: 1px solid #4f4f42; background: transparent; cursor: pointer; font-size: 1.4rem; }
+.inventory-panel header > button { display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 1px solid #4f4f42; background: transparent; cursor: pointer; font-size: 1.4rem; line-height: 1; }
 .inventory-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .55rem; margin: 1.4rem 0; }
 .item-slot { position: relative; aspect-ratio: 1; min-width: 0; border: 1px solid #48483d; background: #0a0c0a; cursor: pointer; padding: .5rem; overflow: hidden; }
 .item-slot:hover, .item-slot.focused { border-color: var(--acid); background: #1b1e14; }
@@ -153,6 +153,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .setting-range span { display: flex; justify-content: space-between; color: #b3b2a0; font-size: .72rem; }
 .setting-range b { color: var(--acid); font: .65rem "Courier New", monospace; }
 .setting-range input { width: 100%; margin-top: .65rem; accent-color: var(--acid); }
+.setting-help { margin: -.7rem 0 1.2rem; color: #858579; font: .62rem/1.5 Georgia, serif; }
 .settings-panel > button { display: block; width: 100%; margin-top: .5rem; text-align: center; }
 .end-screen { display: grid; place-items: center; background: radial-gradient(circle, #1f0b09, #030403 70%); }
 .end-screen section, .exit-screen section { position: relative; z-index: 3; width: min(660px, 90vw); padding: 3rem; text-align: center; border: 1px solid #5d5d4b; background: #090b09e8; }
@@ -176,7 +177,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 
 @media (hover: none) {
   .hotspot::before, .hotspot::after { opacity: .5; }
-  .hotspot { background: #d7df7708; }
+  .hotspot { background-color: #d7df770d; }
 }
 
 @media (max-width: 760px) {
@@ -185,9 +186,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
   .status-code { right: 1rem; bottom: 1rem; font-size: .48rem; }
   .game-header { padding: .7rem; min-height: 120px; }
   .room-id { min-width: 0; width: 44%; }
-  .survival-bars { position: absolute; left: .7rem; right: .7rem; top: 66px; gap: .3rem; }
-  .stat { flex: 1; width: auto; padding: .35rem .45rem; }
-  .pause-button { width: 38px; height: 38px; }
+  .survival-bars { left: .7rem; right: auto; top: 66px; gap: .35rem; }
+  .stat { width: 132px; padding: 0; }
   .movement button { width: 82px; height: 62px; }
   .movement button i { width: 39px; height: 39px; }
   .move-forward { top: 20%; }

@@ -126,10 +126,9 @@ export class GameApp {
         <div class="room-id"><small>${room.code}</small><strong>${room.name}</strong></div>
         <div class="survival-bars">
           ${this.statBar('health', 'VIDA', this.game.stats.health)}
-          ${this.statBar('hunger', 'FOME', this.game.stats.hunger)}
           ${this.statBar('thirst', 'SEDE', this.game.stats.thirst)}
+          ${this.statBar('hunger', 'FOME', this.game.stats.hunger)}
         </div>
-        <button class="pause-button" data-action="pause" aria-label="Pausar">Ⅱ</button>
       </header>
       <nav class="movement" aria-label="Movimentação">
         ${exits.map(([direction, exit]) => `<button class="move-${direction} ${exit.requires && !this.game!.flags[exit.requires] ? 'locked' : ''}" data-action="move" data-direction="${direction}" aria-label="${exit.label}"><i>${this.directionIcon(direction)}</i><span>${exit.label}</span></button>`).join('')}
@@ -191,7 +190,7 @@ export class GameApp {
 
   private settingsTemplate(): string {
     const p = this.save.preferences;
-    return `<main class="settings-screen"><img src="/assets/scenes/corridor.jpg" alt="" /><div class="settings-shade"></div><section class="settings-panel"><small>CONFIGURAÇÃO DO REGISTRO</small><h1>Configurações</h1>${this.range('masterVolume', 'Volume geral', p.masterVolume)}${this.range('musicVolume', 'Ambiente / música', p.musicVolume)}${this.range('effectsVolume', 'Efeitos sonoros', p.effectsVolume)}${this.range('jumpscareIntensity', 'Intensidade dos sustos', p.jumpscareIntensity)}<button data-action="fullscreen">${document.fullscreenElement ? 'Sair da tela cheia' : 'Ativar tela cheia'}</button><button class="primary" data-action="settings-back">Voltar</button></section></main>`;
+    return `<main class="settings-screen"><img src="/assets/scenes/corridor.jpg" alt="" /><div class="settings-shade"></div><section class="settings-panel"><small>CONFIGURAÇÃO DO REGISTRO</small><h1>Configurações</h1>${this.range('masterVolume', 'Volume geral', p.masterVolume)}${this.range('musicVolume', 'Ambiente / música', p.musicVolume)}${this.range('effectsVolume', 'Efeitos sonoros', p.effectsVolume)}${this.range('jumpscareIntensity', 'Intensidade dos sustos', p.jumpscareIntensity)}<p class="setting-help">Controla a força visual, a duração e o som dos jumpscares. Os volumes geral e de efeitos continuam valendo separadamente.</p><button data-action="fullscreen">${document.fullscreenElement ? 'Sair da tela cheia' : 'Ativar tela cheia'}</button><button class="primary" data-action="settings-back">Voltar</button></section></main>`;
   }
 
   private range(key: keyof Preferences, label: string, value: number): string {
@@ -316,6 +315,15 @@ export class GameApp {
   }
 
   private handleKey(event: KeyboardEvent): void {
+    const key = event.key.toLowerCase();
+    if (key === 'i' && this.screen === 'game' && this.game && (this.inventoryOpen || this.game.status === 'exploring')) {
+      this.inventoryOpen = !this.inventoryOpen;
+      if (!this.inventoryOpen) this.focusedItem = null;
+      this.audio.play('click');
+      this.forcePaint = true;
+      this.render(true);
+      return;
+    }
     if (event.key === 'Escape') {
       if (this.inventoryOpen) { this.inventoryOpen = false; this.focusedItem = null; }
       else if (this.screen === 'game') this.game?.pause();
@@ -326,7 +334,6 @@ export class GameApp {
     const directions: Record<string, Direction> = { ArrowUp: 'forward', w: 'forward', ArrowDown: 'back', s: 'back', ArrowLeft: 'left', a: 'left', ArrowRight: 'right', d: 'right' };
     const direction = directions[event.key];
     if (direction) { this.move(direction); this.forcePaint = true; this.render(true); }
-    if (event.key.toLowerCase() === 'i') { this.inventoryOpen = true; this.forcePaint = true; this.render(true); }
   }
 
   private updateReadouts(): void {
