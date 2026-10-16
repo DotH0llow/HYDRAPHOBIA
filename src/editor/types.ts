@@ -12,6 +12,7 @@ export interface EditorConnection {
   label: string;
   direction: string;
   bidirectional: boolean;
+  requiresFlag?: string;
   requiresItem?: ItemId;
   lockedMessage?: string;
 }
@@ -27,6 +28,7 @@ export interface EditorHotspot {
   message: string;
   item?: ItemId;
   requiresItem?: ItemId;
+  grantsFlag?: string;
   targetRoomId?: string;
   event?: EditorEvent;
   once: boolean;
@@ -48,6 +50,7 @@ export interface EditorLevel {
   id: string;
   name: string;
   startRoomId: string;
+  escapeRoomId?: string;
   rooms: EditorRoom[];
   connections: EditorConnection[];
 }

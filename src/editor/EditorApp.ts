@@ -20,6 +20,7 @@ export class EditorApp {
   private readonly audio = new AudioSystem(DEFAULT_PREFERENCES);
   private selectedRoomId = this.project.activeLevel.startRoomId;
   private selectedHotspotId: string | null = null;
+  private selectedConnectionId: string | null = null;
   private hotspotEditorOpen = false;
   private pan = { x: 80, y: 60 };
   private zoom = 0.82;
@@ -138,7 +139,7 @@ export class EditorApp {
     const connections = level.connections.filter((connection) => connection.from === room.id || connection.to === room.id);
     return `<aside class="editor-sidebar editor-properties">
       <div class="properties-heading"><div><small>PROPRIEDADES</small><h2>${esc(room.name)}</h2></div><span>${esc(room.id)}</span></div>
-      <div class="property-actions"><button data-action="duplicate-room">Duplicar</button><button data-action="set-start" ${level.startRoomId === room.id ? 'disabled' : ''}>Definir início</button><button class="danger" data-action="delete-room">Excluir</button></div>
+      <div class="property-actions"><button data-action="duplicate-room">Duplicar</button><button data-action="set-start" ${level.startRoomId === room.id ? 'disabled' : ''}>Definir início</button><button data-action="set-exit" ${level.escapeRoomId === room.id ? 'disabled' : ''}>Definir saída</button><button class="danger" data-action="delete-room">Excluir</button></div>
       <label><span>Nome</span><input data-room-field="name" value="${esc(room.name)}" /></label>
       <label><span>Código exibido</span><input data-room-field="code" value="${esc(room.code)}" /></label>
       <label><span>Descrição</span><textarea data-room-field="description" rows="3">${esc(room.description)}</textarea></label>
@@ -161,6 +162,7 @@ export class EditorApp {
     return `<div class="connection-editor" data-connection="${esc(connection.id)}"><header><span>${outgoing ? 'SAÍDA' : 'ENTRADA'} · ${esc(other?.name ?? 'sala')}</span><button data-action="delete-connection" data-connection="${esc(connection.id)}" aria-label="Excluir conexão">×</button></header>
       <label><span>Nome no jogo</span><input data-connection-field="label" data-connection="${esc(connection.id)}" value="${esc(connection.label)}" /></label>
       ${outgoing ? `<label><span>Ação / direção</span><input data-connection-field="direction" data-connection="${esc(connection.id)}" value="${esc(connection.direction)}" placeholder="Frente, Esquerda..." /></label>` : ''}
+      ${outgoing ? `<label><span>Sala de destino</span><select data-connection-field="to" data-connection="${esc(connection.id)}">${this.roomOptions(connection.to, connection.from)}</select></label>` : ''}
       <label class="check"><input type="checkbox" data-connection-field="bidirectional" data-connection="${esc(connection.id)}" ${connection.bidirectional ? 'checked' : ''} /><span>Bidirecional</span></label>
       ${outgoing ? `<label><span>Exigir item</span><select data-connection-field="requiresItem" data-connection="${esc(connection.id)}"><option value="">Nenhum</option>${this.itemOptions(connection.requiresItem)}</select></label><label><span>Mensagem bloqueada</span><input data-connection-field="lockedMessage" data-connection="${esc(connection.id)}" value="${esc(connection.lockedMessage ?? '')}" /></label>` : ''}
     </div>`;
@@ -170,13 +172,33 @@ export class EditorApp {
     const room = this.selectedRoom;
     if (!room) return '';
     const hotspot = room.hotspots.find((entry) => entry.id === this.selectedHotspotId) ?? null;
+    const connections = this.project.activeLevel.connections.filter((connection) => connection.from === room.id);
+    const connection = connections.find((entry) => entry.id === this.selectedConnectionId) ?? null;
     return `<div class="hotspot-editor-layer"><section class="hotspot-editor-window">
-      <header><div><small>EDITOR DE INTERAÇÕES</small><h2>${esc(room.name)}</h2></div><nav><button data-action="add-hotspot">+ Nova área</button><button data-action="close-hotspots">Concluir</button></nav></header>
+      <header><div><small>EDITOR DA PERSPECTIVA · SEM MECÂNICAS DE JOGO</small><h2>${esc(room.name)}</h2></div><nav><button data-action="add-hotspot">+ Nova área</button><button data-action="close-hotspots">Concluir</button></nav></header>
       <div class="hotspot-editor-layout">
-        <div class="hotspot-stage" data-role="hotspot-stage"><img src="${esc(room.image)}" alt="${esc(room.description)}" />${room.hotspots.map((entry) => `<button class="editable-hotspot ${entry.id === this.selectedHotspotId ? 'selected' : ''}" data-hotspot="${esc(entry.id)}" style="left:${entry.x}%;top:${entry.y}%;width:${entry.width}%;height:${entry.height}%;--hotspot-color:${esc(entry.highlightColor)};--hotspot-strength:${entry.highlightOpacity * 100}%"><span>${esc(entry.label)}</span><i data-role="hotspot-resize"></i></button>`).join('')}</div>
-        <aside class="hotspot-settings">${hotspot ? this.hotspotFieldsTemplate(hotspot, room) : '<div class="empty-hotspot"><b>Nenhuma área selecionada</b><p>Crie uma nova área ou selecione um hotspot sobre a imagem.</p></div>'}</aside>
+        <div class="hotspot-stage" data-role="hotspot-stage"><img src="${esc(room.image)}" alt="${esc(room.description)}" />${room.hotspots.map((entry) => `<button class="editable-hotspot ${entry.id === this.selectedHotspotId && !connection ? 'selected' : ''}" data-hotspot="${esc(entry.id)}" style="left:${entry.x}%;top:${entry.y}%;width:${entry.width}%;height:${entry.height}%;--hotspot-color:${esc(entry.highlightColor)};--hotspot-strength:${entry.highlightOpacity * 100}%"><span>${esc(entry.label)}</span><i data-role="hotspot-resize"></i></button>`).join('')}${connections.map((entry, index) => this.sceneConnectionMarker(entry, index, connections.length)).join('')}</div>
+        <aside class="hotspot-settings">${connection ? this.sceneConnectionFields(connection) : hotspot ? this.hotspotFieldsTemplate(hotspot, room) : '<div class="empty-hotspot"><b>Selecione um elemento</b><p>Clique em um caminho nas bordas ou em uma área interativa sobre a imagem.</p></div>'}</aside>
       </div>
     </section></div>`;
+  }
+
+  private sceneConnectionMarker(connection: EditorConnection, index: number, total: number): string {
+    const positions: Record<string, string> = { forward: 'left:50%;top:5%', back: 'left:50%;bottom:5%', left: 'left:5%;top:50%', right: 'right:5%;top:50%' };
+    const position = positions[connection.direction] ?? `left:${15 + (index + 1) * (70 / (total + 1))}%;bottom:5%`;
+    return `<button class="scene-connection ${connection.id === this.selectedConnectionId ? 'selected' : ''}" data-action="select-scene-connection" data-connection="${esc(connection.id)}" style="${position}" title="Editar caminho: ${esc(connection.label)}"><i>${this.directionIcon(connection.direction)}</i><span>${esc(connection.label)}</span></button>`;
+  }
+
+  private sceneConnectionFields(connection: EditorConnection): string {
+    const destination = this.project.findRoom(connection.to);
+    return `<div class="properties-heading"><div><small>CAMINHO</small><h3>${esc(connection.label)}</h3></div><button class="danger" data-action="delete-connection" data-connection="${esc(connection.id)}">Excluir</button></div>
+      <label><span>Etiqueta no jogo</span><input data-connection-field="label" data-connection="${esc(connection.id)}" value="${esc(connection.label)}" /></label>
+      <label><span>Direção / ação</span><select data-connection-field="direction" data-connection="${esc(connection.id)}"><option value="forward" ${connection.direction === 'forward' ? 'selected' : ''}>Frente</option><option value="back" ${connection.direction === 'back' ? 'selected' : ''}>Trás</option><option value="left" ${connection.direction === 'left' ? 'selected' : ''}>Esquerda</option><option value="right" ${connection.direction === 'right' ? 'selected' : ''}>Direita</option><option value="custom" ${!['forward', 'back', 'left', 'right'].includes(connection.direction) ? 'selected' : ''}>Personalizada</option></select></label>
+      <label><span>Destino</span><select data-connection-field="to" data-connection="${esc(connection.id)}">${this.roomOptions(connection.to, connection.from)}</select></label>
+      <div class="scene-destination"><img src="${esc(destination?.image ?? '')}" alt="" /><span>${esc(destination?.name ?? connection.to)}</span></div>
+      <label class="check"><input type="checkbox" data-connection-field="bidirectional" data-connection="${esc(connection.id)}" ${connection.bidirectional ? 'checked' : ''} /><span>Criar retorno automático</span></label>
+      <label><span>Exigir item</span><select data-connection-field="requiresItem" data-connection="${esc(connection.id)}"><option value="">Nenhum</option>${this.itemOptions(connection.requiresItem)}</select></label>
+      <label><span>Mensagem quando bloqueado</span><textarea data-connection-field="lockedMessage" data-connection="${esc(connection.id)}" rows="3">${esc(connection.lockedMessage ?? '')}</textarea></label>`;
   }
 
   private hotspotFieldsTemplate(hotspot: EditorHotspot, room: EditorRoom): string {
@@ -197,6 +219,10 @@ export class EditorApp {
 
   private itemOptions(selected?: ItemId): string { return ITEM_OPTIONS.map((item) => `<option value="${item.id}" ${selected === item.id ? 'selected' : ''}>${esc(item.label)}</option>`).join(''); }
 
+  private roomOptions(selected: string, exclude?: string): string {
+    return this.project.activeLevel.rooms.filter((room) => room.id !== exclude).map((room) => `<option value="${esc(room.id)}" ${room.id === selected ? 'selected' : ''}>${esc(room.name)}</option>`).join('');
+  }
+
   private playtestTemplate(): string {
     const game = this.testGame;
     if (!game) return '';
@@ -205,7 +231,7 @@ export class EditorApp {
     const jump = performance.now() < this.testJumpscareUntil;
     return `<main class="editor-playtest">
       <section class="test-scene"><img src="${esc(room.image)}" alt="${esc(room.description)}" /><div class="test-grade"></div>
-        ${room.hotspots.filter((hotspot) => !(hotspot.once && game.flags[`hotspot:${room.id}:${hotspot.id}`])).map((hotspot) => `<button class="test-hotspot" data-test-action="hotspot" data-hotspot="${esc(hotspot.id)}" style="left:${hotspot.x}%;top:${hotspot.y}%;width:${hotspot.width}%;height:${hotspot.height}%;--highlight:${esc(hotspot.highlight?.color ?? '#d7df77')};--highlight-strength:${(hotspot.highlight?.opacity ?? .22) * 100}%"><span>${esc(hotspot.label)}</span></button>`).join('')}
+        ${room.hotspots.filter((hotspot) => !(hotspot.once && game.flags[`hotspot:${room.id}:${hotspot.id}`])).map((hotspot) => `<button class="test-hotspot" data-test-action="hotspot" data-hotspot="${esc(hotspot.id)}" style="left:${hotspot.x + hotspot.width / 2}%;top:${hotspot.y + hotspot.height / 2}%;--highlight:${esc(hotspot.highlight?.color ?? '#d7df77')};--highlight-strength:${(hotspot.highlight?.opacity ?? .22) * 100}%"><span>${esc(hotspot.label)}</span></button>`).join('')}
       </section>
       <header class="test-header"><div><small>${esc(room.code)}</small><strong>${esc(room.name)}</strong></div><nav><button data-test-action="inventory">Inventário (${game.inventory.reduce((sum, item) => sum + item.quantity, 0)})</button><button data-test-action="exit">Voltar ao editor</button></nav></header>
       <div class="test-stats">${this.testStat('health', 'Vida', game.stats.health)}${this.testStat('thirst', 'Sede', game.stats.thirst)}${this.testStat('hunger', 'Fome', game.stats.hunger)}</div>
@@ -233,6 +259,7 @@ export class EditorApp {
 
   private bindEvents(): void {
     this.root.addEventListener('click', (event) => void this.handleClick(event));
+    this.root.addEventListener('dblclick', (event) => this.handleDoubleClick(event));
     this.root.addEventListener('change', (event) => void this.handleChange(event));
     this.root.addEventListener('pointerdown', (event) => this.handlePointerDown(event));
     this.root.addEventListener('wheel', (event) => this.handleWheel(event), { passive: false });
@@ -248,19 +275,21 @@ export class EditorApp {
     if (!action) return;
     switch (action) {
       case 'select-level': this.selectLevel(target.dataset.level ?? ''); break;
-      case 'select-room': this.selectedRoomId = target.dataset.room ?? this.selectedRoomId; this.selectedHotspotId = null; break;
+      case 'select-room': this.selectedRoomId = target.dataset.room ?? this.selectedRoomId; this.selectedHotspotId = null; this.selectedConnectionId = null; if (event.detail >= 2) this.openPerspective(); break;
       case 'new-room': { const room = this.project.addRoom(); this.selectedRoomId = room.id; break; }
       case 'new-level': { const name = window.prompt('Nome do novo nível:', `Nível ${this.project.data.levels.length}`); if (name) { const level = this.project.addLevel(name); this.selectedRoomId = level.startRoomId; this.resetView(); } break; }
       case 'duplicate-room': { const room = this.project.duplicateRoom(this.selectedRoomId); if (room) this.selectedRoomId = room.id; break; }
       case 'delete-room': if (window.confirm('Excluir esta sala e suas conexões?') && this.project.deleteRoom(this.selectedRoomId)) this.selectedRoomId = this.project.activeLevel.startRoomId; break;
       case 'set-start': this.project.activeLevel.startRoomId = this.selectedRoomId; this.project.save(); break;
-      case 'delete-connection': this.project.deleteConnection(target.dataset.connection ?? ''); break;
+      case 'set-exit': this.project.activeLevel.escapeRoomId = this.selectedRoomId; this.project.save(); break;
+      case 'delete-connection': this.project.deleteConnection(target.dataset.connection ?? ''); this.selectedConnectionId = null; break;
       case 'save': this.project.save(); break;
       case 'choose-image': if (this.selectedRoom) { this.selectedRoom.image = target.dataset.image ?? this.selectedRoom.image; this.project.save(); } break;
-      case 'open-hotspots': this.hotspotEditorOpen = true; this.selectedHotspotId = this.selectedRoom?.hotspots[0]?.id ?? null; break;
-      case 'open-hotspot': this.hotspotEditorOpen = true; this.selectedHotspotId = target.dataset.hotspot ?? null; break;
-      case 'close-hotspots': this.hotspotEditorOpen = false; this.selectedHotspotId = null; this.project.save(); break;
-      case 'add-hotspot': if (this.selectedRoom) { const hotspot = this.project.addHotspot(this.selectedRoom.id); this.selectedHotspotId = hotspot?.id ?? null; } break;
+      case 'open-hotspots': this.openPerspective(); break;
+      case 'open-hotspot': this.hotspotEditorOpen = true; this.selectedHotspotId = target.dataset.hotspot ?? null; this.selectedConnectionId = null; break;
+      case 'select-scene-connection': this.selectedConnectionId = target.dataset.connection ?? null; this.selectedHotspotId = null; break;
+      case 'close-hotspots': this.hotspotEditorOpen = false; this.selectedHotspotId = null; this.selectedConnectionId = null; this.project.save(); break;
+      case 'add-hotspot': if (this.selectedRoom) { const hotspot = this.project.addHotspot(this.selectedRoom.id); this.selectedHotspotId = hotspot?.id ?? null; this.selectedConnectionId = null; } break;
       case 'delete-hotspot': if (this.selectedRoom && this.selectedHotspotId && window.confirm('Excluir esta área interativa?')) { this.project.deleteHotspot(this.selectedRoom.id, this.selectedHotspotId); this.selectedHotspotId = this.selectedRoom.hotspots[0]?.id ?? null; } break;
       case 'zoom-in': this.setZoom(this.zoom + .12); break;
       case 'zoom-out': this.setZoom(this.zoom - .12); break;
@@ -270,6 +299,21 @@ export class EditorApp {
       case 'import': this.root.querySelector<HTMLInputElement>('[data-role="import-file"]')?.click(); return;
     }
     this.render();
+  }
+
+  private handleDoubleClick(event: MouseEvent): void {
+    if (this.testMode) return;
+    const node = (event.target as HTMLElement).closest<HTMLElement>('.room-node');
+    if (!node?.dataset.room) return;
+    this.selectedRoomId = node.dataset.room;
+    this.openPerspective();
+    this.render();
+  }
+
+  private openPerspective(): void {
+    this.hotspotEditorOpen = true;
+    this.selectedHotspotId = this.selectedRoom?.hotspots[0]?.id ?? null;
+    this.selectedConnectionId = null;
   }
 
   private async handleChange(event: Event): Promise<void> {
@@ -284,7 +328,7 @@ export class EditorApp {
       if (connection) {
         if (connectionField === 'bidirectional') connection.bidirectional = (input as HTMLInputElement).checked;
         else if (connectionField === 'requiresItem') connection.requiresItem = input.value ? input.value as ItemId : undefined;
-        else if (connectionField === 'label' || connectionField === 'direction' || connectionField === 'lockedMessage') connection[connectionField] = input.value;
+        else if (connectionField === 'label' || connectionField === 'direction' || connectionField === 'lockedMessage' || connectionField === 'to') connection[connectionField] = input.value;
         this.project.save(); this.render();
       }
       return;
@@ -311,6 +355,7 @@ export class EditorApp {
       const hotspot = this.selectedRoom.hotspots.find((entry) => entry.id === hotspotBox.dataset.hotspot);
       if (!hotspot) return;
       this.selectedHotspotId = hotspot.id;
+      this.selectedConnectionId = null;
       this.gesture = { type: 'hotspot', roomId: this.selectedRoom.id, hotspotId: hotspot.id, resize: Boolean(target.closest('[data-role="hotspot-resize"]')), startX: event.clientX, startY: event.clientY, origin: { x: hotspot.x, y: hotspot.y, width: hotspot.width, height: hotspot.height }, rect: stage.getBoundingClientRect() };
       hotspotBox.classList.add('selected');
       event.preventDefault();
@@ -439,7 +484,12 @@ export class EditorApp {
     this.project.setActiveLevel(id);
     this.selectedRoomId = this.project.activeLevel.startRoomId;
     this.selectedHotspotId = null;
+    this.selectedConnectionId = null;
     this.resetView();
+  }
+
+  private directionIcon(direction: string): string {
+    return ({ forward: '↑', back: '↓', left: '←', right: '→' } as Record<string, string>)[direction] ?? '↗';
   }
 
   private exportJSON(): void {

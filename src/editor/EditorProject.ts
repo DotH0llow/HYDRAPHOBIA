@@ -1,11 +1,12 @@
 import type { ItemId } from '../types';
+import { DEFAULT_WORLD } from '../config/world';
 import type { EditorConnection, EditorHotspot, EditorHotspotAction, EditorLevel, EditorProjectData, EditorRoom } from './types';
 
 export const EDITOR_STORAGE_KEY = 'limiar:room-editor:v1';
 
 type EditorStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
-const cleanId = (value: string): string => value.trim().replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();
+const cleanId = (value: string): string => value.trim().replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
 const ITEMS = new Set<ItemId>(['accessCard', 'almondWater', 'ration', 'fuse', 'medkit']);
 const ACTIONS = new Set<EditorHotspotAction>(['examine', 'collect', 'use', 'move', 'event']);
 const EVENTS = new Set(['none', 'watcher', 'crawler', 'jumpscare']);
@@ -26,14 +27,50 @@ export const createRoom = (index = 0): EditorRoom => ({
 });
 
 export const createProject = (): EditorProjectData => {
-  const firstRoom = createRoom();
-  const levelId = createId('nivel');
+  const levelId = 'nivel-0';
+  const rooms = Object.values(DEFAULT_WORLD.rooms).map((room, index): EditorRoom => ({
+    id: room.id,
+    name: room.name,
+    code: room.code,
+    description: room.description,
+    image: room.image,
+    position: { x: 100 + (index % 3) * 320, y: 90 + Math.floor(index / 3) * 230 },
+    hotspots: room.hotspots.map((hotspot) => ({
+      id: hotspot.id,
+      label: hotspot.label,
+      x: hotspot.x,
+      y: hotspot.y,
+      width: hotspot.width,
+      height: hotspot.height,
+      action: hotspot.kind,
+      message: hotspot.message,
+      item: hotspot.item,
+      requiresItem: hotspot.requiresItem,
+      grantsFlag: hotspot.grantsFlag,
+      targetRoomId: hotspot.targetRoom,
+      event: hotspot.event,
+      once: hotspot.once === true,
+      highlightColor: hotspot.highlight?.color ?? '#d7df77',
+      highlightOpacity: hotspot.highlight?.opacity ?? .22,
+    })),
+  }));
+  const connections = Object.values(DEFAULT_WORLD.rooms).flatMap((room) => Object.entries(room.exits).map(([direction, exit], index): EditorConnection => ({
+    id: `conexao-${room.id}-${direction}-${index}`,
+    from: room.id,
+    to: exit.to,
+    label: exit.label,
+    direction,
+    bidirectional: false,
+    requiresFlag: exit.requires,
+    requiresItem: exit.requiresItem,
+    lockedMessage: exit.lockedMessage,
+  })));
   return {
     version: 1,
     name: 'Mapa Limiar',
     activeLevelId: levelId,
     updatedAt: new Date().toISOString(),
-    levels: [{ id: levelId, name: 'Nível 0', startRoomId: firstRoom.id, rooms: [firstRoom], connections: [] }],
+    levels: [{ id: levelId, name: 'Nível 0', startRoomId: DEFAULT_WORLD.startRoomId, escapeRoomId: DEFAULT_WORLD.escapeRoomId, rooms, connections }],
   };
 };
 
@@ -54,7 +91,10 @@ export class EditorProject {
   findRoom(id: string): EditorRoom | undefined { return this.activeLevel.rooms.find((room) => room.id === id); }
 
   setActiveLevel(id: string): void {
-    if (this.data.levels.some((level) => level.id === id)) this.data.activeLevelId = id;
+    if (this.data.levels.some((level) => level.id === id)) {
+      this.data.activeLevelId = id;
+      this.save();
+    }
   }
 
   addLevel(name = `Nível ${this.data.levels.length}`): EditorLevel {
@@ -93,6 +133,7 @@ export class EditorProject {
     level.rooms = level.rooms.filter((room) => room.id !== id);
     level.connections = level.connections.filter((connection) => connection.from !== id && connection.to !== id);
     if (level.startRoomId === id) level.startRoomId = level.rooms[0]!.id;
+    if (level.escapeRoomId === id) level.escapeRoomId = undefined;
     this.save();
     return true;
   }
@@ -148,8 +189,21 @@ export class EditorProject {
   private load(): EditorProjectData {
     try {
       const raw = this.storage?.getItem(EDITOR_STORAGE_KEY);
-      return raw ? this.validate(JSON.parse(raw) as unknown) : createProject();
+      return raw ? this.ensureBuiltInMap(this.validate(JSON.parse(raw) as unknown)) : createProject();
     } catch { return createProject(); }
+  }
+
+  private ensureBuiltInMap(data: EditorProjectData): EditorProjectData {
+    const builtInRoomIds = Object.keys(DEFAULT_WORLD.rooms);
+    if (data.levels.some((level) => builtInRoomIds.every((id) => level.rooms.some((room) => room.id === id)))) return data;
+    const builtIn = createProject().levels[0]!;
+    while (data.levels.some((level) => level.id === builtIn.id)) builtIn.id = createId('nivel-jogo');
+    builtIn.name = 'Nível 0 — jogo atual';
+    data.levels.unshift(builtIn);
+    data.activeLevelId = builtIn.id;
+    this.data = data;
+    this.save();
+    return data;
   }
 
   private validate(value: unknown): EditorProjectData {
@@ -172,7 +226,9 @@ export class EditorProject {
             id: cleanId(String(connection.id ?? `conexao-${index + 1}`)) || createId('conexao'),
             from: String(connection.from), to: String(connection.to),
             label: String(connection.label ?? 'Caminho'), direction: String(connection.direction ?? `caminho-${index + 1}`),
-            bidirectional: connection.bidirectional === true, requiresItem,
+            bidirectional: connection.bidirectional === true,
+            requiresFlag: typeof connection.requiresFlag === 'string' ? connection.requiresFlag : undefined,
+            requiresItem,
             lockedMessage: typeof connection.lockedMessage === 'string' ? connection.lockedMessage : undefined,
           }];
         })
@@ -181,11 +237,13 @@ export class EditorProject {
         id: cleanId(String(rawLevel.id ?? `nivel-${levelIndex + 1}`)) || createId('nivel'),
         name: String(rawLevel.name ?? `Nível ${levelIndex}`),
         startRoomId: roomIds.has(String(rawLevel.startRoomId)) ? String(rawLevel.startRoomId) : rooms[0]!.id,
+        escapeRoomId: roomIds.has(String(rawLevel.escapeRoomId)) ? String(rawLevel.escapeRoomId) : undefined,
         rooms,
         connections,
       };
     });
-    const activeLevelId = levels.some((level) => level.id === raw.activeLevelId) ? String(raw.activeLevelId) : levels[0]!.id;
+    const requestedActiveLevelId = cleanId(String(raw.activeLevelId ?? ''));
+    const activeLevelId = levels.some((level) => level.id === requestedActiveLevelId) ? requestedActiveLevelId : levels[0]!.id;
     return { version: 1, name: String(raw.name ?? 'Mapa Limiar'), activeLevelId, updatedAt: String(raw.updatedAt ?? ''), levels };
   }
 
@@ -219,6 +277,7 @@ export class EditorProject {
       label: String(hotspot.label ?? 'Objeto'), x, y,
       width: number(hotspot.width, 18, 3, 100 - x), height: number(hotspot.height, 18, 3, 100 - y),
       action, message: String(hotspot.message ?? 'Você examina o objeto.'), item, requiresItem,
+      grantsFlag: typeof hotspot.grantsFlag === 'string' ? hotspot.grantsFlag : undefined,
       targetRoomId: typeof hotspot.targetRoomId === 'string' ? hotspot.targetRoomId : undefined,
       event, once: hotspot.once === true,
       highlightColor: typeof hotspot.highlightColor === 'string' && /^#[0-9a-f]{6}$/i.test(hotspot.highlightColor) ? hotspot.highlightColor : '#d7df77',

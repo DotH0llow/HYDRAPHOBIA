@@ -14,7 +14,7 @@ const hotspotToRuntime = (hotspot: EditorHotspot): HotspotDefinition => ({
   requiresItem: hotspot.requiresItem,
   targetRoom: hotspot.targetRoomId,
   event: hotspot.event === 'none' ? undefined : hotspot.event,
-  grantsFlag: hotspot.action === 'use' ? `editor-open:${hotspot.id}` : undefined,
+  grantsFlag: hotspot.grantsFlag,
   once: hotspot.once,
   highlight: { color: hotspot.highlightColor, opacity: hotspot.highlightOpacity },
 });
@@ -39,6 +39,7 @@ export const levelToWorld = (level: EditorLevel): WorldDefinition => {
     source.exits[connection.direction || connection.id] = {
       to: connection.to,
       label: connection.label,
+      requires: connection.requiresFlag,
       requiresItem: connection.requiresItem,
       lockedMessage: connection.lockedMessage,
     };
@@ -49,5 +50,5 @@ export const levelToWorld = (level: EditorLevel): WorldDefinition => {
       };
     }
   });
-  return { rooms, startRoomId: level.startRoomId };
+  return { rooms, startRoomId: level.startRoomId, escapeRoomId: level.escapeRoomId };
 };

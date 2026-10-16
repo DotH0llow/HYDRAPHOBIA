@@ -13,6 +13,7 @@ describe('editor visual de salas', () => {
   it('cria quatro salas, salva, carrega e executa o mapa na engine', () => {
     const storage = new MemoryStorage();
     const project = new EditorProject(storage);
+    project.addLevel('Teste de quatro salas');
     const first = project.activeLevel.rooms[0]!;
     const second = project.addRoom();
     const third = project.addRoom();
@@ -39,6 +40,7 @@ describe('editor visual de salas', () => {
 
   it('duplica hotspots com IDs próprios e remove conexões de salas excluídas', () => {
     const project = new EditorProject(null);
+    project.addLevel('Duplicação');
     const source = project.activeLevel.rooms[0]!;
     const target = project.addRoom();
     const hotspot = project.addHotspot(source.id)!;
@@ -52,6 +54,7 @@ describe('editor visual de salas', () => {
 
   it('aplica requisito de item e eventos configurados no editor', () => {
     const project = new EditorProject(null);
+    project.addLevel('Requisitos');
     const source = project.activeLevel.rooms[0]!;
     const destination = project.addRoom();
     const connection = project.addConnection(source.id, destination.id)!;
@@ -68,5 +71,15 @@ describe('editor visual de salas', () => {
     expect(game.navigate(connection.direction).changed).toBe(true);
     game.interact(threat.id);
     expect(game.encounter?.id).toBe('watcher');
+  });
+
+  it('inicia com todas as salas e conexões do jogo configuradas', () => {
+    const project = new EditorProject(null);
+    expect(project.activeLevel.rooms.map((room) => room.id)).toContain('threshold');
+    expect(project.activeLevel.rooms).toHaveLength(7);
+    expect(project.activeLevel.connections.length).toBeGreaterThanOrEqual(10);
+    expect(project.activeLevel.escapeRoomId).toBe('threshold');
+    const world = levelToWorld(project.activeLevel);
+    expect(world.rooms.mainCorridor.exits.forward.requires).toBe('maintenanceUnlocked');
   });
 });
