@@ -1,62 +1,58 @@
-# A Última Vigília
+# LIMIAR — Nível 0
 
-Jogo de terror psicológico medieval, point-and-click e sobrevivência feito para navegador. Você é o último sentinela de uma torre amaldiçoada e precisa sobreviver da meia-noite às 06:00 administrando energia, portões, um espelho de vidência e o ritual do sino.
+Jogo web de terror e sobrevivência em primeira pessoa. A exploração acontece por point-and-click: cada direção troca o cenário, objetos podem ser examinados ou coletados, itens são usados diretamente no ambiente e entidades exigem decisões rápidas.
 
-## Jogar localmente
+## Executar localmente
 
-Requer Node.js 20 ou superior.
+Requer Node.js 22 ou superior.
 
 ```bash
 npm install
 npm run dev
 ```
 
-Abra o endereço exibido pelo Vite. O áudio é liberado após a primeira interação, conforme as regras dos navegadores.
-
 ## Comandos
 
 ```bash
-npm run dev       # servidor local
+npm run dev       # servidor de desenvolvimento
 npm run test      # testes automatizados
-npm run build     # build de produção em dist/
-npm run preview   # visualizar o build
+npm run build     # build estático em dist/
+npm run preview   # prévia do build
 ```
 
-## Como jogar
+## Controles
 
-- `A` e `D`: alternam os portões oeste e leste.
-- `M`: abre ou fecha o espelho de vidência.
-- `B`: toca o sino ritual na terceira noite.
-- `Esc`: fecha o espelho ou pausa a partida.
+- Clique nas setas ou use `WASD` / setas do teclado para explorar.
+- Clique em objetos destacados para examinar, coletar ou utilizar.
+- Abra o inventário pelo botão inferior direito ou pela tecla `I`.
+- Selecione um cartão ou fusível no inventário e clique no objeto correspondente no cenário.
+- `Esc` fecha o inventário ou pausa o jogo.
 
-O Cavaleiro Oco avança pelo oeste e é bloqueado pelo portão. A Viúva do Véu avança pelo leste e às vezes desaparece do espelho. O Monge Cego entra diretamente na torre; o sino só o repele quando ele já iniciou o ritual. Tocar cedo atrai as outras criaturas.
+## Sistemas implementados
 
-## Arquitetura
-
-- `src/config`: parâmetros centrais de energia, noites e inimigos.
-- `src/core`: loop de timestep fixo, eventos, aleatoriedade e orquestração da partida.
-- `src/entities`: FSM independente dos inimigos.
-- `src/systems`: tempo, energia, portões, rituais, áudio e persistência.
-- `src/ui`: telas, HUD e controles.
-- `tests`: regras puras com Vitest e aleatoriedade determinística.
-
-Em desenvolvimento há um painel `DEBUG` para energia, tempo, velocidade, ataques e log recente. O painel é eliminado pelo Vite no build de produção.
+- Sete pontos de exploração conectados, com quatro cenários originais.
+- Hotspots com highlight e descrições contextuais.
+- Inventário com usar, examinar, descartar e aplicação direta no cenário.
+- Vida, fome e sede atualizadas por tempo decorrido.
+- Recursos consumíveis: ração, água de amêndoas e kit médico.
+- Duas entidades com aparições dirigidas e probabilísticas.
+- Decisões rápidas, dano, jumpscares configuráveis e game over.
+- Progresso e configurações persistidos em `localStorage`.
+- Áudio procedural após a primeira interação do jogador.
+- Layout responsivo e tela cheia.
 
 ## Cloudflare Pages
 
-O projeto é inteiramente estático e não requer servidor em produção.
+- Build command: `npm run build`
+- Build output directory: `dist`
+- Node.js: `22`
 
-- Comando de build: `npm run build`
-- Diretório de saída: `dist`
-- Versão recomendada do Node.js: `22`
-- Rota raiz: `/`
+Os arquivos `public/_headers` e `public/_redirects` são copiados automaticamente para o build.
 
-Os arquivos `public/_headers` e `public/_redirects` são copiados para o build e reconhecidos pelo Cloudflare Pages.
+## Versão anterior
 
-## Salvamento e privacidade
+As mecânicas de **A Última Vigília** foram removidas da árvore atual, mas permanecem recuperáveis. Consulte [LEGACY.md](./LEGACY.md).
 
-Progresso, melhores resultados e preferências ficam somente no `localStorage` do navegador. Não há login, analytics, backend ou transmissão de dados.
+## Assets e licença
 
-## Referências e licenças
-
-Consulte [LICENSES.md](./LICENSES.md). O projeto não inclui conteúdo protegido de FNAF nem código AGPL.
+Consulte [LICENSES.md](./LICENSES.md). Nenhum asset externo é carregado em runtime.
