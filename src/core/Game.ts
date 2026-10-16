@@ -23,6 +23,7 @@ export class Game {
   selectedItem: ItemId | null = null;
   message = 'Você desperta no carpete úmido. Não há portas atrás de você.';
   attackNonce = 0;
+  invincible = false;
 
   constructor(
     save?: GameSave,
@@ -53,10 +54,10 @@ export class Game {
       return;
     }
 
-    this.stats.hunger = this.clamp(this.stats.hunger - capped * 0.12);
-    this.stats.thirst = this.clamp(this.stats.thirst - capped * 0.18);
+    this.stats.hunger = this.clamp(this.stats.hunger - capped * 0.096);
+    this.stats.thirst = this.clamp(this.stats.thirst - capped * 0.144);
     if (this.stats.hunger === 0 || this.stats.thirst === 0) {
-      this.stats.health = this.clamp(this.stats.health - capped * (this.stats.hunger === 0 && this.stats.thirst === 0 ? 1.2 : 0.65));
+      if (!this.invincible) this.stats.health = this.clamp(this.stats.health - capped * (this.stats.hunger === 0 && this.stats.thirst === 0 ? 1.2 : 0.65));
       if (this.stats.health === 0) this.status = 'gameover';
     }
   }
@@ -194,6 +195,15 @@ export class Game {
 
   debugStartEncounter(id: 'watcher' | 'crawler'): void { this.startEncounter(id); }
 
+  debugSetStat(stat: keyof Stats, value: number): void {
+    this.stats[stat] = this.clamp(value);
+    if (stat === 'health' && this.stats.health > 0 && this.status === 'gameover') this.status = 'exploring';
+  }
+
+  debugAddItem(id: ItemId): void { this.addItem(id); }
+
+  setInvincible(value: boolean): void { this.invincible = value; }
+
   private useOnHotspot(hotspot: HotspotDefinition, usedFlag: string): ActionResult {
     if (hotspot.requiresItem && (this.selectedItem !== hotspot.requiresItem || !this.hasItem(hotspot.requiresItem))) {
       this.message = `Isso exige outro item. Selecione algo no inventário primeiro.`;
@@ -225,7 +235,7 @@ export class Game {
   }
 
   private receiveAttack(message: string): ActionResult {
-    this.stats.health = this.clamp(this.stats.health - 34);
+    if (!this.invincible) this.stats.health = this.clamp(this.stats.health - 34);
     this.attackNonce += 1;
     this.encounter = null;
     this.status = this.stats.health === 0 ? 'gameover' : 'exploring';

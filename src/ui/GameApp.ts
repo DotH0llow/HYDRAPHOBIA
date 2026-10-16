@@ -1,5 +1,7 @@
 import { ITEMS } from '../config/world';
 import { Game } from '../core/Game';
+import { EditorProject } from '../editor/EditorProject';
+import { levelToWorld } from '../editor/mapAdapter';
 import { AudioSystem } from '../systems/AudioSystem';
 import { SaveSystem } from '../systems/SaveSystem';
 import type { Direction, EncounterAction, HotspotId, ItemId, Preferences, SaveData, Screen } from '../types';
@@ -19,6 +21,7 @@ export class GameApp {
   private jumpscareUntil = 0;
   private jumpscareEntity = 'watcher';
   private seenAttackNonce = 0;
+  private devPanelOpen = false;
 
   constructor(private readonly root: HTMLElement) {
     this.save = this.saves.load();
@@ -71,6 +74,7 @@ export class GameApp {
       inventoryOpen: this.inventoryOpen,
       focusedItem: this.focusedItem,
       selectedItem: this.game.selectedItem,
+      devPanelOpen: this.devPanelOpen,
       flags: this.game.flags,
       jumpscare: Date.now() < this.jumpscareUntil,
     });
@@ -115,14 +119,16 @@ export class GameApp {
     const hotspotMarkup = room.hotspots.map((hotspot) => {
       const used = hotspot.once && this.game!.flags[`hotspot:${room.id}:${hotspot.id}`];
       if (used) return '';
-      return `<button class="hotspot" data-action="hotspot" data-hotspot="${hotspot.id}" style="--x:${hotspot.x}%;--y:${hotspot.y}%;--w:${hotspot.width}%;--h:${hotspot.height}%" aria-label="${hotspot.label}"><span>${hotspot.label}</span></button>`;
+      return `<button class="hotspot" data-action="hotspot" data-hotspot="${hotspot.id}" style="--x:${hotspot.x + hotspot.width / 2}%;--y:${hotspot.y + hotspot.height / 2}%" aria-label="${hotspot.label}"><span>${hotspot.label}</span></button>`;
     }).join('');
-    return `<main class="game-screen ${this.game.status === 'paused' ? 'is-paused' : ''}">
+    const condition = this.conditionClasses();
+    return `<main class="game-screen ${condition}">
       <section class="scene" aria-label="${room.name}">
         <img src="${room.image}" alt="${room.description}" />
         <div class="scene-grade"></div><div class="scene-noise"></div>
         ${hotspotMarkup}
       </section>
+      <div class="blood-overlay" data-blood-level="${this.bloodLevel()}" aria-hidden="true"><i></i><i></i><i></i></div>
       <header class="game-header">
         <div class="room-id"><small>${room.code}</small><strong>${room.name}</strong></div>
         <div class="survival-bars">
@@ -138,14 +144,14 @@ export class GameApp {
       <button class="inventory-button ${this.game.selectedItem ? 'item-selected' : ''}" data-action="inventory"><span>▦</span><b>Inventário</b><small>${this.game.inventory.reduce((sum, item) => sum + item.quantity, 0)} itens</small></button>
       ${this.inventoryOpen ? this.inventoryTemplate() : ''}
       ${this.game.encounter ? this.encounterTemplate() : ''}
-      ${this.game.status === 'paused' ? this.pauseTemplate() : ''}
       ${Date.now() < this.jumpscareUntil ? this.jumpscareTemplate() : ''}
+      ${import.meta.env.DEV ? this.devToolsTemplate() : ''}
     </main>`;
   }
 
   private statBar(key: string, label: string, value: number): string {
     const danger = value <= 25 ? 'danger' : value <= 50 ? 'warning' : '';
-    return `<div class="stat ${danger}" data-stat="${key}"><span>${label}</span><b>${Math.round(value)}</b><div><i style="width:${value}%"></i></div></div>`;
+    return `<div class="stat stat-${key} ${danger}" data-stat="${key}"><span>${label}</span><b aria-hidden="true">${Math.round(value)}</b><div><i style="width:${value}%"></i></div></div>`;
   }
 
   private inventoryTemplate(): string {
@@ -158,14 +164,18 @@ export class GameApp {
         <header><div><small>ARQUIVO PESSOAL</small><h2>Inventário</h2></div><button data-action="inventory">×</button></header>
         <div class="inventory-grid">
           ${slots.map((entry, index) => entry
-            ? `<button class="item-slot ${game.selectedItem === entry.id ? 'selected' : ''} ${this.focusedItem === entry.id ? 'focused' : ''}" data-action="focus-item" data-item="${entry.id}"><span>${ITEMS[entry.id].icon}</span><b>${ITEMS[entry.id].name}</b><em>${entry.quantity}</em></button>`
+            ? `<button class="item-slot ${game.selectedItem === entry.id ? 'selected' : ''} ${this.focusedItem === entry.id ? 'focused' : ''}" data-action="focus-item" data-item="${entry.id}"><span>${ITEMS[entry.id].icon}</span><b>${ITEMS[entry.id].name}</b><em title="Quantidade no inventário" aria-label="${entry.quantity} unidade${entry.quantity === 1 ? '' : 's'}">${entry.quantity}</em></button>`
             : `<div class="item-slot empty"><small>${String(index + 1).padStart(2, '0')}</small></div>`).join('')}
         </div>
         <section class="item-details">
-          ${focus && this.focusedItem ? `<div class="item-large">${focus.icon}</div><div><small>ITEM SELECIONADO</small><h3>${focus.name}</h3><p>${focus.description}</p><div class="item-actions"><button data-action="use-item" data-item="${this.focusedItem}">Usar</button><button data-action="examine-item" data-item="${this.focusedItem}">Examinar</button><button class="discard" data-action="discard-item" data-item="${this.focusedItem}">Descartar</button></div></div>` : '<p class="empty-details">Selecione um item para examinar ou utilizar.</p>'}
+          ${this.itemDetailsTemplate(this.focusedItem, focus)}
         </section>
       </aside>
     </div>`;
+  }
+
+  private itemDetailsTemplate(id: ItemId | null, item = id ? ITEMS[id] : null): string {
+    return item && id ? `<div class="item-large">${item.icon}</div><div><small>ITEM SELECIONADO</small><h3>${item.name}</h3><p>${item.description}</p><div class="item-actions"><button data-action="use-item" data-item="${id}">Usar</button><button data-action="examine-item" data-item="${id}">Examinar</button><button class="discard" data-action="discard-item" data-item="${id}">Descartar</button></div></div>` : '<p class="empty-details">Selecione um item para examinar ou utilizar.</p>';
   }
 
   private encounterTemplate(): string {
@@ -181,17 +191,24 @@ export class GameApp {
     </div>`;
   }
 
-  private pauseTemplate(): string {
-    return `<div class="modal-layer"><section class="simple-modal"><small>SIMULAÇÃO INTERROMPIDA</small><h2>Pausado</h2><p>O tempo, a fome e a sede estão congelados.</p><button class="primary" data-action="pause">Continuar</button><button data-action="settings">Configurações</button><button data-action="menu">Voltar ao menu</button></section></div>`;
-  }
-
   private jumpscareTemplate(): string {
     return `<div class="jumpscare" style="--intensity:${this.save.preferences.jumpscareIntensity}" aria-label="Ataque repentino"><img src="/assets/entities/${this.jumpscareEntity}.jpg" alt="Entidade atacando" /><div class="jump-static"></div></div>`;
   }
 
   private settingsTemplate(): string {
     const p = this.save.preferences;
-    return `<main class="settings-screen"><img src="/assets/scenes/corridor.jpg" alt="" /><div class="settings-shade"></div><section class="settings-panel"><small>CONFIGURAÇÃO DO REGISTRO</small><h1>Configurações</h1>${this.range('masterVolume', 'Volume geral', p.masterVolume)}${this.range('musicVolume', 'Ambiente / música', p.musicVolume)}${this.range('effectsVolume', 'Efeitos sonoros', p.effectsVolume)}${this.range('jumpscareIntensity', 'Intensidade dos sustos', p.jumpscareIntensity)}<p class="setting-help">Controla a força visual, a duração e o som dos jumpscares. Os volumes geral e de efeitos continuam valendo separadamente.</p><button data-action="fullscreen">${document.fullscreenElement ? 'Sair da tela cheia' : 'Ativar tela cheia'}</button><button class="primary" data-action="settings-back">Voltar</button></section></main>`;
+    return `<main class="settings-screen"><img src="/assets/scenes/corridor.jpg" alt="" /><div class="settings-shade"></div><section class="settings-panel"><small>CONFIGURAÇÃO DO REGISTRO</small><h1>Configurações</h1>${this.range('masterVolume', 'Volume geral', p.masterVolume)}${this.range('musicVolume', 'Ambiente / música', p.musicVolume)}${this.range('effectsVolume', 'Efeitos sonoros', p.effectsVolume)}<label class="setting-select"><span>Intensidade dos sustos</span><select data-setting="jumpscareIntensity"><option value="0.25" ${p.jumpscareIntensity < .45 ? 'selected' : ''}>Baixa</option><option value="0.6" ${p.jumpscareIntensity >= .45 && p.jumpscareIntensity < .8 ? 'selected' : ''}>Média</option><option value="1" ${p.jumpscareIntensity >= .8 ? 'selected' : ''}>Alta</option></select></label><p class="setting-help">Controla o tremor, o flash, a duração e parte da força sonora do susto. Os controles de volume continuam valendo separadamente.</p><button data-action="fullscreen">${document.fullscreenElement ? 'Sair da tela cheia' : 'Ativar tela cheia'}</button><button class="danger-button" data-action="clear-save">Apagar save local</button><button class="primary" data-action="settings-back">Voltar</button></section></main>`;
+  }
+
+  private devToolsTemplate(): string {
+    if (!this.game) return '';
+    if (!this.devPanelOpen) return `<button class="dev-toggle" data-action="dev-toggle">DEV</button>`;
+    const itemOptions = Object.entries(ITEMS).map(([id, item]) => `<option value="${id}">${item.name}</option>`).join('');
+    return `<aside class="dev-panel"><header><b>DEV cheats</b><button data-action="dev-toggle">×</button></header>
+      ${(['health', 'thirst', 'hunger'] as const).map((key) => `<label><span>${key}</span><input type="number" min="0" max="100" value="${Math.round(this.game!.stats[key])}" data-dev-stat="${key}" /></label>`).join('')}
+      <label class="dev-check"><input type="checkbox" data-dev-invincible ${this.game.invincible ? 'checked' : ''} /><span>Invencibilidade</span></label>
+      <div class="dev-add"><select data-dev-item>${itemOptions}</select><button data-action="dev-add-item">Adicionar item</button></div>
+    </aside>`;
   }
 
   private range(key: keyof Preferences, label: string, value: number): string {
@@ -218,10 +235,13 @@ export class GameApp {
       void this.audio.unlock();
       void this.handleAction(target.dataset.action ?? '', target.dataset);
     });
-    this.root.addEventListener('input', (event) => this.handleSetting(event.target as HTMLInputElement));
+    this.root.addEventListener('input', (event) => this.handleInput(event.target as HTMLInputElement));
+    this.root.addEventListener('change', (event) => this.handleInput(event.target as HTMLInputElement));
     window.addEventListener('keydown', (event) => this.handleKey(event));
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && this.game?.status === 'exploring') { this.game.pause(true); this.forcePaint = true; }
+      if (document.hidden && this.game?.status === 'exploring') this.game.pause(true);
+      else if (!document.hidden && this.game?.status === 'paused') this.game.pause(false);
+      this.forcePaint = true;
     });
   }
 
@@ -235,22 +255,28 @@ export class GameApp {
       case 'editor': window.location.href = '/editor.html'; break;
       case 'exit': window.close(); this.screen = 'exit'; break;
       case 'fullscreen': await this.toggleFullscreen(); break;
+      case 'clear-save': this.clearSave(); break;
       case 'move': this.move(data.direction as Direction); break;
       case 'hotspot': this.interact(data.hotspot as HotspotId); break;
       case 'inventory': this.inventoryOpen = !this.inventoryOpen; if (!this.inventoryOpen) this.focusedItem = null; this.audio.play('click'); break;
-      case 'focus-item': this.focusedItem = data.item as ItemId; this.audio.play('click'); break;
+      case 'focus-item': this.focusedItem = data.item as ItemId; this.audio.play('click'); this.updateInventoryFocus(); return;
       case 'use-item': this.useItem(data.item as ItemId); break;
       case 'examine-item': this.game?.examineItem(data.item as ItemId); this.inventoryOpen = false; break;
       case 'discard-item': this.game?.discardItem(data.item as ItemId); this.focusedItem = null; this.persist(); break;
       case 'encounter': this.respond(data.choice as EncounterAction); break;
-      case 'pause': this.game?.pause(); this.audio.play('click'); break;
+      case 'dev-toggle': this.devPanelOpen = !this.devPanelOpen; break;
+      case 'dev-add-item': {
+        const select = this.root.querySelector<HTMLSelectElement>('[data-dev-item]');
+        if (select) this.game?.debugAddItem(select.value as ItemId);
+        break;
+      }
     }
     this.forcePaint = true;
     this.render(true);
   }
 
   private beginNewGame(): void {
-    this.game = new Game();
+    this.game = new Game(undefined, Math.random, this.currentWorld());
     this.screen = 'game';
     this.inventoryOpen = false;
     this.focusedItem = null;
@@ -261,7 +287,7 @@ export class GameApp {
 
   private continueGame(): void {
     if (!this.save.game) return;
-    this.game = new Game(this.save.game);
+    this.game = new Game(this.save.game, Math.random, this.currentWorld());
     this.screen = 'game';
     this.inventoryOpen = false;
     this.audio.play('step');
@@ -306,7 +332,17 @@ export class GameApp {
     this.forcePaint = true;
   }
 
-  private handleSetting(input: HTMLInputElement): void {
+  private handleInput(input: HTMLInputElement): void {
+    const debugStat = input.dataset.devStat as 'health' | 'hunger' | 'thirst' | undefined;
+    if (debugStat && this.game) {
+      this.game.debugSetStat(debugStat, Number(input.value));
+      this.updateReadouts();
+      return;
+    }
+    if (input.hasAttribute('data-dev-invincible') && this.game) {
+      this.game.setInvincible(input.checked);
+      return;
+    }
     const key = input.dataset.setting as keyof Preferences | undefined;
     if (!key) return;
     this.save.preferences[key] = Number(input.value);
@@ -328,7 +364,6 @@ export class GameApp {
     }
     if (event.key === 'Escape') {
       if (this.inventoryOpen) { this.inventoryOpen = false; this.focusedItem = null; }
-      else if (this.screen === 'game') this.game?.pause();
       this.forcePaint = true; this.render(true);
       return;
     }
@@ -343,17 +378,25 @@ export class GameApp {
     (['health', 'hunger', 'thirst'] as const).forEach((key) => {
       const stat = this.root.querySelector<HTMLElement>(`[data-stat="${key}"]`);
       const value = this.game!.stats[key];
-      const number = stat?.querySelector<HTMLElement>('b');
       const bar = stat?.querySelector<HTMLElement>('i');
-      if (number) number.textContent = String(Math.round(value));
       if (bar) bar.style.width = `${value}%`;
       stat?.classList.toggle('danger', value <= 25);
       stat?.classList.toggle('warning', value > 25 && value <= 50);
     });
+    const screen = this.root.querySelector<HTMLElement>('.game-screen');
+    if (screen) screen.className = `game-screen ${this.conditionClasses()}`;
+    const blood = this.root.querySelector<HTMLElement>('.blood-overlay');
+    if (blood) blood.dataset.bloodLevel = String(this.bloodLevel());
     if (this.game.encounter) {
       const timer = this.root.querySelector<HTMLElement>('.decision-timer i');
       if (timer) timer.style.width = `${(this.game.encounter.remaining / (this.game.encounter.id === 'watcher' ? 5 : 4.2)) * 100}%`;
     }
+  }
+
+  private updateInventoryFocus(): void {
+    this.root.querySelectorAll<HTMLElement>('.item-slot[data-item]').forEach((slot) => slot.classList.toggle('focused', slot.dataset.item === this.focusedItem));
+    const details = this.root.querySelector<HTMLElement>('.item-details');
+    if (details) details.innerHTML = this.itemDetailsTemplate(this.focusedItem);
   }
 
   private persist(): void {
@@ -364,6 +407,31 @@ export class GameApp {
   }
 
   private persistSave(): void { this.saves.save(this.save); }
+
+  private clearSave(): void {
+    if (!window.confirm('Apagar todo o progresso e as configurações salvas neste navegador?')) return;
+    this.saves.clear();
+    this.save = this.saves.load();
+    this.audio.updatePreferences(this.save.preferences);
+    this.game = null;
+    this.inventoryOpen = false;
+    this.screen = 'menu';
+  }
+
+  private currentWorld() {
+    return levelToWorld(new EditorProject().activeLevel);
+  }
+
+  private bloodLevel(): number {
+    const health = this.game?.stats.health ?? 100;
+    return health <= 25 ? 3 : health <= 50 ? 2 : health <= 75 ? 1 : 0;
+  }
+
+  private conditionClasses(): string {
+    if (!this.game) return '';
+    const { thirst, hunger } = this.game.stats;
+    return [thirst <= 10 ? 'thirst-critical' : thirst <= 30 ? 'thirst-low' : '', hunger <= 10 ? 'hunger-critical' : hunger <= 30 ? 'hunger-low' : ''].filter(Boolean).join(' ');
+  }
 
   private async toggleFullscreen(): Promise<void> {
     if (document.fullscreenElement) await document.exitFullscreen();

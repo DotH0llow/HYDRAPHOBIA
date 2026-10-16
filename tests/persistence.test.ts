@@ -5,6 +5,7 @@ class MemoryStorage {
   value: string | null = null;
   getItem(): string | null { return this.value; }
   setItem(_key: string, value: string): void { this.value = value; }
+  removeItem(): void { this.value = null; }
 }
 
 describe('SaveSystem', () => {
@@ -46,6 +47,14 @@ describe('SaveSystem', () => {
     expect(restored.game?.stats.health).toBe(100);
     expect(restored.game?.stats.hunger).toBe(0);
     expect(restored.game?.inventory).toEqual([{ id: 'ration', quantity: 9 }]);
-    expect(restored.game?.discovered).toEqual(['reception']);
+    expect(restored.game?.discovered).toEqual(['reception', 'void']);
+  });
+
+  it('apaga o save local', () => {
+    const storage = new MemoryStorage();
+    const saves = new SaveSystem(storage);
+    saves.save(structuredClone(DEFAULT_SAVE));
+    expect(saves.clear()).toBe(true);
+    expect(storage.value).toBeNull();
   });
 });

@@ -73,6 +73,13 @@ describe('sobrevivência e entidades', () => {
     expect(game.stats.health).toBeLessThan(100);
   });
 
+  it('usa a drenagem de fome e sede reduzida em vinte por cento', () => {
+    const game = new Game(undefined, () => 1);
+    game.update(.25);
+    expect(game.stats.hunger).toBeCloseTo(99.976, 5);
+    expect(game.stats.thirst).toBeCloseTo(99.964, 5);
+  });
+
   it('resolve encontro com a decisão coerente', () => {
     const game = new Game(undefined, () => 1);
     game.debugStartEncounter('watcher');
@@ -90,6 +97,18 @@ describe('sobrevivência e entidades', () => {
     expect(result.attack).toBe(true);
     expect(game.stats.health).toBe(0);
     expect(game.status).toBe('gameover');
+  });
+
+  it('cheat de invencibilidade impede dano e permite ajustar atributos', () => {
+    const game = new Game(undefined, () => 1);
+    game.debugSetStat('health', 12);
+    game.setInvincible(true);
+    game.debugStartEncounter('crawler');
+    game.respondToEncounter('hide');
+    expect(game.stats.health).toBe(12);
+    expect(game.status).toBe('exploring');
+    game.debugAddItem('medkit');
+    expect(game.inventory).toContainEqual({ id: 'medkit', quantity: 1 });
   });
 
   it('pausa interrompe a degradação dos recursos', () => {
