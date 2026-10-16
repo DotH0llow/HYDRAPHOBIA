@@ -1,8 +1,10 @@
-import type { PlayerPreferences, SaveData } from '../types';
+import type { GameSave, InventoryEntry, ItemId, Preferences, RoomId, SaveData } from '../types';
 
-const STORAGE_KEY = 'ultima-vigilia:save:v1';
-export const DEFAULT_PREFERENCES: PlayerPreferences = { volume: 0.65, muted: false, reducedMotion: false, reducedFlashes: false };
-export const DEFAULT_SAVE: SaveData = { version: 1, unlockedNight: 1, completedNights: [], bestResults: {}, preferences: DEFAULT_PREFERENCES };
+const STORAGE_KEY = 'limiar:save:v2';
+const ROOMS = new Set<RoomId>(['reception', 'mainCorridor', 'westWing', 'quietMaze', 'floodedRoom', 'maintenance', 'threshold']);
+const ITEMS = new Set<ItemId>(['accessCard', 'almondWater', 'ration', 'fuse', 'medkit']);
+export const DEFAULT_PREFERENCES: Preferences = { masterVolume: 0.72, musicVolume: 0.34, effectsVolume: 0.78, jumpscareIntensity: 0.8 };
+export const DEFAULT_SAVE: SaveData = { version: 2, updatedAt: '', game: null, preferences: DEFAULT_PREFERENCES };
 
 export class SaveSystem {
   constructor(private readonly storage: Pick<Storage, 'getItem' | 'setItem'> | null = typeof localStorage === 'undefined' ? null : localStorage) {}
@@ -20,34 +22,19 @@ export class SaveSystem {
     catch { return false; }
   }
 
-  completeNight(data: SaveData, night: number, energy: number): SaveData {
-    const completed = Array.from(new Set([...data.completedNights, night])).sort();
-    const next: SaveData = {
-      ...data,
-      completedNights: completed,
-      unlockedNight: Math.max(data.unlockedNight, Math.min(3, night + 1)),
-      bestResults: { ...data.bestResults },
-    };
-    const previous = data.bestResults[night];
-    if (!previous || energy > previous.energy) next.bestResults[night] = { energy, completedAt: new Date().toISOString() };
-    this.save(next);
-    return next;
-  }
-
   private validate(value: unknown): SaveData {
     if (!value || typeof value !== 'object') return structuredClone(DEFAULT_SAVE);
     const raw = value as Partial<SaveData>;
     const prefs = raw.preferences ?? DEFAULT_PREFERENCES;
     return {
-      version: 1,
-      unlockedNight: this.integer(raw.unlockedNight, 1, 3, 1),
-      completedNights: Array.isArray(raw.completedNights) ? raw.completedNights.filter((n): n is number => Number.isInteger(n) && n >= 1 && n <= 3) : [],
-      bestResults: this.validateResults(raw.bestResults),
+      version: 2,
+      updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : '',
+      game: this.validateGame(raw.game),
       preferences: {
-        volume: this.number(prefs.volume, 0, 1, DEFAULT_PREFERENCES.volume),
-        muted: typeof prefs.muted === 'boolean' ? prefs.muted : false,
-        reducedMotion: typeof prefs.reducedMotion === 'boolean' ? prefs.reducedMotion : false,
-        reducedFlashes: typeof prefs.reducedFlashes === 'boolean' ? prefs.reducedFlashes : false,
+        masterVolume: this.number(prefs.masterVolume, 0, 1, DEFAULT_PREFERENCES.masterVolume),
+        musicVolume: this.number(prefs.musicVolume, 0, 1, DEFAULT_PREFERENCES.musicVolume),
+        effectsVolume: this.number(prefs.effectsVolume, 0, 1, DEFAULT_PREFERENCES.effectsVolume),
+        jumpscareIntensity: this.number(prefs.jumpscareIntensity, 0, 1, DEFAULT_PREFERENCES.jumpscareIntensity),
       },
     };
   }
@@ -55,21 +42,29 @@ export class SaveSystem {
   private number(value: unknown, min: number, max: number, fallback: number): number {
     return typeof value === 'number' && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
   }
-  private integer(value: unknown, min: number, max: number, fallback: number): number {
-    return typeof value === 'number' && Number.isInteger(value) ? Math.max(min, Math.min(max, value)) : fallback;
-  }
-
-  private validateResults(value: unknown): SaveData['bestResults'] {
-    if (!value || typeof value !== 'object') return {};
-    const results: SaveData['bestResults'] = {};
-    for (const night of [1, 2, 3]) {
-      const entry = (value as Record<number, unknown>)[night];
-      if (!entry || typeof entry !== 'object') continue;
-      const candidate = entry as { energy?: unknown; completedAt?: unknown };
-      if (typeof candidate.energy === 'number' && Number.isFinite(candidate.energy) && typeof candidate.completedAt === 'string') {
-        results[night] = { energy: this.number(candidate.energy, 0, 100, 0), completedAt: candidate.completedAt };
-      }
-    }
-    return results;
+  private validateGame(value: unknown): GameSave | null {
+    if (!value || typeof value !== 'object') return null;
+    const raw = value as Partial<GameSave>;
+    if (!raw.position || !ROOMS.has(raw.position)) return null;
+    const stats = raw.stats && typeof raw.stats === 'object' ? raw.stats : { health: 100, hunger: 100, thirst: 100 };
+    const inventory: InventoryEntry[] = Array.isArray(raw.inventory)
+      ? raw.inventory.filter((entry): entry is InventoryEntry => Boolean(entry && ITEMS.has(entry.id) && Number.isInteger(entry.quantity) && entry.quantity > 0)).map((entry) => ({ id: entry.id, quantity: Math.min(9, entry.quantity) }))
+      : [];
+    const flags: Record<string, boolean> = {};
+    if (raw.flags && typeof raw.flags === 'object') Object.entries(raw.flags).forEach(([key, flag]) => { if (typeof flag === 'boolean') flags[key] = flag; });
+    const discovered = Array.isArray(raw.discovered) ? raw.discovered.filter((room): room is RoomId => ROOMS.has(room)) : [raw.position];
+    return {
+      position: raw.position,
+      stats: {
+        health: this.number(stats.health, 0, 100, 100),
+        hunger: this.number(stats.hunger, 0, 100, 100),
+        thirst: this.number(stats.thirst, 0, 100, 100),
+      },
+      inventory,
+      flags,
+      discovered: [...new Set(discovered)],
+      moveCount: this.number(raw.moveCount, 0, 100000, 0),
+      elapsed: this.number(raw.elapsed, 0, 10000000, 0),
+    };
   }
 }

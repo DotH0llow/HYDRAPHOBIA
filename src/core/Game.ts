@@ -1,128 +1,234 @@
-import { NIGHT_CONFIG } from '../config/nightConfig';
-import type { RandomSource } from './SeededRandom';
-import { SeededRandom } from './SeededRandom';
-import { EventBus } from './EventBus';
-import { EnergySystem } from '../systems/EnergySystem';
-import { EnemySystem } from '../systems/EnemySystem';
-import { GateSystem } from '../systems/GateSystem';
-import { RitualSystem } from '../systems/RitualSystem';
-import { TimeSystem } from '../systems/TimeSystem';
-import type { EnemyId, EnemyState, GameSnapshot, GameStatus, RoomId, Side } from '../types';
+import { ITEMS, ROOMS, type HotspotDefinition } from '../config/world';
+import type { Direction, Encounter, EncounterAction, GameSave, GameStatus, HotspotId, InventoryEntry, ItemId, RoomId, Stats } from '../types';
+
+const ACTIVE_ITEMS = new Set<ItemId>(['almondWater', 'ration', 'medkit']);
+
+export interface ActionResult {
+  changed: boolean;
+  message: string;
+  pickup?: ItemId;
+  attack?: boolean;
+}
 
 export class Game {
-  readonly events = new EventBus();
-  readonly time: TimeSystem;
-  readonly energy = new EnergySystem();
-  readonly gates = new GateSystem();
-  readonly enemies: EnemySystem;
-  readonly ritual = new RitualSystem();
-  status: GameStatus = 'idle';
-  mirrorOpen = false;
-  selectedRoom: RoomId = 'courtyard';
-  lightActive: Side | null = null;
-  lastDanger = '';
-  readonly eventLog: string[] = [];
-  defeatBy?: EnemyId;
-  private ended = false;
+  status: GameStatus = 'exploring';
+  position: RoomId = 'reception';
+  stats: Stats = { health: 100, hunger: 100, thirst: 100 };
+  inventory: InventoryEntry[] = [];
+  flags: Record<string, boolean> = {};
+  discovered = new Set<RoomId>(['reception']);
+  moveCount = 0;
+  elapsed = 0;
+  encounter: Encounter | null = null;
+  selectedItem: ItemId | null = null;
+  message = 'Você desperta no carpete úmido. Não há portas atrás de você.';
+  attackNonce = 0;
 
-  constructor(readonly night: number, random: RandomSource = new SeededRandom()) {
-    const config = NIGHT_CONFIG[night] ?? NIGHT_CONFIG[1]!;
-    this.time = new TimeSystem(config.duration);
-    this.enemies = new EnemySystem(config.enemies, this.events, random);
-    this.bindEvents();
+  constructor(save?: GameSave, private readonly random: () => number = Math.random) {
+    if (save) this.restore(save);
   }
 
-  start(): void { if (this.status === 'idle') this.status = 'playing'; }
+  get room() { return ROOMS[this.position]; }
 
   update(delta: number): void {
-    if (this.status !== 'playing' || this.ended) return;
-    if (this.time.update(delta)) { this.win(); return; }
-    const depletedNow = this.energy.update(delta, {
-      closedGates: this.gates.closedCount(), mirror: this.mirrorOpen, light: this.lightActive !== null,
-    });
-    if (depletedNow) {
-      this.mirrorOpen = false; this.lightActive = null; this.gates.disableAll();
-      this.events.emit('energy:empty', undefined);
+    if (this.status === 'paused' || this.status === 'gameover' || this.status === 'escaped' || delta <= 0) return;
+    const capped = Math.min(delta, 0.25);
+    this.elapsed += capped;
+
+    if (this.status === 'encounter' && this.encounter) {
+      this.encounter.remaining = Math.max(0, this.encounter.remaining - capped);
+      if (this.encounter.remaining === 0) this.receiveAttack('Você hesitou. A coisa alcançou você.');
+      return;
     }
-    this.gates.update(delta);
-    this.ritual.update(delta);
-    this.enemies.update(delta, { gateClosed: (side) => this.gates.gates[side].blocksAttack() });
+
+    this.stats.hunger = this.clamp(this.stats.hunger - capped * 0.12);
+    this.stats.thirst = this.clamp(this.stats.thirst - capped * 0.18);
+    if (this.stats.hunger === 0 || this.stats.thirst === 0) {
+      this.stats.health = this.clamp(this.stats.health - capped * (this.stats.hunger === 0 && this.stats.thirst === 0 ? 1.2 : 0.65));
+      if (this.stats.health === 0) this.status = 'gameover';
+    }
   }
 
-  toggleGate(side: Side): boolean {
-    if (this.status !== 'playing') return false;
-    const changed = this.gates.toggle(side, this.energy.value > 0);
-    if (changed) this.events.emit('gate:changed', { side, state: this.gates.gates[side].state });
-    return changed;
+  navigate(direction: Direction): ActionResult {
+    if (this.status !== 'exploring') return { changed: false, message: 'Você não consegue se mover agora.' };
+    const exit = this.room.exits[direction];
+    if (!exit) return { changed: false, message: 'Não há passagem nessa direção.' };
+    if (exit.requires && !this.flags[exit.requires]) {
+      this.message = exit.lockedMessage ?? 'O caminho está bloqueado.';
+      return { changed: false, message: this.message };
+    }
+
+    this.position = exit.to;
+    this.discovered.add(exit.to);
+    this.moveCount += 1;
+    this.selectedItem = null;
+    this.stats.hunger = this.clamp(this.stats.hunger - 0.65);
+    this.stats.thirst = this.clamp(this.stats.thirst - 0.9);
+    this.message = this.room.description;
+
+    if (this.position === 'threshold') {
+      this.status = 'escaped';
+      return { changed: true, message: 'Uma corrente de ar toca seu rosto. Você encontrou uma saída — ou algo parecido.' };
+    }
+
+    this.maybeStartEncounter();
+    return { changed: true, message: this.message };
   }
 
-  toggleMirror(): boolean {
-    if (this.status !== 'playing' || this.energy.value <= 0) return false;
-    this.mirrorOpen = !this.mirrorOpen;
-    if (this.mirrorOpen) this.lightActive = null;
-    return true;
+  interact(id: HotspotId): ActionResult {
+    if (this.status !== 'exploring') return { changed: false, message: 'Agora não.' };
+    const hotspot = this.room.hotspots.find((entry) => entry.id === id);
+    if (!hotspot) return { changed: false, message: 'Não há nada ali.' };
+    const usedFlag = `hotspot:${this.position}:${id}`;
+    if (hotspot.once && this.flags[usedFlag]) {
+      this.message = 'Você já retirou tudo que havia aqui.';
+      return { changed: false, message: this.message };
+    }
+
+    if (hotspot.kind === 'collect' && hotspot.item) {
+      this.addItem(hotspot.item);
+      if (hotspot.once) this.flags[usedFlag] = true;
+      this.message = hotspot.message;
+      return { changed: true, message: this.message, pickup: hotspot.item };
+    }
+
+    if (hotspot.kind === 'use') return this.useOnHotspot(hotspot, usedFlag);
+    this.message = hotspot.message;
+    return { changed: false, message: this.message };
   }
 
-  selectRoom(room: RoomId): void { if (this.mirrorOpen) this.selectedRoom = room; }
-
-  setLight(side: Side | null): void {
-    if (this.status !== 'playing' || this.energy.value <= 0 || this.mirrorOpen) return;
-    this.lightActive = this.lightActive === side ? null : side;
+  selectItem(id: ItemId | null): void {
+    this.selectedItem = this.selectedItem === id ? null : id;
+    if (this.selectedItem) this.message = `${ITEMS[this.selectedItem].name} selecionado. Clique em um objeto do cenário para usar.`;
   }
 
-  ringBell(): boolean | null {
-    if (this.status !== 'playing' || this.night < 3 || this.energy.value <= 0) return null;
-    const result = this.ritual.ringBell(this.enemies);
-    if (result !== null) this.events.emit('ritual:bell', { effective: result });
-    return result;
+  useItem(id: ItemId): ActionResult {
+    if (!this.hasItem(id)) return { changed: false, message: 'Esse item não está mais no inventário.' };
+    if (!ACTIVE_ITEMS.has(id)) {
+      this.selectedItem = id;
+      this.message = ITEMS[id].useText;
+      return { changed: false, message: `${this.message} Item selecionado para uso no cenário.` };
+    }
+
+    if (id === 'almondWater') this.stats.thirst = this.clamp(this.stats.thirst + 58);
+    if (id === 'ration') this.stats.hunger = this.clamp(this.stats.hunger + 48);
+    if (id === 'medkit') this.stats.health = this.clamp(this.stats.health + 52);
+    this.removeItem(id);
+    this.selectedItem = null;
+    this.message = ITEMS[id].useText;
+    return { changed: true, message: this.message };
   }
 
-  togglePause(): void {
-    if (this.ended || !['playing', 'paused'].includes(this.status)) return;
-    this.status = this.status === 'paused' ? 'playing' : 'paused';
-    this.time.paused = this.status === 'paused';
+  examineItem(id: ItemId): string {
+    this.message = ITEMS[id].description;
+    return this.message;
   }
 
-  setPaused(hidden: boolean): void {
-    if (hidden && this.status === 'playing') this.togglePause();
+  discardItem(id: ItemId): ActionResult {
+    if (!this.hasItem(id)) return { changed: false, message: 'O item já não está aqui.' };
+    this.removeItem(id);
+    if (this.selectedItem === id) this.selectedItem = null;
+    this.message = `${ITEMS[id].name} foi deixado para trás.`;
+    return { changed: true, message: this.message };
   }
 
-  debugSetEnergy(value: number): void { this.energy.set(value); }
-  debugAdvance(seconds: number): void { this.time.setElapsed(this.time.elapsed + seconds); }
-  debugForceEnemy(id: EnemyId, state: EnemyState, room?: RoomId): void { this.enemies.enemies[id].force(state, room); }
+  respondToEncounter(action: EncounterAction): ActionResult {
+    if (!this.encounter || this.status !== 'encounter') return { changed: false, message: 'Não há ameaça imediata.' };
+    const success = action === this.encounter.solution;
+    if (success) {
+      this.message = action === 'hide' ? 'Você prende a respiração. A presença passa sem encontrar você.' : 'Você corre sem olhar para trás. Os passos param depois dos seus.';
+      this.encounter = null;
+      this.status = 'exploring';
+      return { changed: true, message: this.message };
+    }
+    return this.receiveAttack('A escolha foi errada. Algo rasga seu ombro antes de desaparecer.' );
+  }
 
-  snapshot(): GameSnapshot {
+  pause(value?: boolean): void {
+    if (this.status === 'gameover' || this.status === 'escaped' || this.status === 'encounter') return;
+    const shouldPause = value ?? this.status !== 'paused';
+    this.status = shouldPause ? 'paused' : 'exploring';
+  }
+
+  toSave(): GameSave {
     return {
-      status: this.status, night: this.night, elapsed: this.time.elapsed, duration: this.time.duration,
-      hour: this.time.hour, energy: this.energy.value, maxEnergy: this.energy.maximum,
-      mirrorOpen: this.mirrorOpen, selectedRoom: this.selectedRoom, lightActive: this.lightActive,
-      gates: { west: this.gates.gates.west.snapshot(), east: this.gates.gates.east.snapshot() },
-      enemies: this.enemies.active().map((enemy) => enemy.snapshot()),
-      bellCooldown: this.ritual.cooldownRemaining, bellReady: this.ritual.ready,
-      lastDanger: this.lastDanger, eventLog: [...this.eventLog], defeatBy: this.defeatBy,
+      position: this.position,
+      stats: { ...this.stats },
+      inventory: this.inventory.map((entry) => ({ ...entry })),
+      flags: { ...this.flags },
+      discovered: [...this.discovered],
+      moveCount: this.moveCount,
+      elapsed: this.elapsed,
     };
   }
 
-  private bindEvents(): void {
-    this.events.on('enemy:moved', ({ id, room }) => this.log(`${id} moveu-se para ${room}.`));
-    this.events.on('enemy:danger', ({ message }) => { this.lastDanger = message; this.log(message); });
-    this.events.on('enemy:attack', ({ id }) => this.lose(id as EnemyId));
-    this.events.on('energy:empty', () => { this.lastDanger = 'A energia arcana se extinguiu. As defesas falharam.'; this.log(this.lastDanger); });
-    this.events.on('ritual:bell', ({ effective }) => this.log(effective ? 'O sino rompeu o transe do Monge.' : 'O sino ecoou cedo demais — algo ouviu.'));
+  debugStartEncounter(id: 'watcher' | 'crawler'): void { this.startEncounter(id); }
+
+  private useOnHotspot(hotspot: HotspotDefinition, usedFlag: string): ActionResult {
+    if (!hotspot.requiresItem) return { changed: false, message: hotspot.message };
+    if (this.selectedItem !== hotspot.requiresItem || !this.hasItem(hotspot.requiresItem)) {
+      this.message = `Isso exige outro item. Selecione algo no inventário primeiro.`;
+      return { changed: false, message: this.message };
+    }
+    if (hotspot.requiresItem === 'fuse') this.removeItem('fuse');
+    if (hotspot.grantsFlag) this.flags[hotspot.grantsFlag] = true;
+    if (hotspot.once) this.flags[usedFlag] = true;
+    this.selectedItem = null;
+    this.message = hotspot.message;
+    return { changed: true, message: this.message };
   }
 
-  private log(message: string): void {
-    this.eventLog.unshift(`[${this.time.hour}] ${message}`);
-    this.eventLog.splice(8);
+  private maybeStartEncounter(): void {
+    if (this.position === 'quietMaze' && !this.flags.quietEncountered) {
+      this.flags.quietEncountered = true;
+      this.startEncounter('watcher');
+      return;
+    }
+    if (this.moveCount >= 4 && this.random() < 0.16) this.startEncounter(this.position === 'maintenance' ? 'crawler' : 'watcher');
   }
 
-  private win(): void {
-    if (this.ended) return;
-    this.ended = true; this.status = 'victory'; this.events.emit('game:victory', undefined);
+  private startEncounter(id: 'watcher' | 'crawler'): void {
+    this.encounter = id === 'watcher'
+      ? { id, name: 'O Observador', prompt: 'Uma silhueta bloqueia o corredor. Ela reage a movimento.', hint: 'Talvez seja melhor desaparecer da visão.', solution: 'hide', remaining: 5 }
+      : { id, name: 'O Rastejante', prompt: 'Unhas batem no concreto atrás de você. Está se aproximando.', hint: 'Ficar parado significa ser alcançado.', solution: 'run', remaining: 4.2 };
+    this.status = 'encounter';
+    this.message = this.encounter.prompt;
   }
 
-  private lose(id: EnemyId): void {
-    if (this.ended) return;
-    this.ended = true; this.status = 'defeat'; this.defeatBy = id; this.events.emit('game:defeat', { id });
+  private receiveAttack(message: string): ActionResult {
+    this.stats.health = this.clamp(this.stats.health - 34);
+    this.attackNonce += 1;
+    this.encounter = null;
+    this.status = this.stats.health === 0 ? 'gameover' : 'exploring';
+    this.message = this.status === 'gameover' ? 'Você não consegue mais se levantar.' : message;
+    return { changed: true, message: this.message, attack: true };
   }
+
+  private addItem(id: ItemId): void {
+    const entry = this.inventory.find((item) => item.id === id);
+    if (entry) entry.quantity += 1;
+    else this.inventory.push({ id, quantity: 1 });
+  }
+
+  private hasItem(id: ItemId): boolean { return this.inventory.some((item) => item.id === id && item.quantity > 0); }
+
+  private removeItem(id: ItemId): void {
+    const entry = this.inventory.find((item) => item.id === id);
+    if (!entry) return;
+    entry.quantity -= 1;
+    if (entry.quantity <= 0) this.inventory = this.inventory.filter((item) => item.id !== id);
+  }
+
+  private restore(save: GameSave): void {
+    this.position = save.position;
+    this.stats = { ...save.stats };
+    this.inventory = save.inventory.map((entry) => ({ ...entry }));
+    this.flags = { ...save.flags };
+    this.discovered = new Set(save.discovered);
+    this.moveCount = save.moveCount;
+    this.elapsed = save.elapsed;
+    this.message = `Você retoma a exploração em ${ROOMS[this.position].name}.`;
+  }
+
+  private clamp(value: number): number { return Math.max(0, Math.min(100, value)); }
 }
