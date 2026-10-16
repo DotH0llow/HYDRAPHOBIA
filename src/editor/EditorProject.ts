@@ -67,7 +67,7 @@ export const createProject = (): EditorProjectData => {
   })));
   return {
     version: 1,
-    name: 'Mapa Limiar',
+    name: 'Mapa Mimosferatu',
     activeLevelId: levelId,
     updatedAt: new Date().toISOString(),
     levels: [{ id: levelId, name: 'Nível 0', startRoomId: DEFAULT_WORLD.startRoomId, escapeRoomId: DEFAULT_WORLD.escapeRoomId, rooms, connections }],
@@ -244,7 +244,7 @@ export class EditorProject {
     });
     const requestedActiveLevelId = cleanId(String(raw.activeLevelId ?? ''));
     const activeLevelId = levels.some((level) => level.id === requestedActiveLevelId) ? requestedActiveLevelId : levels[0]!.id;
-    return { version: 1, name: String(raw.name ?? 'Mapa Limiar'), activeLevelId, updatedAt: String(raw.updatedAt ?? ''), levels };
+    return { version: 1, name: String(raw.name ?? 'Mapa Mimosferatu'), activeLevelId, updatedAt: String(raw.updatedAt ?? ''), levels };
   }
 
   private validateRoom(value: unknown, index: number): EditorRoom {

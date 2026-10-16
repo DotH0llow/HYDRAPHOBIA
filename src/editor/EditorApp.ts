@@ -51,7 +51,7 @@ export class EditorApp {
   private editorTemplate(): string {
     return `<main class="editor-shell">
       <header class="editor-topbar">
-        <div class="editor-brand"><a href="/" aria-label="Voltar ao jogo">LIMIAR</a><span>Editor visual de salas</span></div>
+        <div class="editor-brand"><a href="/" aria-label="Voltar ao jogo">MIMOSFERATU</a><span>Editor visual de salas</span></div>
         <div class="editor-status"><i></i><span>Salvamento local automático</span><small>${this.project.data.updatedAt ? new Date(this.project.data.updatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'novo mapa'}</small></div>
         <nav><button data-action="new-level">Novo nível</button><button data-action="new-room">Nova sala</button><button data-action="save">Salvar</button><button data-action="export">Exportar JSON</button><button data-action="import">Importar</button><button class="primary" data-action="test">Testar</button></nav>
         <input class="visually-hidden" type="file" accept="application/json,.json" data-role="import-file" />
