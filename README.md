@@ -30,7 +30,7 @@ npm run preview   # prévia do build
 
 ## Sistemas implementados
 
-- Sete pontos de exploração conectados, com quatro cenários originais.
+- Sete pontos de exploração conectados, com quatro cenários e duas entidades originais.
 - Hotspots com highlight e descrições contextuais.
 - Inventário com usar, examinar, descartar e aplicação direta no cenário.
 - Vida, fome e sede atualizadas por tempo decorrido.

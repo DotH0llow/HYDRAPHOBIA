@@ -121,11 +121,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 
 /* Encounters and jumpscares */
 .encounter-layer { position: absolute; z-index: 25; inset: 0; display: grid; place-items: center; background: radial-gradient(circle at 50% 30%, #6f756119, #010201db 65%); backdrop-filter: contrast(1.35) grayscale(.35); }
-.entity-form { position: absolute; top: 3%; left: 50%; width: 230px; height: 430px; transform: translateX(-50%); background: linear-gradient(90deg, transparent, #020302 33% 67%, transparent); clip-path: polygon(34% 0, 66% 0, 78% 20%, 93% 100%, 7% 100%, 22% 20%); filter: drop-shadow(0 0 25px #000); animation: entity-drift 1.7s ease-in-out infinite alternate; }
-.entity-form i { position: absolute; top: 17%; width: 13px; height: 7px; border-radius: 50%; background: #e7f8b0; box-shadow: 0 0 17px #dfff89; }
-.entity-form i:first-child { left: 41%; }
-.entity-form i:nth-child(2) { right: 41%; }
-.crawler .entity-form { top: 42%; width: 440px; height: 180px; clip-path: polygon(0 56%, 22% 27%, 44% 34%, 60% 0, 75% 42%, 100% 62%, 83% 100%, 21% 89%); }
+.entity-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .68; filter: contrast(1.2) saturate(.72) brightness(.62); animation: entity-drift 1.7s ease-in-out infinite alternate; }
+.encounter-layer::after { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at center, transparent 18%, #010201dc 76%), repeating-linear-gradient(0deg, transparent 0 3px, #0005 4px 5px); pointer-events: none; }
 .encounter-card { position: relative; z-index: 2; width: min(550px, 90vw); margin-top: 28vh; padding: 1.5rem; border: 1px solid #7c473e; background: #080908ed; box-shadow: 0 20px 70px #000; text-align: center; }
 .encounter-card small { color: #d36659; font-size: .55rem; }
 .encounter-card h2 { margin: .35rem 0; font-size: 2.2rem; }
@@ -138,11 +135,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .decision-buttons button:hover { color: #111; background: var(--acid); }
 .jumpscare { position: absolute; z-index: 60; inset: 0; display: grid; place-items: center; background: #b81816; overflow: hidden; animation: jump-flash calc(.12s + (1 - var(--intensity)) * .2s) steps(2) infinite; }
 .jumpscare::before { content: ''; position: absolute; inset: -20%; background: repeating-linear-gradient(0deg, #fff 0 3px, #000 4px 8px); opacity: calc(.12 + var(--intensity) * .4); mix-blend-mode: difference; }
-.jumpscare-face { position: relative; width: min(70vw, 600px); aspect-ratio: 1; border-radius: 45%; background: radial-gradient(circle, #d7d8bb 0 8%, #171914 9% 11%, #9c9c83 12% 28%, #161713 29% 42%, #040504 43%); transform: scale(calc(.8 + var(--intensity) * .75)); filter: contrast(2.2) grayscale(.5); }
-.jumpscare-face i { position: absolute; top: 27%; width: 17%; height: 12%; border-radius: 50%; background: #fff; box-shadow: 0 0 35px #fff; }
-.jumpscare-face i:first-child { left: 24%; }
-.jumpscare-face i:nth-child(2) { right: 24%; }
-.jumpscare-face b { position: absolute; left: 23%; right: 23%; bottom: 18%; height: 25%; border-radius: 20% 20% 50% 50%; background: repeating-linear-gradient(90deg, #ebe9ce 0 9%, #151713 10% 14%); }
+.jumpscare > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scale(calc(1 + var(--intensity) * .35)); filter: contrast(calc(1.2 + var(--intensity))) saturate(calc(.5 + var(--intensity))); }
+.jump-static { position: absolute; inset: -20%; opacity: calc(.1 + var(--intensity) * .42); background: repeating-linear-gradient(0deg, #fff 0 2px, transparent 3px 7px); mix-blend-mode: difference; animation: noise .08s steps(2) infinite; }
 
 /* Modals, settings, endings */
 .modal-layer { position: absolute; z-index: 40; inset: 0; display: grid; place-items: center; background: #020302d9; backdrop-filter: blur(8px); }
@@ -177,7 +171,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 @keyframes scene-enter { from { opacity: .15; filter: blur(5px) brightness(2); transform: scale(1.035); } to { opacity: 1; filter: none; transform: scale(1); } }
 @keyframes inventory-in { from { transform: translateX(100%); } }
 @keyframes critical { 50% { opacity: .55; } }
-@keyframes entity-drift { to { transform: translateX(-50%) scale(1.05) rotate(.6deg); } }
+@keyframes entity-drift { from { transform: scale(1.02); } to { transform: scale(1.07) translateX(.5%); } }
 @keyframes jump-flash { 0% { transform: translate(0) scale(1); filter: invert(0); } 33% { transform: translate(-3%, 2%) scale(1.08); filter: invert(.2); } 66% { transform: translate(3%, -2%) scale(1.13); filter: invert(1); } }
 
 @media (hover: none) {

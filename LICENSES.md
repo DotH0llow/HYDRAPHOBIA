@@ -12,6 +12,8 @@ Os quatro cenários em `public/assets/scenes/` foram gerados especificamente par
 - `corridor.jpg` — corredor com porta vermelha.
 - `flooded.jpg` — setor utilitário alagado.
 - `maintenance.jpg` — área industrial de manutenção.
+- `entities/watcher.jpg` — aparição do Observador.
+- `entities/crawler.jpg` — aparição do Rastejante.
 
 As imagens não contêm personagens, marcas ou elementos copiados deliberadamente de obras de terceiros. O jogo não carrega imagens, fontes ou sons externos durante a execução.
 

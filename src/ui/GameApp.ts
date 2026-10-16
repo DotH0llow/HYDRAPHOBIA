@@ -171,7 +171,7 @@ export class GameApp {
   private encounterTemplate(): string {
     const encounter = this.game!.encounter!;
     return `<div class="encounter-layer ${encounter.id}">
-      <div class="entity-form" aria-hidden="true"><i></i><i></i><b></b></div>
+      <img class="entity-image" src="/assets/entities/${encounter.id}.jpg" alt="${encounter.name} bloqueando o caminho" />
       <section class="encounter-card">
         <small>AMEAÇA // DECIDA AGORA</small><h2>${encounter.name}</h2>
         <p>${encounter.prompt}</p><em>${encounter.hint}</em>
@@ -186,7 +186,7 @@ export class GameApp {
   }
 
   private jumpscareTemplate(): string {
-    return `<div class="jumpscare" style="--intensity:${this.save.preferences.jumpscareIntensity}" aria-label="Ataque repentino"><div class="jumpscare-face ${this.jumpscareEntity}"><i></i><i></i><b></b></div></div>`;
+    return `<div class="jumpscare" style="--intensity:${this.save.preferences.jumpscareIntensity}" aria-label="Ataque repentino"><img src="/assets/entities/${this.jumpscareEntity}.jpg" alt="Entidade atacando" /><div class="jump-static"></div></div>`;
   }
 
   private settingsTemplate(): string {
