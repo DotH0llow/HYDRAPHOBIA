@@ -97,7 +97,7 @@ export class GameApp {
       <div class="analog-noise" aria-hidden="true"></div><div class="menu-shadow" aria-hidden="true"></div>
       <section class="menu-panel">
         <p class="overline">REGISTRO DE EXPLORAÇÃO // 00</p>
-        <h1>LIMIAR</h1>
+        <h1>MIMOSFERATU</h1>
         <p class="subtitle">Você não deveria ter atravessado aquela parede.</p>
         <nav class="menu-actions">
           <button class="primary" data-action="new-game"><span>01</span>Novo jogo</button>
@@ -144,8 +144,9 @@ export class GameApp {
       <button class="inventory-button ${this.game.selectedItem ? 'item-selected' : ''}" data-action="inventory"><span>▦</span><b>Inventário</b><small>${this.game.inventory.reduce((sum, item) => sum + item.quantity, 0)} itens</small></button>
       ${this.inventoryOpen ? this.inventoryTemplate() : ''}
       ${this.game.encounter ? this.encounterTemplate() : ''}
+      ${this.game.status === 'paused' ? this.pauseTemplate() : ''}
       ${Date.now() < this.jumpscareUntil ? this.jumpscareTemplate() : ''}
-      ${import.meta.env.DEV ? this.devToolsTemplate() : ''}
+      ${this.devToolsTemplate()}
     </main>`;
   }
 
@@ -187,6 +188,19 @@ export class GameApp {
         <p>${encounter.prompt}</p><em>${encounter.hint}</em>
         <div class="decision-timer"><i style="width:${(encounter.remaining / (encounter.id === 'watcher' ? 5 : 4.2)) * 100}%"></i></div>
         <div class="decision-buttons"><button data-action="encounter" data-choice="run">Correr</button><button data-action="encounter" data-choice="hide">Esconder-se</button></div>
+      </section>
+    </div>`;
+  }
+
+  private pauseTemplate(): string {
+    return `<div class="modal-layer" role="dialog" aria-modal="true" aria-label="Jogo pausado">
+      <section class="simple-modal">
+        <small>REGISTRO PAUSADO</small>
+        <h2>Pausa</h2>
+        <p>O tempo parou. Respire antes de continuar.</p>
+        <button class="primary" data-action="resume">Continuar</button>
+        <button data-action="settings">Configurações</button>
+        <button data-action="menu">Menu principal</button>
       </section>
     </div>`;
   }
@@ -264,6 +278,7 @@ export class GameApp {
       case 'examine-item': this.game?.examineItem(data.item as ItemId); this.inventoryOpen = false; break;
       case 'discard-item': this.game?.discardItem(data.item as ItemId); this.focusedItem = null; this.persist(); break;
       case 'encounter': this.respond(data.choice as EncounterAction); break;
+      case 'resume': this.game?.pause(false); this.audio.play('click'); break;
       case 'dev-toggle': this.devPanelOpen = !this.devPanelOpen; break;
       case 'dev-add-item': {
         const select = this.root.querySelector<HTMLSelectElement>('[data-dev-item]');
@@ -363,8 +378,13 @@ export class GameApp {
       return;
     }
     if (event.key === 'Escape') {
-      if (this.inventoryOpen) { this.inventoryOpen = false; this.focusedItem = null; }
-      this.forcePaint = true; this.render(true);
+      if (this.inventoryOpen) { this.inventoryOpen = false; this.focusedItem = null; this.forcePaint = true; this.render(true); return; }
+      if (this.screen === 'game' && this.game && (this.game.status === 'exploring' || this.game.status === 'paused')) {
+        this.game.pause();
+        this.audio.play('click');
+        this.forcePaint = true;
+        this.render(true);
+      }
       return;
     }
     if (this.screen !== 'game' || this.inventoryOpen || this.game?.status !== 'exploring') return;

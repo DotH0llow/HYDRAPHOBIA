@@ -28,7 +28,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .menu-panel { position: absolute; z-index: 3; top: 50%; left: clamp(2rem, 8vw, 9rem); width: min(520px, calc(100vw - 4rem)); transform: translateY(-50%); }
 .menu-panel .overline { margin: 0 0 1rem; color: #aba774; font-size: .65rem; }
 .menu-panel h1 { position: relative; margin: 0; color: #e6e3c6; font-size: clamp(4rem, 9vw, 8.5rem); line-height: .82; font-weight: 900; letter-spacing: -.08em; text-shadow: 4px 4px 0 #777039, 8px 8px 0 #17180e; }
-.menu-panel h1::after { content: 'LIMIAR'; position: absolute; left: 3px; top: 2px; color: #889b73; opacity: .18; clip-path: inset(44% 0 38% 0); transform: translateX(7px); }
+.menu-panel h1::after { content: 'MIMOSFERATU'; position: absolute; left: 3px; top: 2px; color: #889b73; opacity: .18; clip-path: inset(44% 0 38% 0); transform: translateX(7px); }
 .subtitle { max-width: 390px; margin: 1.7rem 0 2.3rem; color: #979789; font-family: Georgia, serif; font-style: italic; line-height: 1.65; }
 .menu-actions { display: grid; width: min(360px, 100%); border-top: 1px solid #545447; }
 .menu-actions button, .settings-panel > button, .simple-modal > button, .end-screen section > button, .exit-screen button { min-height: 48px; border: 0; border-bottom: 1px solid #424238; background: #0d0f0ce6; text-align: left; text-transform: uppercase; letter-spacing: .12em; font-size: .72rem; cursor: pointer; transition: padding .18s, color .18s, background .18s; }
@@ -47,9 +47,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .scene > img { width: 100%; height: 100%; object-fit: cover; display: block; transform: scale(1.015); }
 .scene-grade { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 46%, transparent 35%, #010201a8 100%), linear-gradient(0deg, #0008, transparent 20% 75%, #0007); box-shadow: inset 0 0 7vw #000; }
 .scene-noise { z-index: 2; }
-.hotspot { --x: 0%; --y: 0%; position: absolute; z-index: 5; left: var(--x); top: var(--y); width: 38px; height: 38px; transform: translate(-50%, -50%); padding: 0; border: 1px solid #f2ef74d9; border-radius: 50%; background: #e7e15c66; cursor: pointer; box-shadow: 0 0 0 5px #d7df7712, 0 0 18px #d7df7738; transition: background-color .18s, box-shadow .18s, transform .18s; }
+.hotspot { --x: 0%; --y: 0%; position: absolute; z-index: 5; left: var(--x); top: var(--y); width: 38px; height: 38px; transform: translate(-50%, -50%); padding: 0; border: 1px solid #f2ef74d9; border-radius: 50%; background: #e7e15c66; cursor: pointer; transition: background-color .18s, transform .18s; }
 .hotspot span { position: absolute; left: 50%; bottom: -32px; transform: translateX(-50%); width: max-content; max-width: 180px; padding: .38rem .55rem; color: #000; background: var(--acid); opacity: 0; pointer-events: none; text-transform: uppercase; font: 700 .56rem/1.3 "Courier New", monospace; letter-spacing: .08em; }
-.hotspot:hover, .hotspot:focus-visible { background-color: #eee75faa; box-shadow: 0 0 0 7px #d7df7725, 0 0 28px #d7df7785; transform: translate(-50%, -50%) scale(1.12); }
+.hotspot:hover, .hotspot:focus-visible { background-color: #eee75faa; transform: translate(-50%, -50%) scale(1.12); }
 .hotspot:hover span, .hotspot:focus-visible span { opacity: 1; }
 
 .game-header { position: absolute; z-index: 10; top: 0; left: 0; right: 0; min-height: 82px; padding: 1rem 1.25rem; display: flex; align-items: flex-start; justify-content: space-between; background: linear-gradient(#050705ed, #050705b9 60%, transparent); pointer-events: none; }
@@ -60,7 +60,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .stat { width: clamp(130px, 13vw, 180px); padding: 0; border: 0; background: transparent; text-shadow: 0 1px 4px #000; }
 .stat span { color: #999984; font: .5rem "Courier New", monospace; letter-spacing: .14em; }
 .stat > b { display: none; }
-.stat > div { clear: both; height: 6px; margin-top: .28rem; border: 1px solid #ffffff27; background: transparent; box-shadow: 0 1px 4px #000; overflow: hidden; }
+.stat > div { clear: both; height: 6px; margin-top: .28rem; overflow: hidden; }
 .stat i { display: block; height: 100%; transition: width .25s; }
 .stat[data-stat="health"] i { background: #d3483f; }
 .stat[data-stat="thirst"] i { background: #3f9ed1; }
@@ -169,7 +169,6 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .settings-panel > button { display: block; width: 100%; margin-top: .5rem; text-align: center; }
 .settings-panel > button.danger-button { color: #d9958d; border: 1px solid #733a34; background: #210e0d; }
 
-/* Development controls are omitted entirely from production builds. */
 .dev-toggle { position: absolute; z-index: 20; right: .65rem; top: .65rem; min-width: 48px; min-height: 30px; border: 1px solid #d7df77; background: #d7df77; color: #000; font: 700 .58rem "Courier New", monospace; cursor: pointer; }
 .dev-panel { position: absolute; z-index: 45; right: .65rem; top: .65rem; width: 250px; padding: .8rem; border: 1px solid #85875c; background: #090b09f2; box-shadow: 0 12px 40px #000; }
 .dev-panel header { display: flex; justify-content: space-between; align-items: center; margin-bottom: .7rem; }
