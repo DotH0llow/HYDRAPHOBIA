@@ -1,9 +1,9 @@
 export type Screen = 'menu' | 'game' | 'settings' | 'gameover' | 'escaped' | 'exit';
 export type GameStatus = 'exploring' | 'encounter' | 'paused' | 'gameover' | 'escaped';
-export type Direction = 'forward' | 'back' | 'left' | 'right';
-export type RoomId = 'reception' | 'mainCorridor' | 'westWing' | 'quietMaze' | 'floodedRoom' | 'maintenance' | 'threshold';
+export type Direction = string;
+export type RoomId = string;
 export type ItemId = 'accessCard' | 'almondWater' | 'ration' | 'fuse' | 'medkit';
-export type HotspotId = 'receptionNote' | 'receptionDrawer' | 'vendingMachine' | 'cardReader' | 'waterBottle' | 'looseFuse' | 'toolbox' | 'breaker' | 'wallMarks';
+export type HotspotId = string;
 export type EncounterAction = 'run' | 'hide';
 
 export interface Stats { health: number; hunger: number; thirst: number }

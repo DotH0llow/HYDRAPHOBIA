@@ -28,6 +28,14 @@ npm run preview   # prévia do build
 - Selecione um cartão ou fusível no inventário e clique no objeto correspondente no cenário.
 - `Esc` fecha o inventário ou pausa o jogo.
 
+## Editor visual de salas
+
+Abra `http://localhost:5173/editor.html` durante o desenvolvimento ou use **Editor de salas** no menu principal.
+
+O editor permite criar níveis e perspectivas, arrastar os blocos no canvas, conectar salas, escolher imagens locais, desenhar hotspots sobre a cena e testar o mapa imediatamente. O projeto é salvo automaticamente no navegador em JSON. Os botões **Exportar JSON** e **Importar** permitem manter cópias externas e continuar a edição em outro navegador.
+
+Para disponibilizar novas imagens no seletor, coloque os arquivos em `public/assets/scenes` e informe o caminho relativo, por exemplo `/assets/scenes/minha-sala.jpg`.
+
 ## Sistemas implementados
 
 - Sete pontos de exploração conectados, com quatro cenários e duas entidades originais.

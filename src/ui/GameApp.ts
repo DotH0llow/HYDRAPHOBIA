@@ -99,7 +99,8 @@ export class GameApp {
           <button class="primary" data-action="new-game"><span>01</span>Novo jogo</button>
           <button data-action="continue" ${this.save.game ? '' : 'disabled'}><span>02</span>Continuar</button>
           <button data-action="settings"><span>03</span>Configurações</button>
-          <button data-action="exit"><span>04</span>Sair</button>
+          <button data-action="editor"><span>04</span>Editor de salas</button>
+          <button data-action="exit"><span>05</span>Sair</button>
         </nav>
         <p class="menu-foot">Use fones de ouvido · Progresso salvo localmente</p>
       </section>
@@ -231,6 +232,7 @@ export class GameApp {
       case 'menu': this.screen = 'menu'; this.game = null; this.inventoryOpen = false; this.audio.play('click'); break;
       case 'settings': this.screen = 'settings'; this.audio.play('click'); break;
       case 'settings-back': this.screen = this.game ? 'game' : 'menu'; this.audio.play('click'); break;
+      case 'editor': window.location.href = '/editor.html'; break;
       case 'exit': window.close(); this.screen = 'exit'; break;
       case 'fullscreen': await this.toggleFullscreen(); break;
       case 'move': this.move(data.direction as Direction); break;
@@ -370,7 +372,7 @@ export class GameApp {
   }
 
   private directionIcon(direction: Direction): string {
-    return ({ forward: '↑', back: '↓', left: '←', right: '→' } as const)[direction];
+    return ({ forward: '↑', back: '↓', left: '←', right: '→' } as Record<string, string>)[direction] ?? '↗';
   }
 
   private formatTime(seconds: number): string {

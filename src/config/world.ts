@@ -4,6 +4,7 @@ export interface ExitDefinition {
   to: RoomId;
   label: string;
   requires?: string;
+  requiresItem?: ItemId;
   lockedMessage?: string;
 }
 
@@ -14,11 +15,14 @@ export interface HotspotDefinition {
   y: number;
   width: number;
   height: number;
-  kind: 'examine' | 'collect' | 'use';
+  kind: 'examine' | 'collect' | 'use' | 'move' | 'event';
   message: string;
   item?: ItemId;
   requiresItem?: ItemId;
   grantsFlag?: string;
+  targetRoom?: RoomId;
+  event?: 'watcher' | 'crawler' | 'jumpscare';
+  highlight?: { color: string; opacity: number };
   once?: boolean;
 }
 
@@ -28,8 +32,14 @@ export interface RoomDefinition {
   code: string;
   image: string;
   description: string;
-  exits: Partial<Record<Direction, ExitDefinition>>;
+  exits: Record<Direction, ExitDefinition>;
   hotspots: HotspotDefinition[];
+}
+
+export interface WorldDefinition {
+  rooms: Record<RoomId, RoomDefinition>;
+  startRoomId: RoomId;
+  escapeRoomId?: RoomId;
 }
 
 export const ITEMS: Record<ItemId, { name: string; icon: string; description: string; useText: string }> = {
@@ -119,4 +129,10 @@ export const ROOMS: Record<RoomId, RoomDefinition> = {
     exits: { back: { to: 'maintenance', label: 'Voltar' } },
     hotspots: [],
   },
+};
+
+export const DEFAULT_WORLD: WorldDefinition = {
+  rooms: ROOMS,
+  startRoomId: 'reception',
+  escapeRoomId: 'threshold',
 };

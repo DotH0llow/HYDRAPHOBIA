@@ -6,5 +6,11 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: true,
+    rollupOptions: {
+      input: {
+        game: 'index.html',
+        editor: 'editor.html',
+      },
+    },
   },
 });

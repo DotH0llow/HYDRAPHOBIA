@@ -1,4 +1,4 @@
-import { ITEMS, ROOMS, type HotspotDefinition } from '../config/world';
+import { DEFAULT_WORLD, ITEMS, type HotspotDefinition, type WorldDefinition } from '../config/world';
 import type { Direction, Encounter, EncounterAction, GameSave, GameStatus, HotspotId, InventoryEntry, ItemId, RoomId, Stats } from '../types';
 
 const ACTIVE_ITEMS = new Set<ItemId>(['almondWater', 'ration', 'medkit']);
@@ -12,11 +12,11 @@ export interface ActionResult {
 
 export class Game {
   status: GameStatus = 'exploring';
-  position: RoomId = 'reception';
+  position: RoomId;
   stats: Stats = { health: 100, hunger: 100, thirst: 100 };
   inventory: InventoryEntry[] = [];
   flags: Record<string, boolean> = {};
-  discovered = new Set<RoomId>(['reception']);
+  discovered: Set<RoomId>;
   moveCount = 0;
   elapsed = 0;
   encounter: Encounter | null = null;
@@ -24,11 +24,23 @@ export class Game {
   message = 'Você desperta no carpete úmido. Não há portas atrás de você.';
   attackNonce = 0;
 
-  constructor(save?: GameSave, private readonly random: () => number = Math.random) {
-    if (save) this.restore(save);
+  constructor(
+    save?: GameSave,
+    private readonly random: () => number = Math.random,
+    private readonly world: WorldDefinition = DEFAULT_WORLD,
+    startRoomId?: RoomId,
+  ) {
+    const initialRoom = startRoomId && world.rooms[startRoomId] ? startRoomId : world.startRoomId;
+    this.position = initialRoom;
+    this.discovered = new Set<RoomId>([initialRoom]);
+    if (save && world.rooms[save.position]) this.restore(save);
   }
 
-  get room() { return ROOMS[this.position]; }
+  get room() {
+    const room = this.world.rooms[this.position];
+    if (!room) throw new Error(`Sala inexistente: ${this.position}`);
+    return room;
+  }
 
   update(delta: number): void {
     if (this.status === 'paused' || this.status === 'gameover' || this.status === 'escaped' || delta <= 0) return;
@@ -57,6 +69,10 @@ export class Game {
       this.message = exit.lockedMessage ?? 'O caminho está bloqueado.';
       return { changed: false, message: this.message };
     }
+    if (exit.requiresItem && !this.hasItem(exit.requiresItem)) {
+      this.message = exit.lockedMessage ?? `Você precisa de ${ITEMS[exit.requiresItem].name} para seguir.`;
+      return { changed: false, message: this.message };
+    }
 
     this.position = exit.to;
     this.discovered.add(exit.to);
@@ -66,7 +82,7 @@ export class Game {
     this.stats.thirst = this.clamp(this.stats.thirst - 0.9);
     this.message = this.room.description;
 
-    if (this.position === 'threshold') {
+    if (this.world.escapeRoomId && this.position === this.world.escapeRoomId) {
       this.status = 'escaped';
       return { changed: true, message: 'Uma corrente de ar toca seu rosto. Você encontrou uma saída — ou algo parecido.' };
     }
@@ -93,6 +109,20 @@ export class Game {
     }
 
     if (hotspot.kind === 'use') return this.useOnHotspot(hotspot, usedFlag);
+    if (hotspot.kind === 'move' && hotspot.targetRoom && this.world.rooms[hotspot.targetRoom]) {
+      this.position = hotspot.targetRoom;
+      this.discovered.add(hotspot.targetRoom);
+      this.selectedItem = null;
+      if (hotspot.once) this.flags[usedFlag] = true;
+      this.message = hotspot.message || this.room.description;
+      return { changed: true, message: this.message };
+    }
+    if (hotspot.kind === 'event' && hotspot.event) {
+      if (hotspot.once) this.flags[usedFlag] = true;
+      if (hotspot.event === 'watcher' || hotspot.event === 'crawler') this.startEncounter(hotspot.event);
+      else return this.receiveAttack(hotspot.message || 'Algo surge perto demais para reagir.');
+      return { changed: true, message: this.message };
+    }
     this.message = hotspot.message;
     return { changed: false, message: this.message };
   }
@@ -165,8 +195,7 @@ export class Game {
   debugStartEncounter(id: 'watcher' | 'crawler'): void { this.startEncounter(id); }
 
   private useOnHotspot(hotspot: HotspotDefinition, usedFlag: string): ActionResult {
-    if (!hotspot.requiresItem) return { changed: false, message: hotspot.message };
-    if (this.selectedItem !== hotspot.requiresItem || !this.hasItem(hotspot.requiresItem)) {
+    if (hotspot.requiresItem && (this.selectedItem !== hotspot.requiresItem || !this.hasItem(hotspot.requiresItem))) {
       this.message = `Isso exige outro item. Selecione algo no inventário primeiro.`;
       return { changed: false, message: this.message };
     }
@@ -227,7 +256,7 @@ export class Game {
     this.discovered = new Set(save.discovered);
     this.moveCount = save.moveCount;
     this.elapsed = save.elapsed;
-    this.message = `Você retoma a exploração em ${ROOMS[this.position].name}.`;
+    this.message = `Você retoma a exploração em ${this.world.rooms[this.position]?.name ?? this.position}.`;
   }
 
   private clamp(value: number): number { return Math.max(0, Math.min(100, value)); }
