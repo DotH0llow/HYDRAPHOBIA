@@ -1,7 +1,5 @@
-import { DEFAULT_WORLD, ITEMS, type HotspotDefinition, type WorldDefinition } from '../config/world';
-import type { Direction, Encounter, EncounterAction, GameSave, GameStatus, HotspotId, InventoryEntry, ItemId, RoomId, Stats } from '../types';
-
-const ACTIVE_ITEMS = new Set<ItemId>(['almondWater', 'ration', 'medkit']);
+import { DEFAULT_WORLD, ENTITIES, ITEMS, type EntityDefinition, type HotspotDefinition, type ItemDefinition, type WorldDefinition } from '../config/world';
+import type { Direction, Encounter, EncounterAction, EntityId, GameSave, GameStatus, HotspotId, InventoryEntry, ItemId, RoomId, Stats } from '../types';
 
 export interface ActionResult {
   changed: boolean;
@@ -13,7 +11,8 @@ export interface ActionResult {
 export class Game {
   status: GameStatus = 'exploring';
   position: RoomId;
-  stats: Stats = { health: 100, hunger: 100, thirst: 100 };
+  stats: Stats = { health: 100, hunger: 100, thirst: 100, anxiety: 0 };
+  danger = 0;
   inventory: InventoryEntry[] = [];
   flags: Record<string, boolean> = {};
   discovered: Set<RoomId>;
@@ -24,12 +23,20 @@ export class Game {
   message = 'Você desperta no carpete úmido. Não há portas atrás de você.';
   attackNonce = 0;
   invincible = false;
+  roomTime: Record<RoomId, number> = {};
+
+  private roomDwellTimer = 0;
+  private dangerTickTimer = 0;
+  private anxietyTimer = 0;
+  private criticalTimer = 0;
 
   constructor(
     save?: GameSave,
     private readonly random: () => number = Math.random,
     private readonly world: WorldDefinition = DEFAULT_WORLD,
     startRoomId?: RoomId,
+    private readonly items: Record<ItemId, ItemDefinition> = ITEMS,
+    private readonly entities: Record<EntityId, EntityDefinition> = ENTITIES,
   ) {
     const initialRoom = startRoomId && world.rooms[startRoomId] ? startRoomId : world.startRoomId;
     this.position = initialRoom;
@@ -60,6 +67,9 @@ export class Game {
       if (!this.invincible) this.stats.health = this.clamp(this.stats.health - capped * (this.stats.hunger === 0 && this.stats.thirst === 0 ? 1.2 : 0.65));
       if (this.stats.health === 0) this.status = 'gameover';
     }
+
+    this.updateRoomTimers(capped);
+    this.updateAnxiety(capped);
   }
 
   navigate(direction: Direction): ActionResult {
@@ -71,9 +81,13 @@ export class Game {
       return { changed: false, message: this.message };
     }
     if (exit.requiresItem && !this.hasItem(exit.requiresItem)) {
-      this.message = exit.lockedMessage ?? `Você precisa de ${ITEMS[exit.requiresItem].name} para seguir.`;
+      this.message = exit.lockedMessage ?? `Você precisa de ${this.items[exit.requiresItem]?.name ?? exit.requiresItem} para seguir.`;
       return { changed: false, message: this.message };
     }
+
+    if (this.roomDwellTimer < 5) this.danger = this.clamp(this.danger + 4);
+    this.roomDwellTimer = 0;
+    this.dangerTickTimer = 0;
 
     this.position = exit.to;
     this.discovered.add(exit.to);
@@ -102,6 +116,9 @@ export class Game {
       return { changed: false, message: this.message };
     }
 
+    if (hotspot.visibility === 'invisible') this.flags[`reveal:${this.position}:${id}`] = true;
+    this.danger = this.clamp(this.danger + (hotspot.kind === 'examine' ? 2 : 1));
+
     if (hotspot.kind === 'collect' && hotspot.item) {
       this.addItem(hotspot.item);
       if (hotspot.once) this.flags[usedFlag] = true;
@@ -120,9 +137,12 @@ export class Game {
     }
     if (hotspot.kind === 'event' && hotspot.event) {
       if (hotspot.once) this.flags[usedFlag] = true;
-      if (hotspot.event === 'watcher' || hotspot.event === 'crawler') this.startEncounter(hotspot.event);
-      else return this.receiveAttack(hotspot.message || 'Algo surge perto demais para reagir.');
-      return { changed: true, message: this.message };
+      if (hotspot.event === 'jumpscare') return this.receiveAttack(hotspot.message || 'Algo surge perto demais para reagir.');
+      if (this.entities[hotspot.event]) {
+        this.startEncounter(hotspot.event);
+        return { changed: true, message: this.message };
+      }
+      return { changed: false, message: hotspot.message };
     }
     this.message = hotspot.message;
     return { changed: false, message: this.message };
@@ -130,28 +150,29 @@ export class Game {
 
   selectItem(id: ItemId | null): void {
     this.selectedItem = this.selectedItem === id ? null : id;
-    if (this.selectedItem) this.message = `${ITEMS[this.selectedItem].name} selecionado. Clique em um objeto do cenário para usar.`;
+    if (this.selectedItem) this.message = `${this.items[this.selectedItem]?.name ?? this.selectedItem} selecionado. Clique em um objeto do cenário para usar.`;
   }
 
   useItem(id: ItemId): ActionResult {
     if (!this.hasItem(id)) return { changed: false, message: 'Esse item não está mais no inventário.' };
-    if (!ACTIVE_ITEMS.has(id)) {
+    const definition = this.items[id];
+    if (!definition) return { changed: false, message: 'Esse item não está mais no inventário.' };
+    if (definition.effect === 'none') {
       this.selectedItem = id;
-      this.message = ITEMS[id].useText;
+      this.message = definition.useText;
       return { changed: false, message: `${this.message} Item selecionado para uso no cenário.` };
     }
 
-    if (id === 'almondWater') this.stats.thirst = this.clamp(this.stats.thirst + 58);
-    if (id === 'ration') this.stats.hunger = this.clamp(this.stats.hunger + 48);
-    if (id === 'medkit') this.stats.health = this.clamp(this.stats.health + 52);
+    const statKey = definition.effect === 'heal' ? 'health' : definition.effect === 'hydrate' ? 'thirst' : 'hunger';
+    this.stats[statKey] = this.clamp(this.stats[statKey] + definition.effectAmount);
     this.removeItem(id);
     this.selectedItem = null;
-    this.message = ITEMS[id].useText;
+    this.message = definition.useText;
     return { changed: true, message: this.message };
   }
 
   examineItem(id: ItemId): string {
-    this.message = ITEMS[id].description;
+    this.message = this.items[id]?.description ?? '';
     return this.message;
   }
 
@@ -159,7 +180,7 @@ export class Game {
     if (!this.hasItem(id)) return { changed: false, message: 'O item já não está aqui.' };
     this.removeItem(id);
     if (this.selectedItem === id) this.selectedItem = null;
-    this.message = `${ITEMS[id].name} foi deixado para trás.`;
+    this.message = `${this.items[id]?.name ?? id} foi deixado para trás.`;
     return { changed: true, message: this.message };
   }
 
@@ -190,10 +211,12 @@ export class Game {
       discovered: [...this.discovered],
       moveCount: this.moveCount,
       elapsed: this.elapsed,
+      danger: this.danger,
+      roomTime: { ...this.roomTime },
     };
   }
 
-  debugStartEncounter(id: 'watcher' | 'crawler'): void { this.startEncounter(id); }
+  debugStartEncounter(id: EntityId): void { this.startEncounter(id); }
 
   debugSetStat(stat: keyof Stats, value: number): void {
     this.stats[stat] = this.clamp(value);
@@ -203,6 +226,43 @@ export class Game {
   debugAddItem(id: ItemId): void { this.addItem(id); }
 
   setInvincible(value: boolean): void { this.invincible = value; }
+
+  private updateRoomTimers(delta: number): void {
+    this.roomDwellTimer += delta;
+    this.roomTime[this.position] = (this.roomTime[this.position] ?? 0) + delta;
+    this.dangerTickTimer += delta;
+    if (this.dangerTickTimer >= 10) {
+      this.dangerTickTimer -= 10;
+      this.danger = this.clamp(this.danger + 1);
+    }
+    this.revealDueHotspots();
+  }
+
+  private updateAnxiety(delta: number): void {
+    this.anxietyTimer += delta;
+    if (this.anxietyTimer >= 10) {
+      this.anxietyTimer -= 10;
+      this.stats.anxiety = this.clamp(this.stats.anxiety + 1);
+    }
+    const critical = this.stats.health <= 25 || this.stats.hunger <= 25 || this.stats.thirst <= 25;
+    if (critical) {
+      this.criticalTimer += delta;
+      if (this.criticalTimer >= 10) {
+        this.criticalTimer -= 10;
+        this.stats.anxiety = this.clamp(this.stats.anxiety + 1);
+      }
+    } else this.criticalTimer = 0;
+  }
+
+  private revealDueHotspots(): void {
+    const total = this.roomTime[this.position] ?? 0;
+    this.room.hotspots.forEach((hotspot) => {
+      if (hotspot.visibility !== 'hidden') return;
+      const flag = `reveal:${this.position}:${hotspot.id}`;
+      if (this.flags[flag]) return;
+      if (total >= (hotspot.revealSeconds ?? 25)) this.flags[flag] = true;
+    });
+  }
 
   private useOnHotspot(hotspot: HotspotDefinition, usedFlag: string): ActionResult {
     if (hotspot.requiresItem && (this.selectedItem !== hotspot.requiresItem || !this.hasItem(hotspot.requiresItem))) {
@@ -218,24 +278,33 @@ export class Game {
   }
 
   private maybeStartEncounter(): void {
+    const ids = Object.keys(this.entities);
+    if (ids.length === 0) return;
     if (this.position === 'quietMaze' && !this.flags.quietEncountered) {
       this.flags.quietEncountered = true;
-      this.startEncounter('watcher');
+      this.startEncounter(ids.includes('watcher') ? 'watcher' : ids[0]!);
       return;
     }
-    if (this.moveCount >= 4 && this.random() < 0.16) this.startEncounter(this.position === 'maintenance' ? 'crawler' : 'watcher');
+    if (this.moveCount >= 4 && this.random() < 0.16) {
+      const fallback = ids[Math.min(ids.length - 1, Math.floor(this.random() * ids.length))]!;
+      this.startEncounter(this.position === 'maintenance' && ids.includes('crawler') ? 'crawler' : fallback);
+    }
   }
 
-  private startEncounter(id: 'watcher' | 'crawler'): void {
-    this.encounter = id === 'watcher'
-      ? { id, name: 'O Observador', prompt: 'Uma silhueta bloqueia o corredor. Ela reage a movimento.', hint: 'Talvez seja melhor desaparecer da visão.', solution: 'hide', remaining: 5 }
-      : { id, name: 'O Rastejante', prompt: 'Unhas batem no concreto atrás de você. Está se aproximando.', hint: 'Ficar parado significa ser alcançado.', solution: 'run', remaining: 4.2 };
+  private startEncounter(id: EntityId): void {
+    const definition = this.entities[id];
+    if (!definition) return;
+    this.encounter = { id, name: definition.name, prompt: definition.prompt, hint: definition.hint, solution: definition.solution, remaining: definition.timeLimit, timeLimit: definition.timeLimit, image: definition.image };
     this.status = 'encounter';
     this.message = this.encounter.prompt;
+    this.stats.anxiety = this.clamp(this.stats.anxiety + 10);
   }
 
   private receiveAttack(message: string): ActionResult {
-    if (!this.invincible) this.stats.health = this.clamp(this.stats.health - 34);
+    if (!this.invincible) {
+      this.stats.health = this.clamp(this.stats.health - 34);
+      this.stats.anxiety = this.clamp(this.stats.anxiety + 20);
+    }
     this.attackNonce += 1;
     this.encounter = null;
     this.status = this.stats.health === 0 ? 'gameover' : 'exploring';
@@ -266,6 +335,8 @@ export class Game {
     this.discovered = new Set(save.discovered);
     this.moveCount = save.moveCount;
     this.elapsed = save.elapsed;
+    this.danger = save.danger ?? 0;
+    this.roomTime = { ...(save.roomTime ?? {}) };
     this.message = `Você retoma a exploração em ${this.world.rooms[this.position]?.name ?? this.position}.`;
   }
 

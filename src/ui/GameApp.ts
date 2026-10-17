@@ -1,14 +1,17 @@
-import { ITEMS } from '../config/world';
+import { ITEMS, type ItemDefinition, type RoomDefinition } from '../config/world';
 import { Game } from '../core/Game';
 import { EditorProject } from '../editor/EditorProject';
-import { levelToWorld } from '../editor/mapAdapter';
+import { entitiesToRuntime, itemsToRuntime, levelToWorld } from '../editor/mapAdapter';
 import { AudioSystem } from '../systems/AudioSystem';
 import { SaveSystem } from '../systems/SaveSystem';
 import type { Direction, EncounterAction, HotspotId, ItemId, Preferences, SaveData, Screen } from '../types';
 
+type NumericPreferenceKey = Exclude<keyof Preferences, 'showHealthBar'>;
+
 export class GameApp {
   private screen: Screen = 'menu';
   private game: Game | null = null;
+  private items: Record<ItemId, ItemDefinition> = ITEMS;
   private readonly saves = new SaveSystem();
   private save: SaveData;
   private readonly audio: AudioSystem;
@@ -19,7 +22,7 @@ export class GameApp {
   private renderedStructure = '';
   private forcePaint = true;
   private jumpscareUntil = 0;
-  private jumpscareEntity = 'watcher';
+  private jumpscareImage = '/assets/entities/watcher.jpg';
   private seenAttackNonce = 0;
   private devPanelOpen = false;
 
@@ -76,6 +79,7 @@ export class GameApp {
       selectedItem: this.game.selectedItem,
       devPanelOpen: this.devPanelOpen,
       flags: this.game.flags,
+      showHealthBar: this.save.preferences.showHealthBar,
       jumpscare: Date.now() < this.jumpscareUntil,
     });
   }
@@ -116,25 +120,21 @@ export class GameApp {
     if (!this.game) return '';
     const room = this.game.room;
     const exits = Object.entries(room.exits) as Array<[Direction, NonNullable<typeof room.exits[Direction]>]>;
-    const hotspotMarkup = room.hotspots.map((hotspot) => {
-      const used = hotspot.once && this.game!.flags[`hotspot:${room.id}:${hotspot.id}`];
-      if (used) return '';
-      return `<button class="hotspot" data-action="hotspot" data-hotspot="${hotspot.id}" style="--x:${hotspot.x + hotspot.width / 2}%;--y:${hotspot.y + hotspot.height / 2}%" aria-label="${hotspot.label}"><span>${hotspot.label}</span></button>`;
-    }).join('');
     const condition = this.conditionClasses();
     return `<main class="game-screen ${condition}">
       <section class="scene" aria-label="${room.name}">
         <img src="${room.image}" alt="${room.description}" />
         <div class="scene-grade"></div><div class="scene-noise"></div>
-        ${hotspotMarkup}
+        ${this.hotspotMarkup(room)}
       </section>
       <div class="blood-overlay" data-blood-level="${this.bloodLevel()}" aria-hidden="true"><i></i><i></i><i></i></div>
       <header class="game-header">
         <div class="room-id"><small>${room.code}</small><strong>${room.name}</strong></div>
         <div class="survival-bars">
-          ${this.statBar('health', 'VIDA', this.game.stats.health)}
+          ${this.statBar('anxiety', 'ANSIEDADE', this.game.stats.anxiety)}
           ${this.statBar('thirst', 'SEDE', this.game.stats.thirst)}
           ${this.statBar('hunger', 'FOME', this.game.stats.hunger)}
+          ${this.save.preferences.showHealthBar ? this.statBar('health', 'VIDA', this.game.stats.health) : ''}
         </div>
       </header>
       <nav class="movement" aria-label="Movimentação">
@@ -150,6 +150,18 @@ export class GameApp {
     </main>`;
   }
 
+  private hotspotMarkup(room: RoomDefinition): string {
+    return room.hotspots.map((hotspot) => {
+      const onceUsed = hotspot.once && this.game!.flags[`hotspot:${room.id}:${hotspot.id}`];
+      if (onceUsed) return '';
+      const revealed = Boolean(this.game!.flags[`reveal:${room.id}:${hotspot.id}`]);
+      if (hotspot.visibility === 'hidden' && !revealed) return '';
+      const clip = hotspot.shape ? `clip-path:polygon(${hotspot.shape.points.map((point) => `${point.x}% ${point.y}%`).join(',')});` : '';
+      const invisible = hotspot.visibility === 'invisible' && !revealed ? ' invisible-hotspot' : '';
+      return `<button class="hotspot${invisible}" data-action="hotspot" data-hotspot="${hotspot.id}" style="--x:${hotspot.x}%;--y:${hotspot.y}%;--w:${hotspot.width}%;--h:${hotspot.height}%;${clip}" aria-label="${hotspot.label}"><span>${hotspot.label}</span></button>`;
+    }).join('');
+  }
+
   private statBar(key: string, label: string, value: number): string {
     const danger = value <= 25 ? 'danger' : value <= 50 ? 'warning' : '';
     return `<div class="stat stat-${key} ${danger}" data-stat="${key}"><span>${label}</span><b aria-hidden="true">${Math.round(value)}</b><div><i style="width:${value}%"></i></div></div>`;
@@ -158,15 +170,18 @@ export class GameApp {
   private inventoryTemplate(): string {
     const game = this.game!;
     const slots = Array.from({ length: 12 }, (_, index) => game.inventory[index]);
-    const focus = this.focusedItem ? ITEMS[this.focusedItem] : null;
+    const focus = this.focusedItem ? this.items[this.focusedItem] : null;
     return `<div class="inventory-layer">
       <button class="inventory-dismiss" data-action="inventory" aria-label="Fechar inventário"></button>
       <aside class="inventory-panel">
         <header><div><small>ARQUIVO PESSOAL</small><h2>Inventário</h2></div><button data-action="inventory">×</button></header>
         <div class="inventory-grid">
-          ${slots.map((entry, index) => entry
-            ? `<button class="item-slot ${game.selectedItem === entry.id ? 'selected' : ''} ${this.focusedItem === entry.id ? 'focused' : ''}" data-action="focus-item" data-item="${entry.id}"><span>${ITEMS[entry.id].icon}</span><b>${ITEMS[entry.id].name}</b><em title="Quantidade no inventário" aria-label="${entry.quantity} unidade${entry.quantity === 1 ? '' : 's'}">${entry.quantity}</em></button>`
-            : `<div class="item-slot empty"><small>${String(index + 1).padStart(2, '0')}</small></div>`).join('')}
+          ${slots.map((entry, index) => {
+            const def = entry ? this.items[entry.id] : undefined;
+            return entry && def
+              ? `<button class="item-slot ${game.selectedItem === entry.id ? 'selected' : ''} ${this.focusedItem === entry.id ? 'focused' : ''}" data-action="focus-item" data-item="${entry.id}"><span>${def.icon}</span><b>${def.name}</b><em title="Quantidade no inventário" aria-label="${entry.quantity} unidade${entry.quantity === 1 ? '' : 's'}">${entry.quantity}</em></button>`
+              : `<div class="item-slot empty"><small>${String(index + 1).padStart(2, '0')}</small></div>`;
+          }).join('')}
         </div>
         <section class="item-details">
           ${this.itemDetailsTemplate(this.focusedItem, focus)}
@@ -175,18 +190,18 @@ export class GameApp {
     </div>`;
   }
 
-  private itemDetailsTemplate(id: ItemId | null, item = id ? ITEMS[id] : null): string {
+  private itemDetailsTemplate(id: ItemId | null, item = id ? this.items[id] : null): string {
     return item && id ? `<div class="item-large">${item.icon}</div><div><small>ITEM SELECIONADO</small><h3>${item.name}</h3><p>${item.description}</p><div class="item-actions"><button data-action="use-item" data-item="${id}">Usar</button><button data-action="examine-item" data-item="${id}">Examinar</button><button class="discard" data-action="discard-item" data-item="${id}">Descartar</button></div></div>` : '<p class="empty-details">Selecione um item para examinar ou utilizar.</p>';
   }
 
   private encounterTemplate(): string {
     const encounter = this.game!.encounter!;
     return `<div class="encounter-layer ${encounter.id}">
-      <img class="entity-image" src="/assets/entities/${encounter.id}.jpg" alt="${encounter.name} bloqueando o caminho" />
+      <img class="entity-image" src="${encounter.image}" alt="${encounter.name} bloqueando o caminho" />
       <section class="encounter-card">
         <small>AMEAÇA // DECIDA AGORA</small><h2>${encounter.name}</h2>
         <p>${encounter.prompt}</p><em>${encounter.hint}</em>
-        <div class="decision-timer"><i style="width:${(encounter.remaining / (encounter.id === 'watcher' ? 5 : 4.2)) * 100}%"></i></div>
+        <div class="decision-timer"><i style="width:${(encounter.remaining / encounter.timeLimit) * 100}%"></i></div>
         <div class="decision-buttons"><button data-action="encounter" data-choice="run">Correr</button><button data-action="encounter" data-choice="hide">Esconder-se</button></div>
       </section>
     </div>`;
@@ -206,7 +221,7 @@ export class GameApp {
   }
 
   private jumpscareTemplate(): string {
-    return `<div class="jumpscare" style="--intensity:${this.save.preferences.jumpscareIntensity}" aria-label="Ataque repentino"><img src="/assets/entities/${this.jumpscareEntity}.jpg" alt="Entidade atacando" /><div class="jump-static"></div></div>`;
+    return `<div class="jumpscare" style="--intensity:${this.save.preferences.jumpscareIntensity}" aria-label="Ataque repentino"><img src="${this.jumpscareImage}" alt="Entidade atacando" /><div class="jump-static"></div></div>`;
   }
 
   private settingsTemplate(): string {
@@ -217,15 +232,17 @@ export class GameApp {
   private devToolsTemplate(): string {
     if (!this.game) return '';
     if (!this.devPanelOpen) return `<button class="dev-toggle" data-action="dev-toggle">DEV</button>`;
-    const itemOptions = Object.entries(ITEMS).map(([id, item]) => `<option value="${id}">${item.name}</option>`).join('');
+    const itemOptions = Object.entries(this.items).map(([id, item]) => `<option value="${id}">${item.name}</option>`).join('');
     return `<aside class="dev-panel"><header><b>DEV cheats</b><button data-action="dev-toggle">×</button></header>
-      ${(['health', 'thirst', 'hunger'] as const).map((key) => `<label><span>${key}</span><input type="number" min="0" max="100" value="${Math.round(this.game!.stats[key])}" data-dev-stat="${key}" /></label>`).join('')}
+      ${(['health', 'thirst', 'hunger', 'anxiety'] as const).map((key) => `<label><span>${key}</span><input type="number" min="0" max="100" value="${Math.round(this.game!.stats[key])}" data-dev-stat="${key}" /></label>`).join('')}
+      <div class="dev-readout"><span>perigo</span><b>${Math.round(this.game.danger)}</b></div>
       <label class="dev-check"><input type="checkbox" data-dev-invincible ${this.game.invincible ? 'checked' : ''} /><span>Invencibilidade</span></label>
+      <label class="dev-check"><input type="checkbox" data-dev-health-bar ${this.save.preferences.showHealthBar ? 'checked' : ''} /><span>Mostrar barra de vida</span></label>
       <div class="dev-add"><select data-dev-item>${itemOptions}</select><button data-action="dev-add-item">Adicionar item</button></div>
     </aside>`;
   }
 
-  private range(key: keyof Preferences, label: string, value: number): string {
+  private range(key: NumericPreferenceKey, label: string, value: number): string {
     return `<label class="setting-range"><span>${label}<b>${Math.round(value * 100)}%</b></span><input type="range" min="0" max="1" step="0.05" value="${value}" data-setting="${key}" /></label>`;
   }
 
@@ -291,7 +308,9 @@ export class GameApp {
   }
 
   private beginNewGame(): void {
-    this.game = new Game(undefined, Math.random, this.currentWorld());
+    const data = this.currentGameData();
+    this.items = data.items;
+    this.game = new Game(undefined, Math.random, data.world, undefined, data.items, data.entities);
     this.screen = 'game';
     this.inventoryOpen = false;
     this.focusedItem = null;
@@ -302,7 +321,9 @@ export class GameApp {
 
   private continueGame(): void {
     if (!this.save.game) return;
-    this.game = new Game(this.save.game, Math.random, this.currentWorld());
+    const data = this.currentGameData();
+    this.items = data.items;
+    this.game = new Game(this.save.game, Math.random, data.world, undefined, data.items, data.entities);
     this.screen = 'game';
     this.inventoryOpen = false;
     this.audio.play('step');
@@ -334,9 +355,9 @@ export class GameApp {
 
   private respond(action: EncounterAction): void {
     if (!this.game) return;
-    const entity = this.game.encounter?.id ?? 'watcher';
+    const entityImage = this.game.encounter?.image ?? this.jumpscareImage;
     const result = this.game.respondToEncounter(action);
-    if (result.attack) { this.jumpscareEntity = entity; this.seenAttackNonce = this.game.attackNonce; this.triggerJumpscare(); }
+    if (result.attack) { this.jumpscareImage = entityImage; this.seenAttackNonce = this.game.attackNonce; this.triggerJumpscare(); }
     else this.audio.play('step');
     this.persist();
   }
@@ -348,7 +369,7 @@ export class GameApp {
   }
 
   private handleInput(input: HTMLInputElement): void {
-    const debugStat = input.dataset.devStat as 'health' | 'hunger' | 'thirst' | undefined;
+    const debugStat = input.dataset.devStat as 'health' | 'hunger' | 'thirst' | 'anxiety' | undefined;
     if (debugStat && this.game) {
       this.game.debugSetStat(debugStat, Number(input.value));
       this.updateReadouts();
@@ -358,7 +379,14 @@ export class GameApp {
       this.game.setInvincible(input.checked);
       return;
     }
-    const key = input.dataset.setting as keyof Preferences | undefined;
+    if (input.hasAttribute('data-dev-health-bar')) {
+      this.save.preferences.showHealthBar = input.checked;
+      this.persistSave();
+      this.forcePaint = true;
+      this.render(true);
+      return;
+    }
+    const key = input.dataset.setting as NumericPreferenceKey | undefined;
     if (!key) return;
     this.save.preferences[key] = Number(input.value);
     this.audio.updatePreferences(this.save.preferences);
@@ -395,7 +423,7 @@ export class GameApp {
 
   private updateReadouts(): void {
     if (!this.game) return;
-    (['health', 'hunger', 'thirst'] as const).forEach((key) => {
+    (['health', 'hunger', 'thirst', 'anxiety'] as const).forEach((key) => {
       const stat = this.root.querySelector<HTMLElement>(`[data-stat="${key}"]`);
       const value = this.game!.stats[key];
       const bar = stat?.querySelector<HTMLElement>('i');
@@ -407,9 +435,11 @@ export class GameApp {
     if (screen) screen.className = `game-screen ${this.conditionClasses()}`;
     const blood = this.root.querySelector<HTMLElement>('.blood-overlay');
     if (blood) blood.dataset.bloodLevel = String(this.bloodLevel());
+    const dangerReadout = this.root.querySelector<HTMLElement>('.dev-readout b');
+    if (dangerReadout) dangerReadout.textContent = String(Math.round(this.game.danger));
     if (this.game.encounter) {
       const timer = this.root.querySelector<HTMLElement>('.decision-timer i');
-      if (timer) timer.style.width = `${(this.game.encounter.remaining / (this.game.encounter.id === 'watcher' ? 5 : 4.2)) * 100}%`;
+      if (timer) timer.style.width = `${(this.game.encounter.remaining / this.game.encounter.timeLimit) * 100}%`;
     }
   }
 
@@ -438,8 +468,13 @@ export class GameApp {
     this.screen = 'menu';
   }
 
-  private currentWorld() {
-    return levelToWorld(new EditorProject().activeLevel);
+  private currentGameData() {
+    const project = new EditorProject();
+    return {
+      world: levelToWorld(project.activeLevel),
+      items: itemsToRuntime(project.data.items),
+      entities: entitiesToRuntime(project.data.entities),
+    };
   }
 
   private bloodLevel(): number {

@@ -33,10 +33,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .editor-topbar button:hover, .canvas-toolbar button:hover, .property-actions button:hover, .hotspot-editor-window header button:hover { border-color: #8c9164; color: #fff; }
 .editor-topbar button.primary, .wide-button.primary { border-color: var(--acid); background: var(--acid); color: #11140d; font-weight: 800; }
 
-.editor-layout { min-height: 0; display: grid; grid-template-columns: 270px minmax(500px, 1fr) 350px; }
+.editor-layout, .side-panel-layout { min-height: 0; display: grid; grid-template-columns: 270px minmax(500px, 1fr) 350px; }
+.side-panel-layout { grid-template-columns: 270px minmax(400px, 700px); }
 .editor-sidebar { min-height: 0; background: #10130f; overflow-y: auto; scrollbar-color: #4a4e41 #111410; }
 .editor-left { border-right: 1px solid var(--line); }
-.editor-properties { border-left: 1px solid var(--line); padding-bottom: 2rem; }
+.editor-properties, .editor-properties-wide { border-left: 1px solid var(--line); padding-bottom: 2rem; }
+.editor-properties-wide { min-height: 0; overflow-y: auto; scrollbar-color: #4a4e41 #111410; background: #0d100d; }
 .editor-sidebar section { padding: .9rem; border-bottom: 1px solid #292d26; }
 .panel-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: .65rem; color: #a9ac9d; font: 700 .62rem "Courier New", monospace; text-transform: uppercase; letter-spacing: .1em; }
 .panel-title b { min-width: 22px; padding: .15rem .3rem; color: #0f120c; background: #7f8550; text-align: center; font-size: .64rem; }
@@ -102,9 +104,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .property-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .3rem; padding: .7rem 1rem; }
 .property-actions button.danger, button.danger { color: #d77d74; }
 .property-actions button:disabled { opacity: .35; cursor: default; }
-.editor-properties > label, .connection-editor label, .hotspot-settings > label, .field-row label { display: grid; gap: .35rem; margin: .75rem 1rem; }
-.editor-properties label > span, .connection-editor label > span, .hotspot-settings label > span { color: #8e9284; font: .64rem "Courier New", monospace; text-transform: uppercase; letter-spacing: .08em; }
-.editor-properties input, .editor-properties textarea, .editor-properties select, .hotspot-settings input, .hotspot-settings textarea, .hotspot-settings select { width: 100%; min-height: 34px; padding: .48rem .55rem; border: 1px solid #3b3f35; border-radius: 0; background: #090b09; color: #dcddd2; font-size: .7rem; resize: vertical; }
+.editor-properties > label, .editor-properties-wide > label, .connection-editor label, .hotspot-settings > label, .field-row label { display: grid; gap: .35rem; margin: .75rem 1rem; }
+.editor-properties label > span, .editor-properties-wide label > span, .connection-editor label > span, .hotspot-settings label > span { color: #8e9284; font: .64rem "Courier New", monospace; text-transform: uppercase; letter-spacing: .08em; }
+.editor-properties input, .editor-properties textarea, .editor-properties select, .editor-properties-wide input, .editor-properties-wide textarea, .editor-properties-wide select, .hotspot-settings input, .hotspot-settings textarea, .hotspot-settings select { width: 100%; min-height: 34px; padding: .48rem .55rem; border: 1px solid #3b3f35; border-radius: 0; background: #090b09; color: #dcddd2; font-size: .7rem; resize: vertical; }
 .editor-properties input[type="color"], .hotspot-settings input[type="color"] { padding: .2rem; }
 .image-preview { margin: 1rem; border: 1px solid #373b31; background: #090b09; }
 .image-preview img { display: block; width: 100%; height: 130px; object-fit: cover; }
@@ -134,8 +136,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .hotspot-stage > img { display: block; width: 100%; height: 100%; object-fit: cover; user-select: none; pointer-events: none; }
 .editable-hotspot { position: absolute; border: 1px dashed var(--hotspot-color); background-color: color-mix(in srgb, var(--hotspot-color) var(--hotspot-strength), transparent); background-image: radial-gradient(circle, color-mix(in srgb, var(--hotspot-color) 65%, transparent) .7px, transparent .9px); background-size: 7px 7px; cursor: move; }
 .editable-hotspot.selected { border-style: solid; box-shadow: 0 0 0 2px #fff3, 0 0 20px var(--hotspot-color); }
+.editable-hotspot.muted-visibility { border-style: dotted; opacity: .68; }
 .editable-hotspot span { position: absolute; left: 0; top: -22px; padding: .25rem .4rem; color: #0a0c08; background: var(--hotspot-color); font: 700 .6rem "Courier New", monospace; white-space: nowrap; }
 .editable-hotspot i { position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px; border: 1px solid #0b0d0a; background: var(--hotspot-color); cursor: nwse-resize; }
+.editable-hotspot .shape-point { right: auto; bottom: auto; width: 11px; height: 11px; margin: -6px 0 0 -6px; border: 2px solid #0b0d0a; border-radius: 50%; background: var(--acid); box-shadow: 0 0 6px #000a; cursor: grab; z-index: 2; }
+.editable-hotspot .shape-point:active { cursor: grabbing; }
 .scene-connection { position: absolute; z-index: 8; min-width: 48px; min-height: 48px; transform: translate(-50%, -50%); padding: 0; border: 1px solid #8b8f65; border-radius: 50%; background: #0a0c0ad9; box-shadow: 0 5px 18px #000b; }
 .scene-connection i { display: grid; place-items: center; font: normal 1.5rem "Courier New", monospace; }
 .scene-connection span { position: absolute; left: 50%; top: calc(100% + 7px); width: max-content; max-width: 170px; transform: translateX(-50%); padding: .28rem .45rem; background: var(--acid); color: #000; font: 700 .6rem "Courier New", monospace; }
@@ -174,10 +179,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .test-stats [data-test-stat="health"] em { background: #d3483f; }
 .test-stats [data-test-stat="thirst"] em { background: #3f9ed1; }
 .test-stats [data-test-stat="hunger"] em { background: #df8738; }
-.test-hotspot { position: absolute; z-index: 4; width: 38px; height: 38px; transform: translate(-50%, -50%); border: 1px solid var(--highlight); border-radius: 50%; background: color-mix(in srgb, var(--highlight) 42%, transparent); box-shadow: 0 0 0 5px color-mix(in srgb, var(--highlight) 9%, transparent); }
+.test-stats [data-test-stat="anxiety"] em { background: #a773d6; }
+.test-hotspot { position: absolute; z-index: 4; border: 1px solid var(--highlight); border-radius: 50%; background: color-mix(in srgb, var(--highlight) 42%, transparent); transition: opacity .4s; }
 .test-hotspot:hover { background: color-mix(in srgb, var(--highlight) 70%, transparent); box-shadow: 0 0 22px color-mix(in srgb, var(--highlight) 55%, transparent); }
 .test-hotspot span { position: absolute; left: 50%; bottom: -28px; transform: translateX(-50%); padding: .35rem .5rem; color: #050604; background: var(--highlight); opacity: 0; font: 700 .62rem "Courier New", monospace; white-space: nowrap; }
 .test-hotspot:hover span { opacity: 1; }
+.test-hotspot.invisible-hotspot { opacity: 0; }
 
 .editor-topbar button.primary, .wide-button.primary, .room-list em, .panel-title b,
 .editable-hotspot span, .scene-connection span, .test-hotspot span, .test-item-grid b { color: #000; }

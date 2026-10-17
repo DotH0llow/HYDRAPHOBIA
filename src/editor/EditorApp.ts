@@ -1,26 +1,37 @@
-import { ITEMS } from '../config/world';
 import { Game } from '../core/Game';
+import type { RoomDefinition } from '../config/world';
 import { AudioSystem } from '../systems/AudioSystem';
 import { DEFAULT_PREFERENCES } from '../systems/SaveSystem';
 import type { EncounterAction, ItemId } from '../types';
 import { EditorProject } from './EditorProject';
-import { levelToWorld } from './mapAdapter';
-import { IMAGE_LIBRARY, ITEM_OPTIONS, type EditorConnection, type EditorHotspot, type EditorRoom } from './types';
+import { entitiesToRuntime, itemsToRuntime, levelToWorld } from './mapAdapter';
+import { ENTITY_IMAGE_LIBRARY, IMAGE_LIBRARY, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorRoom } from './types';
+
+type Panel = 'map' | 'items' | 'entities';
 
 type Gesture =
   | { type: 'room'; roomId: string; startX: number; startY: number; originX: number; originY: number }
   | { type: 'pan'; startX: number; startY: number; originX: number; originY: number }
-  | { type: 'hotspot'; roomId: string; hotspotId: string; resize: boolean; startX: number; startY: number; origin: { x: number; y: number; width: number; height: number }; rect: DOMRect };
+  | { type: 'hotspot'; roomId: string; hotspotId: string; resize: boolean; startX: number; startY: number; origin: { x: number; y: number; width: number; height: number }; rect: DOMRect }
+  | { type: 'shapePoint'; roomId: string; hotspotId: string; pointIndex: number; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect };
 
 const esc = (value: unknown): string => String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]!);
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
+const circlePoints = (count = 12): Array<{ x: number; y: number }> => Array.from({ length: count }, (_, index) => {
+  const angle = (index / count) * Math.PI * 2;
+  return { x: Math.round((50 + 50 * Math.cos(angle)) * 10) / 10, y: Math.round((50 + 50 * Math.sin(angle)) * 10) / 10 };
+});
+
 export class EditorApp {
   private readonly project = new EditorProject();
   private readonly audio = new AudioSystem(DEFAULT_PREFERENCES);
+  private activePanel: Panel = 'map';
   private selectedRoomId = this.project.activeLevel.startRoomId;
   private selectedHotspotId: string | null = null;
   private selectedConnectionId: string | null = null;
+  private selectedItemId: string | null = this.project.data.items[0]?.id ?? null;
+  private selectedEntityId: string | null = this.project.data.entities[0]?.id ?? null;
   private hotspotEditorOpen = false;
   private pan = { x: 80, y: 60 };
   private zoom = 0.82;
@@ -43,6 +54,8 @@ export class EditorApp {
   }
 
   private get selectedRoom(): EditorRoom | undefined { return this.project.findRoom(this.selectedRoomId); }
+  private get selectedItem(): EditorItem | undefined { return this.project.findItem(this.selectedItemId ?? ''); }
+  private get selectedEntity(): EditorEntity | undefined { return this.project.findEntity(this.selectedEntityId ?? ''); }
 
   private render(): void {
     this.root.innerHTML = this.testMode ? this.playtestTemplate() : this.editorTemplate();
@@ -53,14 +66,18 @@ export class EditorApp {
       <header class="editor-topbar">
         <div class="editor-brand"><a href="/" aria-label="Voltar ao jogo">MIMOSFERATU</a><span>Editor visual de salas</span></div>
         <div class="editor-status"><i></i><span>Salvamento local automático</span><small>${this.project.data.updatedAt ? new Date(this.project.data.updatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'novo mapa'}</small></div>
-        <nav><button data-action="new-level">Novo nível</button><button data-action="new-room">Nova sala</button><button data-action="save">Salvar</button><button data-action="export">Exportar JSON</button><button data-action="import">Importar</button><button class="primary" data-action="test">Testar</button></nav>
+        <nav>
+          <button data-action="panel-map" class="${this.activePanel === 'map' ? 'primary' : ''}">Mapa</button>
+          <button data-action="panel-items" class="${this.activePanel === 'items' ? 'primary' : ''}">Itens</button>
+          <button data-action="panel-entities" class="${this.activePanel === 'entities' ? 'primary' : ''}">Entidades</button>
+          ${this.activePanel === 'map' ? '<button data-action="new-level">Novo nível</button><button data-action="new-room">Nova sala</button>' : ''}
+          <button data-action="save">Salvar</button><button data-action="export">Exportar JSON</button><button data-action="import">Importar</button><button class="primary" data-action="test">Testar</button>
+        </nav>
         <input class="visually-hidden" type="file" accept="application/json,.json" data-role="import-file" />
       </header>
-      <div class="editor-layout">
-        ${this.leftPanelTemplate()}
-        ${this.canvasTemplate()}
-        ${this.propertiesTemplate()}
-      </div>
+      ${this.activePanel === 'map' ? `<div class="editor-layout">${this.leftPanelTemplate()}${this.canvasTemplate()}${this.propertiesTemplate()}</div>` : ''}
+      ${this.activePanel === 'items' ? this.itemsPanelTemplate() : ''}
+      ${this.activePanel === 'entities' ? this.entitiesPanelTemplate() : ''}
       ${this.hotspotEditorOpen ? this.hotspotEditorTemplate() : ''}
     </main>`;
   }
@@ -151,7 +168,7 @@ export class EditorApp {
       </section>
       <section class="property-section"><div class="panel-title"><span>Interações</span><b>${room.hotspots.length}</b></div>
         <button class="wide-button primary" data-action="open-hotspots">Editar hotspots na imagem</button>
-        <div class="hotspot-summary">${room.hotspots.map((hotspot) => `<button data-action="open-hotspot" data-hotspot="${esc(hotspot.id)}"><i style="background:${esc(hotspot.highlightColor)}"></i><span>${esc(hotspot.label)}</span><small>${esc(hotspot.action)}</small></button>`).join('') || '<p class="empty-note">Nenhuma área interativa criada.</p>'}</div>
+        <div class="hotspot-summary">${room.hotspots.map((hotspot) => `<button data-action="open-hotspot" data-hotspot="${esc(hotspot.id)}"><i style="background:${esc(hotspot.highlightColor)}"></i><span>${esc(hotspot.label)}</span><small>${esc(hotspot.action)}${hotspot.visibility !== 'visible' ? ` · ${hotspot.visibility === 'hidden' ? 'escondido' : 'invisível'}` : ''}</small></button>`).join('') || '<p class="empty-note">Nenhuma área interativa criada.</p>'}</div>
       </section>
     </aside>`;
   }
@@ -177,10 +194,17 @@ export class EditorApp {
     return `<div class="hotspot-editor-layer"><section class="hotspot-editor-window">
       <header><div><small>EDITOR DA PERSPECTIVA · SEM MECÂNICAS DE JOGO</small><h2>${esc(room.name)}</h2></div><nav><button data-action="add-hotspot">+ Nova área</button><button data-action="close-hotspots">Concluir</button></nav></header>
       <div class="hotspot-editor-layout">
-        <div class="hotspot-stage" data-role="hotspot-stage"><img src="${esc(room.image)}" alt="${esc(room.description)}" />${room.hotspots.map((entry) => `<button class="editable-hotspot ${entry.id === this.selectedHotspotId && !connection ? 'selected' : ''}" data-hotspot="${esc(entry.id)}" style="left:${entry.x}%;top:${entry.y}%;width:${entry.width}%;height:${entry.height}%;--hotspot-color:${esc(entry.highlightColor)};--hotspot-strength:${entry.highlightOpacity * 100}%"><span>${esc(entry.label)}</span><i data-role="hotspot-resize"></i></button>`).join('')}${connections.map((entry, index) => this.sceneConnectionMarker(entry, index, connections.length)).join('')}</div>
+        <div class="hotspot-stage" data-role="hotspot-stage"><img src="${esc(room.image)}" alt="${esc(room.description)}" />${room.hotspots.map((entry) => this.editableHotspotTemplate(entry, connection)).join('')}${connections.map((entry, index) => this.sceneConnectionMarker(entry, index, connections.length)).join('')}</div>
         <aside class="hotspot-settings">${connection ? this.sceneConnectionFields(connection) : hotspot ? this.hotspotFieldsTemplate(hotspot, room) : '<div class="empty-hotspot"><b>Selecione um elemento</b><p>Clique em um caminho nas bordas ou em uma área interativa sobre a imagem.</p></div>'}</aside>
       </div>
     </section></div>`;
+  }
+
+  private editableHotspotTemplate(entry: EditorHotspot, connection: EditorConnection | null): string {
+    const selected = entry.id === this.selectedHotspotId && !connection;
+    const clip = entry.shapePoints ? `clip-path:polygon(${entry.shapePoints.map((point) => `${point.x}% ${point.y}%`).join(',')});` : '';
+    const points = selected && entry.shapePoints ? entry.shapePoints.map((point, index) => `<i class="shape-point" data-role="shape-point" data-point="${index}" style="left:${point.x}%;top:${point.y}%"></i>`).join('') : '';
+    return `<button class="editable-hotspot ${selected ? 'selected' : ''} ${entry.visibility !== 'visible' ? 'muted-visibility' : ''}" data-hotspot="${esc(entry.id)}" style="left:${entry.x}%;top:${entry.y}%;width:${entry.width}%;height:${entry.height}%;--hotspot-color:${esc(entry.highlightColor)};--hotspot-strength:${entry.highlightOpacity * 100}%;${clip}"><span>${esc(entry.label)}</span>${entry.shapePoints ? '' : '<i data-role="hotspot-resize"></i>'}${points}</button>`;
   }
 
   private sceneConnectionMarker(connection: EditorConnection, index: number, total: number): string {
@@ -210,14 +234,87 @@ export class EditorApp {
       ${hotspot.action === 'collect' ? `<label><span>Item coletado</span><select data-hotspot-field="item">${this.itemOptions(hotspot.item)}</select></label>` : ''}
       ${hotspot.action === 'use' ? `<label><span>Item necessário</span><select data-hotspot-field="requiresItem"><option value="">Nenhum</option>${this.itemOptions(hotspot.requiresItem)}</select></label>` : ''}
       ${hotspot.action === 'move' ? `<label><span>Sala de destino</span><select data-hotspot-field="targetRoomId">${level.rooms.filter((entry) => entry.id !== room.id).map((entry) => `<option value="${esc(entry.id)}" ${hotspot.targetRoomId === entry.id ? 'selected' : ''}>${esc(entry.name)}</option>`).join('')}</select></label>` : ''}
-      ${hotspot.action === 'event' ? `<label><span>Evento</span><select data-hotspot-field="event"><option value="watcher" ${hotspot.event === 'watcher' ? 'selected' : ''}>O Observador</option><option value="crawler" ${hotspot.event === 'crawler' ? 'selected' : ''}>O Rastejante</option><option value="jumpscare" ${hotspot.event === 'jumpscare' ? 'selected' : ''}>Jumpscare direto</option></select></label>` : ''}
+      ${hotspot.action === 'event' ? `<label><span>Evento</span><select data-hotspot-field="event">${this.eventOptions(hotspot.event)}</select></label>` : ''}
       <div class="field-row"><label><span>Cor do highlight</span><input type="color" data-hotspot-field="highlightColor" value="${esc(hotspot.highlightColor)}" /></label><label><span>Opacidade</span><input type="range" min="0.05" max="0.65" step="0.05" data-hotspot-field="highlightOpacity" value="${hotspot.highlightOpacity}" /></label></div>
       <label class="check"><input type="checkbox" data-hotspot-field="once" ${hotspot.once ? 'checked' : ''} /><span>Executar apenas uma vez</span></label>
+      <section class="property-section">
+        <div class="panel-title"><span>Visibilidade</span></div>
+        <label><span>Estado inicial</span><select data-hotspot-field="visibility"><option value="visible" ${hotspot.visibility === 'visible' ? 'selected' : ''}>Visível</option><option value="hidden" ${hotspot.visibility === 'hidden' ? 'selected' : ''}>Escondido (revela com o tempo)</option><option value="invisible" ${hotspot.visibility === 'invisible' ? 'selected' : ''}>Invisível (revela ao clicar)</option></select></label>
+        ${hotspot.visibility === 'hidden' ? `<label><span>Segundos na sala até revelar</span><input type="number" min="1" max="600" data-hotspot-field="revealSeconds" value="${hotspot.revealSeconds}" /></label><p class="panel-hint">Soma o tempo total do jogador nesta sala, mesmo em visitas separadas.</p>` : ''}
+        ${hotspot.visibility === 'invisible' ? '<p class="panel-hint">Fica oculto até o jogador clicar na área delimitada; depois disso continua visível.</p>' : ''}
+      </section>
+      <section class="property-section">
+        <div class="panel-title"><span>Formato da área</span></div>
+        ${hotspot.shapePoints
+          ? '<p class="panel-hint">Arraste os pontos amarelos sobre a imagem para ajustar o contorno.</p><button class="wide-button" data-action="reset-shape">Voltar para retângulo</button>'
+          : '<p class="panel-hint">Por padrão a área é um retângulo/elipse. Converta para um contorno circular com pontos ajustáveis para objetos de forma irregular.</p><button class="wide-button" data-action="make-shape">Usar contorno circular ajustável</button>'}
+      </section>
       <div class="coordinate-readout"><span>X <b>${hotspot.x.toFixed(1)}%</b></span><span>Y <b>${hotspot.y.toFixed(1)}%</b></span><span>L <b>${hotspot.width.toFixed(1)}%</b></span><span>A <b>${hotspot.height.toFixed(1)}%</b></span></div>
       <p class="panel-hint">Arraste a área para mover. Use o quadrado no canto inferior direito para redimensionar.</p>`;
   }
 
-  private itemOptions(selected?: ItemId): string { return ITEM_OPTIONS.map((item) => `<option value="${item.id}" ${selected === item.id ? 'selected' : ''}>${esc(item.label)}</option>`).join(''); }
+  private itemsPanelTemplate(): string {
+    const items = this.project.data.items;
+    const item = this.selectedItem ?? items[0];
+    return `<div class="side-panel-layout">
+      <aside class="editor-sidebar editor-left">
+        <section><div class="panel-title"><span>Itens</span><b>${items.length}</b></div>
+          <div class="level-list">${items.map((entry) => `<button class="${entry.id === item?.id ? 'active' : ''}" data-action="select-item" data-item="${esc(entry.id)}"><i></i><span>${esc(entry.icon)} ${esc(entry.name)}</span><small>${esc(entry.effect)}</small></button>`).join('')}</div>
+          <button class="wide-button primary" data-action="new-item">+ Novo item</button>
+        </section>
+      </aside>
+      <section class="editor-properties-wide">
+        ${item ? this.itemFieldsTemplate(item) : '<p class="empty-note">Nenhum item criado.</p>'}
+      </section>
+    </div>`;
+  }
+
+  private itemFieldsTemplate(item: EditorItem): string {
+    return `<div class="properties-heading"><div><small>ITEM</small><h2>${esc(item.name)}</h2></div><button class="danger" data-action="delete-item" data-item="${esc(item.id)}" ${this.project.data.items.length <= 1 ? 'disabled' : ''}>Excluir</button></div>
+      <label><span>Nome</span><input data-item-field="name" value="${esc(item.name)}" /></label>
+      <label><span>Ícone (texto/emoji)</span><input data-item-field="icon" value="${esc(item.icon)}" maxlength="4" /></label>
+      <label><span>Descrição</span><textarea data-item-field="description" rows="3">${esc(item.description)}</textarea></label>
+      <label><span>Texto ao usar</span><textarea data-item-field="useText" rows="2">${esc(item.useText)}</textarea></label>
+      <label><span>Efeito ao usar</span><select data-item-field="effect"><option value="none" ${item.effect === 'none' ? 'selected' : ''}>Nenhum (item de cenário)</option><option value="heal" ${item.effect === 'heal' ? 'selected' : ''}>Cura vida</option><option value="hydrate" ${item.effect === 'hydrate' ? 'selected' : ''}>Mata a sede</option><option value="feed" ${item.effect === 'feed' ? 'selected' : ''}>Mata a fome</option></select></label>
+      ${item.effect !== 'none' ? `<label><span>Quantidade recuperada</span><input type="number" min="1" max="100" data-item-field="effectAmount" value="${item.effectAmount}" /></label>` : ''}
+      <p class="panel-hint">ID interno: <code>${esc(item.id)}</code></p>`;
+  }
+
+  private entitiesPanelTemplate(): string {
+    const entities = this.project.data.entities;
+    const entity = this.selectedEntity ?? entities[0];
+    return `<div class="side-panel-layout">
+      <aside class="editor-sidebar editor-left">
+        <section><div class="panel-title"><span>Entidades</span><b>${entities.length}</b></div>
+          <div class="level-list">${entities.map((entry) => `<button class="${entry.id === entity?.id ? 'active' : ''}" data-action="select-entity" data-entity="${esc(entry.id)}"><i></i><span>${esc(entry.name)}</span><small>${entry.solution === 'hide' ? 'esconder-se' : 'correr'}</small></button>`).join('')}</div>
+          <button class="wide-button primary" data-action="new-entity">+ Nova entidade</button>
+        </section>
+      </aside>
+      <section class="editor-properties-wide">
+        ${entity ? this.entityFieldsTemplate(entity) : '<p class="empty-note">Nenhuma entidade criada.</p>'}
+      </section>
+    </div>`;
+  }
+
+  private entityFieldsTemplate(entity: EditorEntity): string {
+    return `<div class="properties-heading"><div><small>ENTIDADE</small><h2>${esc(entity.name)}</h2></div><button class="danger" data-action="delete-entity" data-entity="${esc(entity.id)}" ${this.project.data.entities.length <= 1 ? 'disabled' : ''}>Excluir</button></div>
+      <label><span>Nome</span><input data-entity-field="name" value="${esc(entity.name)}" /></label>
+      <label><span>Mensagem do encontro</span><textarea data-entity-field="prompt" rows="2">${esc(entity.prompt)}</textarea></label>
+      <label><span>Dica</span><textarea data-entity-field="hint" rows="2">${esc(entity.hint)}</textarea></label>
+      <label><span>Decisão correta</span><select data-entity-field="solution"><option value="hide" ${entity.solution === 'hide' ? 'selected' : ''}>Esconder-se</option><option value="run" ${entity.solution === 'run' ? 'selected' : ''}>Correr</option></select></label>
+      <label><span>Tempo para decidir (segundos)</span><input type="number" min="1" max="30" step="0.1" data-entity-field="timeLimit" value="${entity.timeLimit}" /></label>
+      <label><span>Imagem relativa</span><input data-entity-field="image" list="entity-assets" value="${esc(entity.image)}" /></label>
+      <datalist id="entity-assets">${ENTITY_IMAGE_LIBRARY.map((image) => `<option value="${esc(image)}"></option>`).join('')}</datalist>
+      <div class="image-preview"><img src="${esc(entity.image)}" alt="Prévia de ${esc(entity.name)}" /><span>${esc(entity.image)}</span></div>
+      <p class="panel-hint">ID interno: <code>${esc(entity.id)}</code> · use este ID no campo "Evento" de um hotspot para disparar o encontro.</p>`;
+  }
+
+  private itemOptions(selected?: string): string { return this.project.data.items.map((item) => `<option value="${esc(item.id)}" ${selected === item.id ? 'selected' : ''}>${esc(item.name)}</option>`).join(''); }
+
+  private eventOptions(selected?: string): string {
+    const entities = this.project.data.entities.map((entity) => `<option value="${esc(entity.id)}" ${selected === entity.id ? 'selected' : ''}>${esc(entity.name)}</option>`).join('');
+    return `${entities}<option value="jumpscare" ${selected === 'jumpscare' ? 'selected' : ''}>Jumpscare direto</option>`;
+  }
 
   private roomOptions(selected: string, exclude?: string): string {
     return this.project.activeLevel.rooms.filter((room) => room.id !== exclude).map((room) => `<option value="${esc(room.id)}" ${room.id === selected ? 'selected' : ''}>${esc(room.name)}</option>`).join('');
@@ -229,32 +326,50 @@ export class EditorApp {
     const room = game.room;
     const exits = Object.entries(room.exits);
     const jump = performance.now() < this.testJumpscareUntil;
+    const items = itemsToRuntime(this.project.data.items);
     return `<main class="editor-playtest">
       <section class="test-scene"><img src="${esc(room.image)}" alt="${esc(room.description)}" /><div class="test-grade"></div>
-        ${room.hotspots.filter((hotspot) => !(hotspot.once && game.flags[`hotspot:${room.id}:${hotspot.id}`])).map((hotspot) => `<button class="test-hotspot" data-test-action="hotspot" data-hotspot="${esc(hotspot.id)}" style="left:${hotspot.x + hotspot.width / 2}%;top:${hotspot.y + hotspot.height / 2}%;--highlight:${esc(hotspot.highlight?.color ?? '#d7df77')};--highlight-strength:${(hotspot.highlight?.opacity ?? .22) * 100}%"><span>${esc(hotspot.label)}</span></button>`).join('')}
+        ${this.testHotspotMarkup(game, room)}
       </section>
       <header class="test-header"><div><small>${esc(room.code)}</small><strong>${esc(room.name)}</strong></div><nav><button data-test-action="inventory">Inventário (${game.inventory.reduce((sum, item) => sum + item.quantity, 0)})</button><button data-test-action="exit">Voltar ao editor</button></nav></header>
-      <div class="test-stats">${this.testStat('health', 'Vida', game.stats.health)}${this.testStat('thirst', 'Sede', game.stats.thirst)}${this.testStat('hunger', 'Fome', game.stats.hunger)}</div>
-      <nav class="test-exits">${exits.map(([direction, exit]) => `<button data-test-action="move" data-direction="${esc(direction)}"><i>↗</i><span>${esc(exit.label)}</span>${exit.requiresItem ? `<small>requer ${esc(ITEMS[exit.requiresItem].name)}</small>` : ''}</button>`).join('') || '<span class="dead-end">Sem saídas configuradas</span>'}</nav>
+      <div class="test-stats">${this.testStat('health', 'Vida', game.stats.health)}${this.testStat('thirst', 'Sede', game.stats.thirst)}${this.testStat('hunger', 'Fome', game.stats.hunger)}${this.testStat('anxiety', 'Ansiedade', game.stats.anxiety)}</div>
+      <nav class="test-exits">${exits.map(([direction, exit]) => `<button data-test-action="move" data-direction="${esc(direction)}"><i>↗</i><span>${esc(exit.label)}</span>${exit.requiresItem ? `<small>requer ${esc(items[exit.requiresItem]?.name ?? exit.requiresItem)}</small>` : ''}</button>`).join('') || '<span class="dead-end">Sem saídas configuradas</span>'}</nav>
       <div class="test-message">${esc(game.message)}</div>
       ${this.testInventoryOpen ? this.testInventoryTemplate() : ''}
       ${game.encounter ? this.testEncounterTemplate() : ''}
       ${game.status === 'gameover' ? '<div class="test-modal"><section><small>FIM DO TESTE</small><h2>O jogador não sobreviveu</h2><button data-test-action="restart">Reiniciar nesta sala</button><button data-test-action="exit">Voltar ao editor</button></section></div>' : ''}
-      ${jump ? `<div class="test-jumpscare"><img src="/assets/entities/${game.encounter?.id ?? 'watcher'}.jpg" alt="Entidade atacando" /></div>` : ''}
+      ${jump ? `<div class="test-jumpscare"><img src="${esc(game.encounter?.image ?? this.project.data.entities[0]?.image ?? '')}" alt="Entidade atacando" /></div>` : ''}
       <div class="test-badge">MODO DE TESTE · alterações não afetam o mapa</div>
     </main>`;
+  }
+
+  private testHotspotMarkup(game: Game, room: RoomDefinition): string {
+    return room.hotspots.map((hotspot) => {
+      const onceUsed = hotspot.once && game.flags[`hotspot:${room.id}:${hotspot.id}`];
+      if (onceUsed) return '';
+      const revealed = Boolean(game.flags[`reveal:${room.id}:${hotspot.id}`]);
+      if (hotspot.visibility === 'hidden' && !revealed) return '';
+      const clip = hotspot.shape ? `clip-path:polygon(${hotspot.shape.points.map((point) => `${point.x}% ${point.y}%`).join(',')});` : '';
+      const invisible = hotspot.visibility === 'invisible' && !revealed ? ' invisible-hotspot' : '';
+      return `<button class="test-hotspot${invisible}" data-test-action="hotspot" data-hotspot="${esc(hotspot.id)}" style="left:${hotspot.x}%;top:${hotspot.y}%;width:${hotspot.width}%;height:${hotspot.height}%;--highlight:${esc(hotspot.highlight?.color ?? '#d7df77')};--highlight-strength:${(hotspot.highlight?.opacity ?? .22) * 100}%;${clip}"><span>${esc(hotspot.label)}</span></button>`;
+    }).join('');
   }
 
   private testStat(key: string, label: string, value: number): string { return `<div data-test-stat="${key}"><span>${label}</span><b>${Math.round(value)}</b><i><em style="width:${value}%"></em></i></div>`; }
 
   private testInventoryTemplate(): string {
     const game = this.testGame!;
-    return `<div class="test-inventory"><section><header><div><small>INVENTÁRIO DO TESTE</small><h2>Itens coletados</h2></div><button data-test-action="inventory">×</button></header><div class="test-item-grid">${game.inventory.map((entry) => `<button class="${game.selectedItem === entry.id ? 'selected' : ''}" data-test-action="use-item" data-item="${entry.id}"><i>${ITEMS[entry.id].icon}</i><span>${esc(ITEMS[entry.id].name)}</span><b>${entry.quantity}</b></button>`).join('') || '<p>Nenhum item coletado.</p>'}</div><p>Consumíveis são usados imediatamente. Ferramentas ficam selecionadas para uso em hotspots.</p></section></div>`;
+    const items = itemsToRuntime(this.project.data.items);
+    const slots = game.inventory.flatMap((entry) => {
+      const def = items[entry.id];
+      return def ? [{ entry, def }] : [];
+    });
+    return `<div class="test-inventory"><section><header><div><small>INVENTÁRIO DO TESTE</small><h2>Itens coletados</h2></div><button data-test-action="inventory">×</button></header><div class="test-item-grid">${slots.map(({ entry, def }) => `<button class="${game.selectedItem === entry.id ? 'selected' : ''}" data-test-action="use-item" data-item="${entry.id}"><i>${def.icon}</i><span>${esc(def.name)}</span><b>${entry.quantity}</b></button>`).join('') || '<p>Nenhum item coletado.</p>'}</div><p>Consumíveis são usados imediatamente. Ferramentas ficam selecionadas para uso em hotspots.</p></section></div>`;
   }
 
   private testEncounterTemplate(): string {
     const encounter = this.testGame!.encounter!;
-    return `<div class="test-encounter"><img src="/assets/entities/${encounter.id}.jpg" alt="${esc(encounter.name)}" /><section><small>DECISÃO RÁPIDA</small><h2>${esc(encounter.name)}</h2><p>${esc(encounter.prompt)}</p><em>${esc(encounter.hint)}</em><div class="test-timer"><i style="width:${(encounter.remaining / (encounter.id === 'watcher' ? 5 : 4.2)) * 100}%"></i></div><nav><button data-test-action="encounter" data-choice="run">Correr</button><button data-test-action="encounter" data-choice="hide">Esconder-se</button></nav></section></div>`;
+    return `<div class="test-encounter"><img src="${esc(encounter.image)}" alt="${esc(encounter.name)}" /><section><small>DECISÃO RÁPIDA</small><h2>${esc(encounter.name)}</h2><p>${esc(encounter.prompt)}</p><em>${esc(encounter.hint)}</em><div class="test-timer"><i style="width:${(encounter.remaining / encounter.timeLimit) * 100}%"></i></div><nav><button data-test-action="encounter" data-choice="run">Correr</button><button data-test-action="encounter" data-choice="hide">Esconder-se</button></nav></section></div>`;
   }
 
   private bindEvents(): void {
@@ -274,6 +389,15 @@ export class EditorApp {
     const action = target.dataset.action;
     if (!action) return;
     switch (action) {
+      case 'panel-map': this.activePanel = 'map'; break;
+      case 'panel-items': this.activePanel = 'items'; if (!this.selectedItemId) this.selectedItemId = this.project.data.items[0]?.id ?? null; break;
+      case 'panel-entities': this.activePanel = 'entities'; if (!this.selectedEntityId) this.selectedEntityId = this.project.data.entities[0]?.id ?? null; break;
+      case 'select-item': this.selectedItemId = target.dataset.item ?? null; break;
+      case 'new-item': { const item = this.project.addItem(); this.selectedItemId = item.id; break; }
+      case 'delete-item': if (window.confirm('Excluir este item?') && this.project.deleteItem(target.dataset.item ?? '')) this.selectedItemId = this.project.data.items[0]?.id ?? null; break;
+      case 'select-entity': this.selectedEntityId = target.dataset.entity ?? null; break;
+      case 'new-entity': { const entity = this.project.addEntity(); this.selectedEntityId = entity.id; break; }
+      case 'delete-entity': if (window.confirm('Excluir esta entidade?') && this.project.deleteEntity(target.dataset.entity ?? '')) this.selectedEntityId = this.project.data.entities[0]?.id ?? null; break;
       case 'select-level': this.selectLevel(target.dataset.level ?? ''); break;
       case 'select-room': this.selectedRoomId = target.dataset.room ?? this.selectedRoomId; this.selectedHotspotId = null; this.selectedConnectionId = null; if (event.detail >= 2) this.openPerspective(); break;
       case 'new-room': { const room = this.project.addRoom(); this.selectedRoomId = room.id; break; }
@@ -291,6 +415,8 @@ export class EditorApp {
       case 'close-hotspots': this.hotspotEditorOpen = false; this.selectedHotspotId = null; this.selectedConnectionId = null; this.project.save(); break;
       case 'add-hotspot': if (this.selectedRoom) { const hotspot = this.project.addHotspot(this.selectedRoom.id); this.selectedHotspotId = hotspot?.id ?? null; this.selectedConnectionId = null; } break;
       case 'delete-hotspot': if (this.selectedRoom && this.selectedHotspotId && window.confirm('Excluir esta área interativa?')) { this.project.deleteHotspot(this.selectedRoom.id, this.selectedHotspotId); this.selectedHotspotId = this.selectedRoom.hotspots[0]?.id ?? null; } break;
+      case 'make-shape': { const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId); if (hotspot) { hotspot.shapePoints = circlePoints(); this.project.save(); } break; }
+      case 'reset-shape': { const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId); if (hotspot) { hotspot.shapePoints = undefined; this.project.save(); } break; }
       case 'zoom-in': this.setZoom(this.zoom + .12); break;
       case 'zoom-out': this.setZoom(this.zoom - .12); break;
       case 'reset-view': this.resetView(); break;
@@ -321,6 +447,24 @@ export class EditorApp {
     if (input.matches('[data-role="import-file"]') && input instanceof HTMLInputElement) { await this.importJSON(input.files?.[0]); return; }
     const roomField = input.dataset.roomField as keyof Pick<EditorRoom, 'name' | 'code' | 'description' | 'image'> | undefined;
     if (roomField && this.selectedRoom) { this.selectedRoom[roomField] = input.value; this.project.save(); this.render(); return; }
+    const itemField = input.dataset.itemField as keyof EditorItem | undefined;
+    if (itemField && this.selectedItem) {
+      const item = this.selectedItem;
+      if (itemField === 'effectAmount') item.effectAmount = Number(input.value);
+      else if (itemField === 'effect') item.effect = input.value as EditorItem['effect'];
+      else if (itemField === 'name' || itemField === 'icon' || itemField === 'description' || itemField === 'useText') item[itemField] = input.value;
+      this.project.save(); this.render();
+      return;
+    }
+    const entityField = input.dataset.entityField as keyof EditorEntity | undefined;
+    if (entityField && this.selectedEntity) {
+      const entity = this.selectedEntity;
+      if (entityField === 'timeLimit') entity.timeLimit = Number(input.value);
+      else if (entityField === 'solution') entity.solution = input.value as EncounterAction;
+      else if (entityField === 'name' || entityField === 'prompt' || entityField === 'hint' || entityField === 'image') entity[entityField] = input.value;
+      this.project.save(); this.render();
+      return;
+    }
     const connectionId = input.dataset.connection;
     const connectionField = input.dataset.connectionField as keyof EditorConnection | undefined;
     if (connectionId && connectionField) {
@@ -338,6 +482,8 @@ export class EditorApp {
     if (hotspotField && hotspot) {
       if (hotspotField === 'once') hotspot.once = (input as HTMLInputElement).checked;
       else if (hotspotField === 'highlightOpacity') hotspot.highlightOpacity = Number(input.value);
+      else if (hotspotField === 'revealSeconds') hotspot.revealSeconds = Number(input.value);
+      else if (hotspotField === 'visibility') hotspot.visibility = input.value as EditorHotspot['visibility'];
       else if (hotspotField === 'item' || hotspotField === 'requiresItem') hotspot[hotspotField] = input.value ? input.value as ItemId : undefined;
       else if (hotspotField === 'action') hotspot.action = input.value as EditorHotspot['action'];
       else if (hotspotField === 'event') hotspot.event = input.value as EditorHotspot['event'];
@@ -349,8 +495,19 @@ export class EditorApp {
   private handlePointerDown(event: PointerEvent): void {
     if (this.testMode || event.button !== 0) return;
     const target = event.target as HTMLElement;
+    const shapePoint = target.closest<HTMLElement>('[data-role="shape-point"]');
     const hotspotBox = target.closest<HTMLElement>('.editable-hotspot');
     const stage = target.closest<HTMLElement>('[data-role="hotspot-stage"]');
+    if (shapePoint && hotspotBox && stage && this.selectedRoom) {
+      const hotspot = this.selectedRoom.hotspots.find((entry) => entry.id === hotspotBox.dataset.hotspot);
+      const pointIndex = Number(shapePoint.dataset.point);
+      const point = hotspot?.shapePoints?.[pointIndex];
+      if (!hotspot || !point) return;
+      this.gesture = { type: 'shapePoint', roomId: this.selectedRoom.id, hotspotId: hotspot.id, pointIndex, startX: event.clientX, startY: event.clientY, origin: { x: point.x, y: point.y }, rect: hotspotBox.getBoundingClientRect() };
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (hotspotBox && stage && this.selectedRoom) {
       const hotspot = this.selectedRoom.hotspots.find((entry) => entry.id === hotspotBox.dataset.hotspot);
       if (!hotspot) return;
@@ -406,6 +563,20 @@ export class EditorApp {
       this.pan.x = this.gesture.originX + event.clientX - this.gesture.startX;
       this.pan.y = this.gesture.originY + event.clientY - this.gesture.startY;
       this.applyWorldTransform();
+    } else if (this.gesture.type === 'shapePoint') {
+      const gesture = this.gesture;
+      const room = this.project.findRoom(gesture.roomId);
+      const hotspot = room?.hotspots.find((entry) => entry.id === gesture.hotspotId);
+      const point = hotspot?.shapePoints?.[gesture.pointIndex];
+      if (!point) return;
+      const dx = ((event.clientX - gesture.startX) / gesture.rect.width) * 100;
+      const dy = ((event.clientY - gesture.startY) / gesture.rect.height) * 100;
+      point.x = clamp(gesture.origin.x + dx, -20, 120);
+      point.y = clamp(gesture.origin.y + dy, -20, 120);
+      const handle = this.root.querySelector<HTMLElement>(`.editable-hotspot[data-hotspot="${CSS.escape(hotspot!.id)}"] [data-point="${gesture.pointIndex}"]`);
+      if (handle) { handle.style.left = `${point.x}%`; handle.style.top = `${point.y}%`; }
+      const box = this.root.querySelector<HTMLElement>(`.editable-hotspot[data-hotspot="${CSS.escape(hotspot!.id)}"]`);
+      if (box) box.style.clipPath = `polygon(${hotspot!.shapePoints!.map((entry) => `${entry.x}% ${entry.y}%`).join(',')})`;
     } else {
       const gesture = this.gesture;
       if (gesture.type !== 'hotspot') return;
@@ -437,9 +608,9 @@ export class EditorApp {
     }
     if (!this.gesture) return;
     this.project.save();
-    const wasHotspot = this.gesture.type === 'hotspot';
+    const needsRerender = this.gesture.type === 'hotspot' || this.gesture.type === 'shapePoint';
     this.gesture = null;
-    if (wasHotspot) this.render();
+    if (needsRerender) this.render();
     else this.root.querySelector('[data-role="canvas"]')?.classList.remove('panning');
   }
 
@@ -506,6 +677,8 @@ export class EditorApp {
     try {
       this.project.replace(JSON.parse(await file.text()) as unknown);
       this.selectedRoomId = this.project.activeLevel.startRoomId;
+      this.selectedItemId = this.project.data.items[0]?.id ?? null;
+      this.selectedEntityId = this.project.data.entities[0]?.id ?? null;
       this.resetView(); this.render();
     } catch { window.alert('Não foi possível carregar este JSON. Verifique o formato do arquivo.'); }
   }
@@ -513,7 +686,9 @@ export class EditorApp {
   private startTest(): void {
     const level = this.project.activeLevel;
     const start = this.selectedRoomId || level.startRoomId;
-    this.testGame = new Game(undefined, () => 1, levelToWorld(level), start);
+    const items = itemsToRuntime(this.project.data.items);
+    const entities = entitiesToRuntime(this.project.data.entities);
+    this.testGame = new Game(undefined, () => 1, levelToWorld(level), start, items, entities);
     this.testMode = true;
     this.testInventoryOpen = false;
     this.testAttackNonce = 0;
@@ -550,7 +725,7 @@ export class EditorApp {
         this.testJumpscareUntil = now + 850;
         this.audio.play('jumpscare');
       }
-      const key = JSON.stringify({ position: this.testGame.position, status: this.testGame.status, message: this.testGame.message, inventory: this.testGame.inventory, selected: this.testGame.selectedItem, encounter: this.testGame.encounter?.id, attack: this.testAttackNonce, jump: now < this.testJumpscareUntil, panel: this.testInventoryOpen });
+      const key = JSON.stringify({ position: this.testGame.position, status: this.testGame.status, message: this.testGame.message, inventory: this.testGame.inventory, selected: this.testGame.selectedItem, encounter: this.testGame.encounter?.id, attack: this.testAttackNonce, jump: now < this.testJumpscareUntil, panel: this.testInventoryOpen, flags: this.testGame.flags });
       if (key !== this.lastTestKey) { this.lastTestKey = key; this.render(); }
       else this.updateTestReadouts();
     }
@@ -559,13 +734,13 @@ export class EditorApp {
 
   private updateTestReadouts(): void {
     if (!this.testGame) return;
-    (['health', 'thirst', 'hunger'] as const).forEach((key) => {
+    (['health', 'thirst', 'hunger', 'anxiety'] as const).forEach((key) => {
       const root = this.root.querySelector<HTMLElement>(`[data-test-stat="${key}"]`);
       const value = this.testGame!.stats[key];
       if (root?.querySelector('b')) root.querySelector('b')!.textContent = String(Math.round(value));
       const bar = root?.querySelector<HTMLElement>('em'); if (bar) bar.style.width = `${value}%`;
     });
     const timer = this.root.querySelector<HTMLElement>('.test-timer i');
-    if (timer && this.testGame.encounter) timer.style.width = `${(this.testGame.encounter.remaining / (this.testGame.encounter.id === 'watcher' ? 5 : 4.2)) * 100}%`;
+    if (timer && this.testGame.encounter) timer.style.width = `${(this.testGame.encounter.remaining / this.testGame.encounter.timeLimit) * 100}%`;
   }
 }

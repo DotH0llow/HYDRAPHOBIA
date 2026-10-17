@@ -1,5 +1,6 @@
-import type { HotspotDefinition, RoomDefinition, WorldDefinition } from '../config/world';
-import type { EditorHotspot, EditorLevel } from './types';
+import type { EntityDefinition, HotspotDefinition, ItemDefinition, RoomDefinition, WorldDefinition } from '../config/world';
+import type { EntityId, ItemId } from '../types';
+import type { EditorEntity, EditorHotspot, EditorItem, EditorLevel } from './types';
 
 const hotspotToRuntime = (hotspot: EditorHotspot): HotspotDefinition => ({
   id: hotspot.id,
@@ -17,6 +18,9 @@ const hotspotToRuntime = (hotspot: EditorHotspot): HotspotDefinition => ({
   grantsFlag: hotspot.grantsFlag,
   once: hotspot.once,
   highlight: { color: hotspot.highlightColor, opacity: hotspot.highlightOpacity },
+  visibility: hotspot.visibility,
+  revealSeconds: hotspot.revealSeconds,
+  shape: hotspot.shapePoints && hotspot.shapePoints.length >= 3 ? { points: hotspot.shapePoints.map((point) => ({ x: point.x, y: point.y })) } : undefined,
 });
 
 export const levelToWorld = (level: EditorLevel): WorldDefinition => {
@@ -51,4 +55,20 @@ export const levelToWorld = (level: EditorLevel): WorldDefinition => {
     }
   });
   return { rooms, startRoomId: level.startRoomId, escapeRoomId: level.escapeRoomId };
+};
+
+export const itemsToRuntime = (items: EditorItem[]): Record<ItemId, ItemDefinition> => {
+  const result: Record<ItemId, ItemDefinition> = {};
+  items.forEach((item) => {
+    result[item.id] = { name: item.name, icon: item.icon, description: item.description, useText: item.useText, effect: item.effect, effectAmount: item.effectAmount };
+  });
+  return result;
+};
+
+export const entitiesToRuntime = (entities: EditorEntity[]): Record<EntityId, EntityDefinition> => {
+  const result: Record<EntityId, EntityDefinition> = {};
+  entities.forEach((entity) => {
+    result[entity.id] = { name: entity.name, prompt: entity.prompt, hint: entity.hint, solution: entity.solution, timeLimit: entity.timeLimit, image: entity.image };
+  });
+  return result;
 };

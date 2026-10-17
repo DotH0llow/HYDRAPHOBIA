@@ -2,11 +2,13 @@ export type Screen = 'menu' | 'game' | 'settings' | 'gameover' | 'escaped' | 'ex
 export type GameStatus = 'exploring' | 'encounter' | 'paused' | 'gameover' | 'escaped';
 export type Direction = string;
 export type RoomId = string;
-export type ItemId = 'accessCard' | 'almondWater' | 'ration' | 'fuse' | 'medkit';
+export type ItemId = string;
 export type HotspotId = string;
 export type EncounterAction = 'run' | 'hide';
+export type EntityId = string;
+export type HotspotVisibility = 'visible' | 'hidden' | 'invisible';
 
-export interface Stats { health: number; hunger: number; thirst: number }
+export interface Stats { health: number; hunger: number; thirst: number; anxiety: number }
 
 export interface InventoryEntry { id: ItemId; quantity: number }
 
@@ -15,15 +17,18 @@ export interface Preferences {
   musicVolume: number;
   effectsVolume: number;
   jumpscareIntensity: number;
+  showHealthBar: boolean;
 }
 
 export interface Encounter {
-  id: 'watcher' | 'crawler';
+  id: EntityId;
   name: string;
   prompt: string;
   hint: string;
   solution: EncounterAction;
   remaining: number;
+  timeLimit: number;
+  image: string;
 }
 
 export interface GameSave {
@@ -34,6 +39,8 @@ export interface GameSave {
   discovered: RoomId[];
   moveCount: number;
   elapsed: number;
+  danger: number;
+  roomTime: Record<RoomId, number>;
 }
 
 export interface SaveData {

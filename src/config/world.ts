@@ -1,4 +1,4 @@
-import type { Direction, HotspotId, ItemId, RoomId } from '../types';
+import type { Direction, EncounterAction, EntityId, HotspotId, HotspotVisibility, ItemId, RoomId } from '../types';
 
 export interface ExitDefinition {
   to: RoomId;
@@ -6,6 +6,10 @@ export interface ExitDefinition {
   requires?: string;
   requiresItem?: ItemId;
   lockedMessage?: string;
+}
+
+export interface HotspotShape {
+  points: Array<{ x: number; y: number }>;
 }
 
 export interface HotspotDefinition {
@@ -21,9 +25,12 @@ export interface HotspotDefinition {
   requiresItem?: ItemId;
   grantsFlag?: string;
   targetRoom?: RoomId;
-  event?: 'watcher' | 'crawler' | 'jumpscare';
+  event?: EntityId | 'jumpscare';
   highlight?: { color: string; opacity: number };
   once?: boolean;
+  visibility?: HotspotVisibility;
+  revealSeconds?: number;
+  shape?: HotspotShape;
 }
 
 export interface RoomDefinition {
@@ -42,12 +49,37 @@ export interface WorldDefinition {
   escapeRoomId?: RoomId;
 }
 
-export const ITEMS: Record<ItemId, { name: string; icon: string; description: string; useText: string }> = {
-  accessCard: { name: 'Cartão sem nome', icon: '▣', description: 'Um cartão magnético amarelado. A tarja ainda parece intacta.', useText: 'Ele deve abrir algum leitor próximo.' },
-  almondWater: { name: 'Água de amêndoas', icon: '◒', description: 'Uma garrafa lacrada. O líquido tem um cheiro doce e vagamente familiar.', useText: 'A sede recua. Por enquanto.' },
-  ration: { name: 'Ração selada', icon: '▰', description: 'Uma barra de emergência dura, mas ainda comestível.', useText: 'Sem gosto. Ainda assim, alimento.' },
-  fuse: { name: 'Fusível industrial', icon: '⌁', description: 'Pesado demais para o tamanho. Os contatos não estão oxidados.', useText: 'Talvez pertença a um painel elétrico.' },
-  medkit: { name: 'Kit de primeiros socorros', icon: '✚', description: 'Gaze, antisséptico e analgésicos dentro do prazo.', useText: 'Os ferimentos foram tratados.' },
+export type ItemEffect = 'none' | 'heal' | 'hydrate' | 'feed';
+
+export interface ItemDefinition {
+  name: string;
+  icon: string;
+  description: string;
+  useText: string;
+  effect: ItemEffect;
+  effectAmount: number;
+}
+
+export interface EntityDefinition {
+  name: string;
+  prompt: string;
+  hint: string;
+  solution: EncounterAction;
+  timeLimit: number;
+  image: string;
+}
+
+export const ITEMS: Record<ItemId, ItemDefinition> = {
+  accessCard: { name: 'Cartão sem nome', icon: '▣', description: 'Um cartão magnético amarelado. A tarja ainda parece intacta.', useText: 'Ele deve abrir algum leitor próximo.', effect: 'none', effectAmount: 0 },
+  almondWater: { name: 'Água de amêndoas', icon: '◒', description: 'Uma garrafa lacrada. O líquido tem um cheiro doce e vagamente familiar.', useText: 'A sede recua. Por enquanto.', effect: 'hydrate', effectAmount: 58 },
+  ration: { name: 'Ração selada', icon: '▰', description: 'Uma barra de emergência dura, mas ainda comestível.', useText: 'Sem gosto. Ainda assim, alimento.', effect: 'feed', effectAmount: 48 },
+  fuse: { name: 'Fusível industrial', icon: '⌁', description: 'Pesado demais para o tamanho. Os contatos não estão oxidados.', useText: 'Talvez pertença a um painel elétrico.', effect: 'none', effectAmount: 0 },
+  medkit: { name: 'Kit de primeiros socorros', icon: '✚', description: 'Gaze, antisséptico e analgésicos dentro do prazo.', useText: 'Os ferimentos foram tratados.', effect: 'heal', effectAmount: 52 },
+};
+
+export const ENTITIES: Record<EntityId, EntityDefinition> = {
+  watcher: { name: 'O Observador', prompt: 'Uma silhueta bloqueia o corredor. Ela reage a movimento.', hint: 'Talvez seja melhor desaparecer da visão.', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg' },
+  crawler: { name: 'O Rastejante', prompt: 'Unhas batem no concreto atrás de você. Está se aproximando.', hint: 'Ficar parado significa ser alcançado.', solution: 'run', timeLimit: 4.2, image: '/assets/entities/crawler.jpg' },
 };
 
 export const ROOMS: Record<RoomId, RoomDefinition> = {

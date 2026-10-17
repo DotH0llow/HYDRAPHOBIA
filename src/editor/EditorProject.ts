@@ -1,15 +1,19 @@
-import type { ItemId } from '../types';
 import { DEFAULT_WORLD } from '../config/world';
-import type { EditorConnection, EditorHotspot, EditorHotspotAction, EditorLevel, EditorProjectData, EditorRoom } from './types';
+import type { ItemEffect } from '../config/world';
+import type { EncounterAction, HotspotVisibility } from '../types';
+import { DEFAULT_ENTITIES, DEFAULT_ITEMS } from './types';
+import type { EditorConnection, EditorEntity, EditorHotspot, EditorHotspotAction, EditorItem, EditorLevel, EditorProjectData, EditorRoom } from './types';
 
 export const EDITOR_STORAGE_KEY = 'limiar:room-editor:v1';
 
 type EditorStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
 const cleanId = (value: string): string => value.trim().replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
-const ITEMS = new Set<ItemId>(['accessCard', 'almondWater', 'ration', 'fuse', 'medkit']);
+const ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const ACTIONS = new Set<EditorHotspotAction>(['examine', 'collect', 'use', 'move', 'event']);
-const EVENTS = new Set(['none', 'watcher', 'crawler', 'jumpscare']);
+const VISIBILITIES = new Set<HotspotVisibility>(['visible', 'hidden', 'invisible']);
+const EFFECTS = new Set<ItemEffect>(['none', 'heal', 'hydrate', 'feed']);
+const SOLUTIONS = new Set<EncounterAction>(['run', 'hide']);
 
 export const createId = (prefix: string): string => {
   const random = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10);
@@ -52,6 +56,9 @@ export const createProject = (): EditorProjectData => {
       once: hotspot.once === true,
       highlightColor: hotspot.highlight?.color ?? '#d7df77',
       highlightOpacity: hotspot.highlight?.opacity ?? .22,
+      visibility: hotspot.visibility ?? 'visible',
+      revealSeconds: hotspot.revealSeconds ?? 25,
+      shapePoints: hotspot.shape?.points,
     })),
   }));
   const connections = Object.values(DEFAULT_WORLD.rooms).flatMap((room) => Object.entries(room.exits).map(([direction, exit], index): EditorConnection => ({
@@ -71,6 +78,8 @@ export const createProject = (): EditorProjectData => {
     activeLevelId: levelId,
     updatedAt: new Date().toISOString(),
     levels: [{ id: levelId, name: 'Nível 0', startRoomId: DEFAULT_WORLD.startRoomId, escapeRoomId: DEFAULT_WORLD.escapeRoomId, rooms, connections }],
+    items: structuredClone(DEFAULT_ITEMS),
+    entities: structuredClone(DEFAULT_ENTITIES),
   };
 };
 
@@ -160,6 +169,7 @@ export class EditorProject {
       id: createId('hotspot'), label: 'Novo objeto', x: 38, y: 38, width: 18, height: 18,
       action: 'examine', message: 'Você examina o objeto.', once: false,
       highlightColor: '#d7df77', highlightOpacity: 0.22,
+      visibility: 'visible', revealSeconds: 25,
     };
     room.hotspots.push(hotspot);
     this.save();
@@ -171,6 +181,38 @@ export class EditorProject {
     if (!room) return;
     room.hotspots = room.hotspots.filter((hotspot) => hotspot.id !== hotspotId);
     this.save();
+  }
+
+  findItem(id: string): EditorItem | undefined { return this.data.items.find((item) => item.id === id); }
+
+  addItem(): EditorItem {
+    const item: EditorItem = { id: createId('item'), name: 'Novo item', icon: '◆', description: 'Descreva o item.', useText: 'O item foi usado.', effect: 'none', effectAmount: 0 };
+    this.data.items.push(item);
+    this.save();
+    return item;
+  }
+
+  deleteItem(id: string): boolean {
+    if (this.data.items.length <= 1 || !this.data.items.some((item) => item.id === id)) return false;
+    this.data.items = this.data.items.filter((item) => item.id !== id);
+    this.save();
+    return true;
+  }
+
+  findEntity(id: string): EditorEntity | undefined { return this.data.entities.find((entity) => entity.id === id); }
+
+  addEntity(): EditorEntity {
+    const entity: EditorEntity = { id: createId('entidade'), name: 'Nova entidade', prompt: 'Algo se aproxima no escuro.', hint: 'Decida rápido.', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg' };
+    this.data.entities.push(entity);
+    this.save();
+    return entity;
+  }
+
+  deleteEntity(id: string): boolean {
+    if (this.data.entities.length <= 1 || !this.data.entities.some((entity) => entity.id === id)) return false;
+    this.data.entities = this.data.entities.filter((entity) => entity.id !== id);
+    this.save();
+    return true;
   }
 
   save(): boolean {
@@ -210,10 +252,19 @@ export class EditorProject {
     if (!value || typeof value !== 'object') return createProject();
     const raw = value as Partial<EditorProjectData>;
     if (!Array.isArray(raw.levels) || raw.levels.length === 0) return createProject();
+
+    const items = Array.isArray(raw.items) ? raw.items.flatMap((item, index) => this.validateItem(item, index)) : [];
+    const finalItems = items.length > 0 ? items : structuredClone(DEFAULT_ITEMS);
+    const itemIds = new Set(finalItems.map((item) => item.id));
+
+    const entities = Array.isArray(raw.entities) ? raw.entities.flatMap((entity, index) => this.validateEntity(entity, index)) : [];
+    const finalEntities = entities.length > 0 ? entities : structuredClone(DEFAULT_ENTITIES);
+    const eventIds = new Set<string>(['none', 'jumpscare', ...finalEntities.map((entity) => entity.id)]);
+
     const levels = raw.levels.map((level, levelIndex): EditorLevel => {
       const rawLevel = level as Partial<EditorLevel>;
       const rooms = Array.isArray(rawLevel.rooms) && rawLevel.rooms.length > 0
-        ? rawLevel.rooms.map((room, roomIndex) => this.validateRoom(room, roomIndex))
+        ? rawLevel.rooms.map((room, roomIndex) => this.validateRoom(room, roomIndex, itemIds, eventIds))
         : [createRoom()];
       const roomIds = new Set(rooms.map((room) => room.id));
       const connections = Array.isArray(rawLevel.connections)
@@ -221,7 +272,7 @@ export class EditorProject {
           if (!value || typeof value !== 'object') return [];
           const connection = value as Partial<EditorConnection>;
           if (!roomIds.has(String(connection.from)) || !roomIds.has(String(connection.to))) return [];
-          const requiresItem = ITEMS.has(connection.requiresItem as ItemId) ? connection.requiresItem as ItemId : undefined;
+          const requiresItem = itemIds.has(String(connection.requiresItem)) ? connection.requiresItem : undefined;
           return [{
             id: cleanId(String(connection.id ?? `conexao-${index + 1}`)) || createId('conexao'),
             from: String(connection.from), to: String(connection.to),
@@ -244,10 +295,10 @@ export class EditorProject {
     });
     const requestedActiveLevelId = cleanId(String(raw.activeLevelId ?? ''));
     const activeLevelId = levels.some((level) => level.id === requestedActiveLevelId) ? requestedActiveLevelId : levels[0]!.id;
-    return { version: 1, name: String(raw.name ?? 'Mapa Mimosferatu'), activeLevelId, updatedAt: String(raw.updatedAt ?? ''), levels };
+    return { version: 1, name: String(raw.name ?? 'Mapa Mimosferatu'), activeLevelId, updatedAt: String(raw.updatedAt ?? ''), levels, items: finalItems, entities: finalEntities };
   }
 
-  private validateRoom(value: unknown, index: number): EditorRoom {
+  private validateRoom(value: unknown, index: number, itemIds: Set<string>, eventIds: Set<string>): EditorRoom {
     const fallback = createRoom(index);
     if (!value || typeof value !== 'object') return fallback;
     const room = value as Partial<EditorRoom>;
@@ -258,20 +309,24 @@ export class EditorProject {
       name: String(room.name ?? fallback.name), code: String(room.code ?? fallback.code),
       description: String(room.description ?? fallback.description), image: String(room.image ?? fallback.image),
       position: { x: number(position.x, fallback.position.x), y: number(position.y, fallback.position.y) },
-      hotspots: Array.isArray(room.hotspots) ? room.hotspots.flatMap((hotspot, hotspotIndex) => this.validateHotspot(hotspot, hotspotIndex)) : [],
+      hotspots: Array.isArray(room.hotspots) ? room.hotspots.flatMap((hotspot, hotspotIndex) => this.validateHotspot(hotspot, hotspotIndex, itemIds, eventIds)) : [],
     };
   }
 
-  private validateHotspot(value: unknown, index: number): EditorHotspot[] {
+  private validateHotspot(value: unknown, index: number, itemIds: Set<string>, eventIds: Set<string>): EditorHotspot[] {
     if (!value || typeof value !== 'object') return [];
     const hotspot = value as Partial<EditorHotspot>;
     const number = (candidate: unknown, fallback: number, min: number, max: number): number => typeof candidate === 'number' && Number.isFinite(candidate) ? Math.max(min, Math.min(max, candidate)) : fallback;
     const action = ACTIONS.has(hotspot.action as EditorHotspotAction) ? hotspot.action as EditorHotspotAction : 'examine';
-    const item = ITEMS.has(hotspot.item as ItemId) ? hotspot.item as ItemId : undefined;
-    const requiresItem = ITEMS.has(hotspot.requiresItem as ItemId) ? hotspot.requiresItem as ItemId : undefined;
-    const event = EVENTS.has(String(hotspot.event)) ? hotspot.event : undefined;
+    const item = itemIds.has(String(hotspot.item)) ? hotspot.item : undefined;
+    const requiresItem = itemIds.has(String(hotspot.requiresItem)) ? hotspot.requiresItem : undefined;
+    const event = eventIds.has(String(hotspot.event)) ? hotspot.event : undefined;
     const x = number(hotspot.x, 38, 0, 97);
     const y = number(hotspot.y, 38, 0, 97);
+    const visibility = VISIBILITIES.has(hotspot.visibility as HotspotVisibility) ? hotspot.visibility as HotspotVisibility : 'visible';
+    const shapePoints = Array.isArray(hotspot.shapePoints) && hotspot.shapePoints.length >= 3
+      ? hotspot.shapePoints.filter((point): point is { x: number; y: number } => Boolean(point) && typeof point === 'object' && typeof (point as { x?: unknown }).x === 'number' && typeof (point as { y?: unknown }).y === 'number').map((point) => ({ x: Math.max(-20, Math.min(120, point.x)), y: Math.max(-20, Math.min(120, point.y)) }))
+      : undefined;
     return [{
       id: cleanId(String(hotspot.id ?? `hotspot-${index + 1}`)) || createId('hotspot'),
       label: String(hotspot.label ?? 'Objeto'), x, y,
@@ -282,6 +337,44 @@ export class EditorProject {
       event, once: hotspot.once === true,
       highlightColor: typeof hotspot.highlightColor === 'string' && /^#[0-9a-f]{6}$/i.test(hotspot.highlightColor) ? hotspot.highlightColor : '#d7df77',
       highlightOpacity: number(hotspot.highlightOpacity, .22, .05, .65),
+      visibility,
+      revealSeconds: number(hotspot.revealSeconds, 25, 1, 3600),
+      shapePoints: shapePoints && (shapePoints.length >= 3 ? shapePoints : undefined),
+    }];
+  }
+
+  private validateItem(value: unknown, index: number): EditorItem[] {
+    if (!value || typeof value !== 'object') return [];
+    const item = value as Partial<EditorItem>;
+    const id = cleanId(String(item.id ?? `item-${index + 1}`));
+    if (!ID_PATTERN.test(id)) return [];
+    const number = (candidate: unknown, fallback: number, min: number, max: number): number => typeof candidate === 'number' && Number.isFinite(candidate) ? Math.max(min, Math.min(max, candidate)) : fallback;
+    const effect = EFFECTS.has(item.effect as ItemEffect) ? item.effect as ItemEffect : 'none';
+    return [{
+      id,
+      name: String(item.name ?? 'Item sem nome'),
+      icon: String(item.icon ?? '◆').slice(0, 4) || '◆',
+      description: String(item.description ?? 'Um objeto comum.'),
+      useText: String(item.useText ?? 'O item foi usado.'),
+      effect,
+      effectAmount: effect === 'none' ? 0 : number(item.effectAmount, 20, 1, 100),
+    }];
+  }
+
+  private validateEntity(value: unknown, index: number): EditorEntity[] {
+    if (!value || typeof value !== 'object') return [];
+    const entity = value as Partial<EditorEntity>;
+    const id = cleanId(String(entity.id ?? `entidade-${index + 1}`));
+    if (!ID_PATTERN.test(id)) return [];
+    const number = (candidate: unknown, fallback: number, min: number, max: number): number => typeof candidate === 'number' && Number.isFinite(candidate) ? Math.max(min, Math.min(max, candidate)) : fallback;
+    return [{
+      id,
+      name: String(entity.name ?? 'Entidade sem nome'),
+      prompt: String(entity.prompt ?? 'Algo se aproxima no escuro.'),
+      hint: String(entity.hint ?? 'Decida rápido.'),
+      solution: SOLUTIONS.has(entity.solution as EncounterAction) ? entity.solution as EncounterAction : 'hide',
+      timeLimit: number(entity.timeLimit, 5, 1, 30),
+      image: typeof entity.image === 'string' && entity.image ? entity.image : '/assets/entities/watcher.jpg',
     }];
   }
 }

@@ -1,9 +1,12 @@
-import type { ItemId } from '../types';
+import type { ItemEffect } from '../config/world';
+import type { EncounterAction, EntityId, HotspotVisibility, ItemId } from '../types';
 
 export type EditorHotspotAction = 'examine' | 'collect' | 'use' | 'move' | 'event';
-export type EditorEvent = 'none' | 'watcher' | 'crawler' | 'jumpscare';
+export type EditorEvent = 'none' | 'jumpscare' | EntityId;
 
 export interface EditorPosition { x: number; y: number }
+
+export interface EditorShapePoint { x: number; y: number }
 
 export interface EditorConnection {
   id: string;
@@ -34,6 +37,9 @@ export interface EditorHotspot {
   once: boolean;
   highlightColor: string;
   highlightOpacity: number;
+  visibility: HotspotVisibility;
+  revealSeconds: number;
+  shapePoints?: EditorShapePoint[];
 }
 
 export interface EditorRoom {
@@ -55,12 +61,34 @@ export interface EditorLevel {
   connections: EditorConnection[];
 }
 
+export interface EditorItem {
+  id: ItemId;
+  name: string;
+  icon: string;
+  description: string;
+  useText: string;
+  effect: ItemEffect;
+  effectAmount: number;
+}
+
+export interface EditorEntity {
+  id: EntityId;
+  name: string;
+  prompt: string;
+  hint: string;
+  solution: EncounterAction;
+  timeLimit: number;
+  image: string;
+}
+
 export interface EditorProjectData {
   version: 1;
   name: string;
   activeLevelId: string;
   updatedAt: string;
   levels: EditorLevel[];
+  items: EditorItem[];
+  entities: EditorEntity[];
 }
 
 export const IMAGE_LIBRARY = [
@@ -70,10 +98,20 @@ export const IMAGE_LIBRARY = [
   '/assets/scenes/maintenance.jpg',
 ] as const;
 
-export const ITEM_OPTIONS: Array<{ id: ItemId; label: string }> = [
-  { id: 'accessCard', label: 'Cartão sem nome' },
-  { id: 'almondWater', label: 'Água de amêndoas' },
-  { id: 'ration', label: 'Ração selada' },
-  { id: 'fuse', label: 'Fusível industrial' },
-  { id: 'medkit', label: 'Kit de primeiros socorros' },
+export const ENTITY_IMAGE_LIBRARY = [
+  '/assets/entities/watcher.jpg',
+  '/assets/entities/crawler.jpg',
+] as const;
+
+export const DEFAULT_ITEMS: EditorItem[] = [
+  { id: 'accessCard', name: 'Cartão sem nome', icon: '▣', description: 'Um cartão magnético amarelado. A tarja ainda parece intacta.', useText: 'Ele deve abrir algum leitor próximo.', effect: 'none', effectAmount: 0 },
+  { id: 'almondWater', name: 'Água de amêndoas', icon: '◒', description: 'Uma garrafa lacrada. O líquido tem um cheiro doce e vagamente familiar.', useText: 'A sede recua. Por enquanto.', effect: 'hydrate', effectAmount: 58 },
+  { id: 'ration', name: 'Ração selada', icon: '▰', description: 'Uma barra de emergência dura, mas ainda comestível.', useText: 'Sem gosto. Ainda assim, alimento.', effect: 'feed', effectAmount: 48 },
+  { id: 'fuse', name: 'Fusível industrial', icon: '⌁', description: 'Pesado demais para o tamanho. Os contatos não estão oxidados.', useText: 'Talvez pertença a um painel elétrico.', effect: 'none', effectAmount: 0 },
+  { id: 'medkit', name: 'Kit de primeiros socorros', icon: '✚', description: 'Gaze, antisséptico e analgésicos dentro do prazo.', useText: 'Os ferimentos foram tratados.', effect: 'heal', effectAmount: 52 },
+];
+
+export const DEFAULT_ENTITIES: EditorEntity[] = [
+  { id: 'watcher', name: 'O Observador', prompt: 'Uma silhueta bloqueia o corredor. Ela reage a movimento.', hint: 'Talvez seja melhor desaparecer da visão.', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg' },
+  { id: 'crawler', name: 'O Rastejante', prompt: 'Unhas batem no concreto atrás de você. Está se aproximando.', hint: 'Ficar parado significa ser alcançado.', solution: 'run', timeLimit: 4.2, image: '/assets/entities/crawler.jpg' },
 ];

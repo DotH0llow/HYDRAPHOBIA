@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { Game } from '../src/core/Game';
+import type { WorldDefinition } from '../src/config/world';
+
+const advance = (game: Game, seconds: number): void => {
+  let remaining = seconds;
+  while (remaining > 0) {
+    const step = Math.min(0.25, remaining);
+    game.update(step);
+    remaining -= step;
+  }
+};
+
+const simpleWorld = (hotspots: WorldDefinition['rooms']['start']['hotspots'] = []): WorldDefinition => ({
+  startRoomId: 'start',
+  rooms: {
+    start: { id: 'start', name: 'Início', code: 'A', image: '', description: 'Sala inicial.', exits: { forward: { to: 'other', label: 'Avançar' } }, hotspots },
+    other: { id: 'other', name: 'Outra', code: 'B', image: '', description: 'Outra sala.', exits: { back: { to: 'start', label: 'Voltar' } }, hotspots: [] },
+  },
+});
 
 describe('exploração', () => {
   it('navega entre salas conectadas e consome recursos', () => {
@@ -117,5 +135,110 @@ describe('sobrevivência e entidades', () => {
     game.update(100);
     expect(game.stats.hunger).toBe(100);
     expect(game.elapsed).toBe(0);
+  });
+});
+
+describe('medidor de perigo', () => {
+  it('soma 1 ponto a cada 10s na mesma sala', () => {
+    const game = new Game(undefined, () => 1, simpleWorld());
+    advance(game, 10);
+    expect(game.danger).toBe(1);
+    advance(game, 10);
+    expect(game.danger).toBe(2);
+  });
+
+  it('soma 4 pontos ao sair de uma sala em menos de 5s', () => {
+    const game = new Game(undefined, () => 1, simpleWorld());
+    advance(game, 2);
+    game.navigate('forward');
+    expect(game.danger).toBe(4);
+  });
+
+  it('não penaliza saída depois de 5s na sala', () => {
+    const game = new Game(undefined, () => 1, simpleWorld());
+    advance(game, 6);
+    game.navigate('forward');
+    expect(game.danger).toBe(0);
+  });
+
+  it('soma 2 pontos ao examinar e 1 ponto para outras interações', () => {
+    const hotspots: WorldDefinition['rooms']['start']['hotspots'] = [
+      { id: 'look', label: 'Examinar', x: 0, y: 0, width: 10, height: 10, kind: 'examine', message: 'Nada aqui.' },
+      { id: 'touch', label: 'Tocar', x: 0, y: 0, width: 10, height: 10, kind: 'use', message: 'Você toca.' },
+    ];
+    const game = new Game(undefined, () => 1, simpleWorld(hotspots));
+    game.interact('look');
+    expect(game.danger).toBe(2);
+    game.interact('touch');
+    expect(game.danger).toBe(3);
+  });
+});
+
+describe('ansiedade', () => {
+  it('soma 1 ponto a cada 10s de jogo', () => {
+    const game = new Game(undefined, () => 1, simpleWorld());
+    advance(game, 10);
+    expect(game.stats.anxiety).toBe(1);
+  });
+
+  it('soma 10 pontos ao iniciar um encontro e 20 ao se machucar', () => {
+    const game = new Game(undefined, () => 1, simpleWorld());
+    game.debugStartEncounter('watcher');
+    expect(game.stats.anxiety).toBe(10);
+    game.respondToEncounter('run');
+    expect(game.stats.anxiety).toBe(30);
+  });
+
+  it('soma 1 ponto a cada 10s com algum atributo crítico', () => {
+    const game = new Game(undefined, () => 1, simpleWorld());
+    game.debugSetStat('thirst', 10);
+    advance(game, 10);
+    expect(game.stats.anxiety).toBe(2);
+  });
+});
+
+describe('visibilidade de hotspots', () => {
+  it('hotspot escondido só existe nas flags após o tempo acumulado na sala', () => {
+    const hotspot: WorldDefinition['rooms']['start']['hotspots'][number] = { id: 'secret', label: 'Oculto', x: 0, y: 0, width: 10, height: 10, kind: 'examine', message: 'Achou.', visibility: 'hidden', revealSeconds: 20 };
+    const game = new Game(undefined, () => 1, simpleWorld([hotspot]));
+    advance(game, 10);
+    expect(game.flags['reveal:start:secret']).toBeUndefined();
+    advance(game, 10);
+    expect(game.flags['reveal:start:secret']).toBe(true);
+  });
+
+  it('o tempo na sala acumula entre visitas separadas', () => {
+    const hotspot: WorldDefinition['rooms']['start']['hotspots'][number] = { id: 'secret', label: 'Oculto', x: 0, y: 0, width: 10, height: 10, kind: 'examine', message: 'Achou.', visibility: 'hidden', revealSeconds: 15 };
+    const game = new Game(undefined, () => 1, simpleWorld([hotspot]));
+    advance(game, 10);
+    game.navigate('forward');
+    game.navigate('back');
+    expect(game.flags['reveal:start:secret']).toBeUndefined();
+    advance(game, 5);
+    expect(game.flags['reveal:start:secret']).toBe(true);
+  });
+
+  it('hotspot invisível é revelado ao ser clicado', () => {
+    const hotspot: WorldDefinition['rooms']['start']['hotspots'][number] = { id: 'ghost', label: 'Fantasma', x: 0, y: 0, width: 10, height: 10, kind: 'examine', message: 'Achou.', visibility: 'invisible' };
+    const game = new Game(undefined, () => 1, simpleWorld([hotspot]));
+    expect(game.flags['reveal:start:ghost']).toBeUndefined();
+    game.interact('ghost');
+    expect(game.flags['reveal:start:ghost']).toBe(true);
+  });
+});
+
+describe('itens e entidades customizados', () => {
+  it('usa definições de itens e entidades fornecidas ao Game', () => {
+    const items = { potion: { name: 'Poção', icon: '?', description: 'Um frasco.', useText: 'Bebido.', effect: 'heal' as const, effectAmount: 40 } };
+    const entities = { ghoul: { name: 'Carniçal', prompt: 'Algo surge.', hint: 'Fuja.', solution: 'run' as const, timeLimit: 3, image: '/x.jpg' } };
+    const game = new Game(undefined, () => 1, simpleWorld(), undefined, items, entities);
+    game.debugAddItem('potion');
+    game.stats.health = 50;
+    const result = game.useItem('potion');
+    expect(result.changed).toBe(true);
+    expect(game.stats.health).toBe(90);
+    game.debugStartEncounter('ghoul');
+    expect(game.encounter?.name).toBe('Carniçal');
+    expect(game.encounter?.timeLimit).toBe(3);
   });
 });
