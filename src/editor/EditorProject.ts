@@ -1,6 +1,6 @@
 import { DEFAULT_WORLD } from '../config/world';
 import type { ItemEffect } from '../config/world';
-import type { EncounterAction, HotspotVisibility } from '../types';
+import type { CutsceneMediaType, EncounterAction, HotspotVisibility } from '../types';
 import { DEFAULT_ENTITIES, DEFAULT_ITEMS } from './types';
 import type { EditorConnection, EditorEntity, EditorHotspot, EditorHotspotAction, EditorItem, EditorLevel, EditorProjectData, EditorRoom } from './types';
 
@@ -10,10 +10,11 @@ type EditorStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
 const cleanId = (value: string): string => value.trim().replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
-const ACTIONS = new Set<EditorHotspotAction>(['examine', 'collect', 'use', 'move', 'event']);
+const ACTIONS = new Set<EditorHotspotAction>(['examine', 'collect', 'use', 'move', 'event', 'cutscene']);
 const VISIBILITIES = new Set<HotspotVisibility>(['visible', 'hidden', 'invisible']);
 const EFFECTS = new Set<ItemEffect>(['none', 'heal', 'hydrate', 'feed']);
 const SOLUTIONS = new Set<EncounterAction>(['run', 'hide']);
+const CUTSCENE_MEDIA_TYPES = new Set<CutsceneMediaType>(['image', 'gif', 'video']);
 
 export const createId = (prefix: string): string => {
   const random = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10);
@@ -59,6 +60,11 @@ export const createProject = (): EditorProjectData => {
       visibility: hotspot.visibility ?? 'visible',
       revealSeconds: hotspot.revealSeconds ?? 25,
       shapePoints: hotspot.shape?.points,
+      indicator: hotspot.indicator ?? { x: 50, y: 50 },
+      cutsceneMedia: hotspot.cutsceneMedia ?? 'image',
+      cutscenePath: hotspot.cutscenePath ?? '',
+      cutsceneHoldSeconds: hotspot.cutsceneHoldSeconds ?? 4,
+      cutsceneRepeatCount: hotspot.cutsceneRepeatCount ?? 1,
     })),
   }));
   const connections = Object.values(DEFAULT_WORLD.rooms).flatMap((room) => Object.entries(room.exits).map(([direction, exit], index): EditorConnection => ({
@@ -170,6 +176,8 @@ export class EditorProject {
       action: 'examine', message: 'Você examina o objeto.', once: false,
       highlightColor: '#d7df77', highlightOpacity: 0.22,
       visibility: 'visible', revealSeconds: 25,
+      indicator: { x: 50, y: 50 },
+      cutsceneMedia: 'image', cutscenePath: '', cutsceneHoldSeconds: 4, cutsceneRepeatCount: 1,
     };
     room.hotspots.push(hotspot);
     this.save();
@@ -273,6 +281,7 @@ export class EditorProject {
           const connection = value as Partial<EditorConnection>;
           if (!roomIds.has(String(connection.from)) || !roomIds.has(String(connection.to))) return [];
           const requiresItem = itemIds.has(String(connection.requiresItem)) ? connection.requiresItem : undefined;
+          const num = (candidate: unknown): number | undefined => typeof candidate === 'number' && Number.isFinite(candidate) ? candidate : undefined;
           return [{
             id: cleanId(String(connection.id ?? `conexao-${index + 1}`)) || createId('conexao'),
             from: String(connection.from), to: String(connection.to),
@@ -281,6 +290,9 @@ export class EditorProject {
             requiresFlag: typeof connection.requiresFlag === 'string' ? connection.requiresFlag : undefined,
             requiresItem,
             lockedMessage: typeof connection.lockedMessage === 'string' ? connection.lockedMessage : undefined,
+            buttonX: num(connection.buttonX) !== undefined ? Math.max(0, Math.min(100, num(connection.buttonX)!)) : undefined,
+            buttonY: num(connection.buttonY) !== undefined ? Math.max(0, Math.min(100, num(connection.buttonY)!)) : undefined,
+            arrowRotation: num(connection.arrowRotation) !== undefined ? ((num(connection.arrowRotation)! % 360) + 360) % 360 : undefined,
           }];
         })
         : [];
@@ -327,6 +339,9 @@ export class EditorProject {
     const shapePoints = Array.isArray(hotspot.shapePoints) && hotspot.shapePoints.length >= 3
       ? hotspot.shapePoints.filter((point): point is { x: number; y: number } => Boolean(point) && typeof point === 'object' && typeof (point as { x?: unknown }).x === 'number' && typeof (point as { y?: unknown }).y === 'number').map((point) => ({ x: Math.max(-20, Math.min(120, point.x)), y: Math.max(-20, Math.min(120, point.y)) }))
       : undefined;
+    const indicatorRaw = hotspot.indicator && typeof hotspot.indicator === 'object' ? hotspot.indicator : { x: 50, y: 50 };
+    const indicator = { x: number(indicatorRaw.x, 50, -20, 120), y: number(indicatorRaw.y, 50, -20, 120) };
+    const cutsceneMedia = CUTSCENE_MEDIA_TYPES.has(hotspot.cutsceneMedia as CutsceneMediaType) ? hotspot.cutsceneMedia as CutsceneMediaType : 'image';
     return [{
       id: cleanId(String(hotspot.id ?? `hotspot-${index + 1}`)) || createId('hotspot'),
       label: String(hotspot.label ?? 'Objeto'), x, y,
@@ -340,6 +355,11 @@ export class EditorProject {
       visibility,
       revealSeconds: number(hotspot.revealSeconds, 25, 1, 3600),
       shapePoints: shapePoints && (shapePoints.length >= 3 ? shapePoints : undefined),
+      indicator,
+      cutsceneMedia,
+      cutscenePath: typeof hotspot.cutscenePath === 'string' ? hotspot.cutscenePath : '',
+      cutsceneHoldSeconds: number(hotspot.cutsceneHoldSeconds, 4, 0.2, 600),
+      cutsceneRepeatCount: Math.round(number(hotspot.cutsceneRepeatCount, 1, 1, 100)),
     }];
   }
 
@@ -358,6 +378,7 @@ export class EditorProject {
       useText: String(item.useText ?? 'O item foi usado.'),
       effect,
       effectAmount: effect === 'none' ? 0 : number(item.effectAmount, 20, 1, 100),
+      image: typeof item.image === 'string' && item.image ? item.image : undefined,
     }];
   }
 

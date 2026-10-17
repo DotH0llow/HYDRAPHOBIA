@@ -1,5 +1,5 @@
 import { DEFAULT_WORLD, ENTITIES, ITEMS, type EntityDefinition, type HotspotDefinition, type ItemDefinition, type WorldDefinition } from '../config/world';
-import type { Direction, Encounter, EncounterAction, EntityId, GameSave, GameStatus, HotspotId, InventoryEntry, ItemId, RoomId, Stats } from '../types';
+import type { CutsceneState, Direction, Encounter, EncounterAction, EntityId, GameSave, GameStatus, HotspotId, InventoryEntry, ItemId, RoomId, Stats } from '../types';
 
 export interface ActionResult {
   changed: boolean;
@@ -24,11 +24,13 @@ export class Game {
   attackNonce = 0;
   invincible = false;
   roomTime: Record<RoomId, number> = {};
+  cutscene: CutsceneState | null = null;
 
   private roomDwellTimer = 0;
   private dangerTickTimer = 0;
   private anxietyTimer = 0;
   private criticalTimer = 0;
+  private wasStarving = false;
 
   constructor(
     save?: GameSave,
@@ -61,15 +63,50 @@ export class Game {
       return;
     }
 
+    if (this.status === 'cutscene' && this.cutscene) {
+      this.updateCutscene(capped);
+      return;
+    }
+
     this.stats.hunger = this.clamp(this.stats.hunger - capped * 0.096);
     this.stats.thirst = this.clamp(this.stats.thirst - capped * 0.144);
-    if (this.stats.hunger === 0 || this.stats.thirst === 0) {
-      if (!this.invincible) this.stats.health = this.clamp(this.stats.health - capped * (this.stats.hunger === 0 && this.stats.thirst === 0 ? 1.2 : 0.65));
+    const starving = this.stats.hunger === 0 || this.stats.thirst === 0;
+    if (starving) {
+      if (!this.invincible) {
+        this.stats.health = this.clamp(this.stats.health - capped * (this.stats.hunger === 0 && this.stats.thirst === 0 ? 1.2 : 0.65));
+        if (!this.wasStarving) this.stats.anxiety = this.clamp(this.stats.anxiety + 10);
+      }
       if (this.stats.health === 0) this.status = 'gameover';
     }
+    this.wasStarving = starving;
 
     this.updateRoomTimers(capped);
     this.updateAnxiety(capped);
+  }
+
+  private updateCutscene(delta: number): void {
+    const cutscene = this.cutscene;
+    if (!cutscene || cutscene.mediaType === 'video') return;
+    cutscene.elapsed += delta;
+    if (cutscene.mediaType === 'image') {
+      if (cutscene.elapsed >= cutscene.holdSeconds) this.endCutscene();
+      return;
+    }
+    if (cutscene.elapsed >= cutscene.holdSeconds) {
+      cutscene.elapsed = 0;
+      this.advanceCutsceneLoop();
+    }
+  }
+
+  advanceCutsceneLoop(): void {
+    if (!this.cutscene) return;
+    this.cutscene.loopsCompleted += 1;
+    if (this.cutscene.loopsCompleted >= this.cutscene.repeatCount) this.endCutscene();
+  }
+
+  private endCutscene(): void {
+    this.cutscene = null;
+    if (this.status === 'cutscene') this.status = 'exploring';
   }
 
   navigate(direction: Direction): ActionResult {
@@ -85,7 +122,7 @@ export class Game {
       return { changed: false, message: this.message };
     }
 
-    if (this.roomDwellTimer < 5) this.danger = this.clamp(this.danger + 4);
+    if (this.roomDwellTimer < 5) this.addDanger(4);
     this.roomDwellTimer = 0;
     this.dangerTickTimer = 0;
 
@@ -117,7 +154,7 @@ export class Game {
     }
 
     if (hotspot.visibility === 'invisible') this.flags[`reveal:${this.position}:${id}`] = true;
-    this.danger = this.clamp(this.danger + (hotspot.kind === 'examine' ? 2 : 1));
+    this.addDanger(hotspot.kind === 'examine' ? 2 : 1);
 
     if (hotspot.kind === 'collect' && hotspot.item) {
       this.addItem(hotspot.item);
@@ -127,6 +164,21 @@ export class Game {
     }
 
     if (hotspot.kind === 'use') return this.useOnHotspot(hotspot, usedFlag);
+    if (hotspot.kind === 'cutscene' && hotspot.cutscenePath) {
+      if (hotspot.once) this.flags[usedFlag] = true;
+      this.cutscene = {
+        hotspotId: id,
+        mediaType: hotspot.cutsceneMedia ?? 'image',
+        mediaPath: hotspot.cutscenePath,
+        holdSeconds: hotspot.cutsceneHoldSeconds ?? 4,
+        repeatCount: hotspot.cutsceneRepeatCount ?? 1,
+        elapsed: 0,
+        loopsCompleted: 0,
+      };
+      this.status = 'cutscene';
+      this.message = hotspot.message;
+      return { changed: true, message: this.message };
+    }
     if (hotspot.kind === 'move' && hotspot.targetRoom && this.world.rooms[hotspot.targetRoom]) {
       this.position = hotspot.targetRoom;
       this.discovered.add(hotspot.targetRoom);
@@ -197,7 +249,7 @@ export class Game {
   }
 
   pause(value?: boolean): void {
-    if (this.status === 'gameover' || this.status === 'escaped' || this.status === 'encounter') return;
+    if (this.status === 'gameover' || this.status === 'escaped' || this.status === 'encounter' || this.status === 'cutscene') return;
     const shouldPause = value ?? this.status !== 'paused';
     this.status = shouldPause ? 'paused' : 'exploring';
   }
@@ -220,7 +272,9 @@ export class Game {
 
   debugSetStat(stat: keyof Stats, value: number): void {
     this.stats[stat] = this.clamp(value);
-    if (stat === 'health' && this.stats.health > 0 && this.status === 'gameover') this.status = 'exploring';
+    if (stat !== 'health') return;
+    if (this.stats.health <= 0 && this.status !== 'gameover' && this.status !== 'escaped') this.status = 'gameover';
+    else if (this.stats.health > 0 && this.status === 'gameover') this.status = 'exploring';
   }
 
   debugAddItem(id: ItemId): void { this.addItem(id); }
@@ -233,9 +287,18 @@ export class Game {
     this.dangerTickTimer += delta;
     if (this.dangerTickTimer >= 10) {
       this.dangerTickTimer -= 10;
-      this.danger = this.clamp(this.danger + 1);
+      this.addDanger(1);
     }
     this.revealDueHotspots();
+  }
+
+  private addDanger(amount: number): void {
+    this.danger = this.clamp(this.danger + amount);
+    if (this.danger >= 100 && this.status === 'exploring') {
+      this.danger = 0;
+      const ids = Object.keys(this.entities);
+      if (ids.length > 0) this.startEncounter(ids[Math.min(ids.length - 1, Math.floor(this.random() * ids.length))]!);
+    }
   }
 
   private updateAnxiety(delta: number): void {

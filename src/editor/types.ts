@@ -1,12 +1,14 @@
 import type { ItemEffect } from '../config/world';
-import type { EncounterAction, EntityId, HotspotVisibility, ItemId } from '../types';
+import type { CutsceneMediaType, EncounterAction, EntityId, HotspotVisibility, ItemId } from '../types';
 
-export type EditorHotspotAction = 'examine' | 'collect' | 'use' | 'move' | 'event';
+export type EditorHotspotAction = 'examine' | 'collect' | 'use' | 'move' | 'event' | 'cutscene';
 export type EditorEvent = 'none' | 'jumpscare' | EntityId;
 
 export interface EditorPosition { x: number; y: number }
 
 export interface EditorShapePoint { x: number; y: number }
+
+export const DEFAULT_SHAPE_POINT_COUNT = 4;
 
 export interface EditorConnection {
   id: string;
@@ -18,6 +20,9 @@ export interface EditorConnection {
   requiresFlag?: string;
   requiresItem?: ItemId;
   lockedMessage?: string;
+  buttonX?: number;
+  buttonY?: number;
+  arrowRotation?: number;
 }
 
 export interface EditorHotspot {
@@ -40,6 +45,11 @@ export interface EditorHotspot {
   visibility: HotspotVisibility;
   revealSeconds: number;
   shapePoints?: EditorShapePoint[];
+  indicator: EditorShapePoint;
+  cutsceneMedia: CutsceneMediaType;
+  cutscenePath: string;
+  cutsceneHoldSeconds: number;
+  cutsceneRepeatCount: number;
 }
 
 export interface EditorRoom {
@@ -69,6 +79,7 @@ export interface EditorItem {
   useText: string;
   effect: ItemEffect;
   effectAmount: number;
+  image?: string;
 }
 
 export interface EditorEntity {

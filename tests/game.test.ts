@@ -242,3 +242,71 @@ describe('itens e entidades customizados', () => {
     expect(game.encounter?.timeLimit).toBe(3);
   });
 });
+
+describe('cheat de vida e invencibilidade', () => {
+  it('zerar a vida via cheat mata o personagem mesmo com invencibilidade ligada', () => {
+    const game = new Game(undefined, () => 1);
+    game.setInvincible(true);
+    game.debugSetStat('health', 0);
+    expect(game.status).toBe('gameover');
+    game.setInvincible(false);
+    expect(game.status).toBe('gameover');
+  });
+
+  it('restaurar vida acima de zero reanima o personagem', () => {
+    const game = new Game(undefined, () => 1);
+    game.debugSetStat('health', 0);
+    expect(game.status).toBe('gameover');
+    game.debugSetStat('health', 50);
+    expect(game.status).toBe('exploring');
+  });
+});
+
+describe('ansiedade por dano sem entidade', () => {
+  it('soma 10 pontos uma vez ao começar a sofrer dano de fome/sede críticas', () => {
+    const game = new Game(undefined, () => 1, simpleWorld());
+    game.debugSetStat('hunger', 0);
+    advance(game, 0.25);
+    expect(game.stats.anxiety).toBe(10);
+    advance(game, 0.25);
+    expect(game.stats.anxiety).toBe(10);
+  });
+});
+
+describe('medidor de perigo no máximo', () => {
+  it('ao chegar em 100 dispara um encontro sem causar dano automático', () => {
+    const hotspots: WorldDefinition['rooms']['start']['hotspots'] = [
+      { id: 'look', label: 'Examinar', x: 0, y: 0, width: 10, height: 10, kind: 'examine', message: 'Nada aqui.' },
+    ];
+    const game = new Game(undefined, () => 1, simpleWorld(hotspots));
+    for (let index = 0; index < 50; index += 1) game.interact('look');
+    expect(game.danger).toBeLessThan(100);
+    expect(game.status).toBe('encounter');
+    expect(game.stats.health).toBe(100);
+  });
+});
+
+describe('cutscenes', () => {
+  it('cutscene de imagem bloqueia exploração e termina após a duração', () => {
+    const hotspot: WorldDefinition['rooms']['start']['hotspots'][number] = { id: 'photo', label: 'Foto', x: 0, y: 0, width: 10, height: 10, kind: 'cutscene', message: 'Uma lembrança.', cutsceneMedia: 'image', cutscenePath: '/x.jpg', cutsceneHoldSeconds: 1 };
+    const game = new Game(undefined, () => 1, simpleWorld([hotspot]));
+    game.interact('photo');
+    expect(game.status).toBe('cutscene');
+    expect(game.navigate('forward').changed).toBe(false);
+    advance(game, 1);
+    expect(game.status).toBe('exploring');
+    expect(game.cutscene).toBeNull();
+  });
+
+  it('cutscene em vídeo só avança por loop externo, não por tempo', () => {
+    const hotspot: WorldDefinition['rooms']['start']['hotspots'][number] = { id: 'clip', label: 'Clipe', x: 0, y: 0, width: 10, height: 10, kind: 'cutscene', message: 'Um vídeo.', cutsceneMedia: 'video', cutscenePath: '/x.mp4', cutsceneRepeatCount: 2 };
+    const game = new Game(undefined, () => 1, simpleWorld([hotspot]));
+    game.interact('clip');
+    advance(game, 5);
+    expect(game.status).toBe('cutscene');
+    game.advanceCutsceneLoop();
+    expect(game.status).toBe('cutscene');
+    game.advanceCutsceneLoop();
+    expect(game.status).toBe('exploring');
+  });
+});

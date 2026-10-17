@@ -1,4 +1,4 @@
-import type { Direction, EncounterAction, EntityId, HotspotId, HotspotVisibility, ItemId, RoomId } from '../types';
+import type { CutsceneMediaType, Direction, EncounterAction, EntityId, HotspotId, HotspotVisibility, ItemId, RoomId } from '../types';
 
 export interface ExitDefinition {
   to: RoomId;
@@ -6,6 +6,9 @@ export interface ExitDefinition {
   requires?: string;
   requiresItem?: ItemId;
   lockedMessage?: string;
+  buttonX?: number;
+  buttonY?: number;
+  arrowRotation?: number;
 }
 
 export interface HotspotShape {
@@ -19,7 +22,7 @@ export interface HotspotDefinition {
   y: number;
   width: number;
   height: number;
-  kind: 'examine' | 'collect' | 'use' | 'move' | 'event';
+  kind: 'examine' | 'collect' | 'use' | 'move' | 'event' | 'cutscene';
   message: string;
   item?: ItemId;
   requiresItem?: ItemId;
@@ -31,6 +34,11 @@ export interface HotspotDefinition {
   visibility?: HotspotVisibility;
   revealSeconds?: number;
   shape?: HotspotShape;
+  indicator?: { x: number; y: number };
+  cutsceneMedia?: CutsceneMediaType;
+  cutscenePath?: string;
+  cutsceneHoldSeconds?: number;
+  cutsceneRepeatCount?: number;
 }
 
 export interface RoomDefinition {
@@ -58,6 +66,7 @@ export interface ItemDefinition {
   useText: string;
   effect: ItemEffect;
   effectAmount: number;
+  image?: string;
 }
 
 export interface EntityDefinition {

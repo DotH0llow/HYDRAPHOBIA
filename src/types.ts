@@ -1,5 +1,6 @@
 export type Screen = 'menu' | 'game' | 'settings' | 'gameover' | 'escaped' | 'exit';
-export type GameStatus = 'exploring' | 'encounter' | 'paused' | 'gameover' | 'escaped';
+export type GameStatus = 'exploring' | 'encounter' | 'paused' | 'gameover' | 'escaped' | 'cutscene';
+export type CutsceneMediaType = 'image' | 'gif' | 'video';
 export type Direction = string;
 export type RoomId = string;
 export type ItemId = string;
@@ -29,6 +30,16 @@ export interface Encounter {
   remaining: number;
   timeLimit: number;
   image: string;
+}
+
+export interface CutsceneState {
+  hotspotId: HotspotId;
+  mediaType: CutsceneMediaType;
+  mediaPath: string;
+  holdSeconds: number;
+  repeatCount: number;
+  elapsed: number;
+  loopsCompleted: number;
 }
 
 export interface GameSave {

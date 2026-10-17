@@ -5,7 +5,7 @@ import { DEFAULT_PREFERENCES } from '../systems/SaveSystem';
 import type { EncounterAction, ItemId } from '../types';
 import { EditorProject } from './EditorProject';
 import { entitiesToRuntime, itemsToRuntime, levelToWorld } from './mapAdapter';
-import { ENTITY_IMAGE_LIBRARY, IMAGE_LIBRARY, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorRoom } from './types';
+import { DEFAULT_SHAPE_POINT_COUNT, ENTITY_IMAGE_LIBRARY, IMAGE_LIBRARY, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorRoom } from './types';
 
 type Panel = 'map' | 'items' | 'entities';
 
@@ -13,15 +13,20 @@ type Gesture =
   | { type: 'room'; roomId: string; startX: number; startY: number; originX: number; originY: number }
   | { type: 'pan'; startX: number; startY: number; originX: number; originY: number }
   | { type: 'hotspot'; roomId: string; hotspotId: string; resize: boolean; startX: number; startY: number; origin: { x: number; y: number; width: number; height: number }; rect: DOMRect }
-  | { type: 'shapePoint'; roomId: string; hotspotId: string; pointIndex: number; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect };
+  | { type: 'shapePoint'; roomId: string; hotspotId: string; pointIndex: number; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect }
+  | { type: 'indicator'; roomId: string; hotspotId: string; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect }
+  | { type: 'connectionButton'; connectionId: string; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect };
 
 const esc = (value: unknown): string => String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]!);
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
-const circlePoints = (count = 12): Array<{ x: number; y: number }> => Array.from({ length: count }, (_, index) => {
+const circlePoints = (count = DEFAULT_SHAPE_POINT_COUNT): Array<{ x: number; y: number }> => Array.from({ length: count }, (_, index) => {
   const angle = (index / count) * Math.PI * 2;
   return { x: Math.round((50 + 50 * Math.cos(angle)) * 10) / 10, y: Math.round((50 + 50 * Math.sin(angle)) * 10) / 10 };
 });
+
+const DEFAULT_POSITIONS: Record<string, { x: number; y: number }> = { forward: { x: 50, y: 5 }, back: { x: 50, y: 95 }, left: { x: 5, y: 50 }, right: { x: 95, y: 50 } };
+const defaultArrowRotation = (direction: string): number => ({ forward: 0, back: 180, left: 270, right: 90 } as Record<string, number>)[direction] ?? 45;
 
 export class EditorApp {
   private readonly project = new EditorProject();
@@ -59,6 +64,7 @@ export class EditorApp {
 
   private render(): void {
     this.root.innerHTML = this.testMode ? this.playtestTemplate() : this.editorTemplate();
+    if (this.testMode) this.bindTestCutsceneVideo();
   }
 
   private editorTemplate(): string {
@@ -203,18 +209,28 @@ export class EditorApp {
   private editableHotspotTemplate(entry: EditorHotspot, connection: EditorConnection | null): string {
     const selected = entry.id === this.selectedHotspotId && !connection;
     const clip = entry.shapePoints ? `clip-path:polygon(${entry.shapePoints.map((point) => `${point.x}% ${point.y}%`).join(',')});` : '';
-    const points = selected && entry.shapePoints ? entry.shapePoints.map((point, index) => `<i class="shape-point" data-role="shape-point" data-point="${index}" style="left:${point.x}%;top:${point.y}%"></i>`).join('') : '';
-    return `<button class="editable-hotspot ${selected ? 'selected' : ''} ${entry.visibility !== 'visible' ? 'muted-visibility' : ''}" data-hotspot="${esc(entry.id)}" style="left:${entry.x}%;top:${entry.y}%;width:${entry.width}%;height:${entry.height}%;--hotspot-color:${esc(entry.highlightColor)};--hotspot-strength:${entry.highlightOpacity * 100}%;${clip}"><span>${esc(entry.label)}</span>${entry.shapePoints ? '' : '<i data-role="hotspot-resize"></i>'}${points}</button>`;
+    const shapePointHandles = selected && entry.shapePoints ? entry.shapePoints.map((point, index) => `<i class="shape-point" data-role="shape-point" data-point="${index}" style="left:${point.x}%;top:${point.y}%"></i>`).join('') : '';
+    const indicatorHandle = selected ? `<i class="indicator-point" data-role="indicator-point" title="Círculo visível ao jogador" style="left:${entry.indicator.x}%;top:${entry.indicator.y}%"></i>` : '';
+    return `<button class="editable-hotspot ${selected ? 'selected' : ''} ${entry.visibility !== 'visible' ? 'muted-visibility' : ''}" data-hotspot="${esc(entry.id)}" style="left:${entry.x}%;top:${entry.y}%;width:${entry.width}%;height:${entry.height}%;--hotspot-color:${esc(entry.highlightColor)};--hotspot-strength:${entry.highlightOpacity * 100}%">
+      <i class="hotspot-fill" style="${clip}"></i>
+      <span>${esc(entry.label)}</span>
+      ${entry.shapePoints ? '' : '<i data-role="hotspot-resize"></i>'}
+      ${shapePointHandles}
+      ${indicatorHandle}
+    </button>`;
   }
 
   private sceneConnectionMarker(connection: EditorConnection, index: number, total: number): string {
-    const positions: Record<string, string> = { forward: 'left:50%;top:5%', back: 'left:50%;bottom:5%', left: 'left:5%;top:50%', right: 'right:5%;top:50%' };
-    const position = positions[connection.direction] ?? `left:${15 + (index + 1) * (70 / (total + 1))}%;bottom:5%`;
-    return `<button class="scene-connection ${connection.id === this.selectedConnectionId ? 'selected' : ''}" data-action="select-scene-connection" data-connection="${esc(connection.id)}" style="${position}" title="Editar caminho: ${esc(connection.label)}"><i>${this.directionIcon(connection.direction)}</i><span>${esc(connection.label)}</span></button>`;
+    const fallback = DEFAULT_POSITIONS[connection.direction] ?? { x: 15 + (index + 1) * (70 / (total + 1)), y: 95 };
+    const x = connection.buttonX ?? fallback.x;
+    const y = connection.buttonY ?? fallback.y;
+    const rotation = connection.arrowRotation ?? defaultArrowRotation(connection.direction);
+    return `<button class="scene-connection ${connection.id === this.selectedConnectionId ? 'selected' : ''}" data-action="select-scene-connection" data-connection="${esc(connection.id)}" style="left:${x}%;top:${y}%" title="Arraste para posicionar · clique para editar: ${esc(connection.label)}"><i style="transform:rotate(${rotation}deg)">↑</i><span>${esc(connection.label)}</span></button>`;
   }
 
   private sceneConnectionFields(connection: EditorConnection): string {
     const destination = this.project.findRoom(connection.to);
+    const fallback = DEFAULT_POSITIONS[connection.direction] ?? { x: 50, y: 95 };
     return `<div class="properties-heading"><div><small>CAMINHO</small><h3>${esc(connection.label)}</h3></div><button class="danger" data-action="delete-connection" data-connection="${esc(connection.id)}">Excluir</button></div>
       <label><span>Etiqueta no jogo</span><input data-connection-field="label" data-connection="${esc(connection.id)}" value="${esc(connection.label)}" /></label>
       <label><span>Direção / ação</span><select data-connection-field="direction" data-connection="${esc(connection.id)}"><option value="forward" ${connection.direction === 'forward' ? 'selected' : ''}>Frente</option><option value="back" ${connection.direction === 'back' ? 'selected' : ''}>Trás</option><option value="left" ${connection.direction === 'left' ? 'selected' : ''}>Esquerda</option><option value="right" ${connection.direction === 'right' ? 'selected' : ''}>Direita</option><option value="custom" ${!['forward', 'back', 'left', 'right'].includes(connection.direction) ? 'selected' : ''}>Personalizada</option></select></label>
@@ -222,19 +238,27 @@ export class EditorApp {
       <div class="scene-destination"><img src="${esc(destination?.image ?? '')}" alt="" /><span>${esc(destination?.name ?? connection.to)}</span></div>
       <label class="check"><input type="checkbox" data-connection-field="bidirectional" data-connection="${esc(connection.id)}" ${connection.bidirectional ? 'checked' : ''} /><span>Criar retorno automático</span></label>
       <label><span>Exigir item</span><select data-connection-field="requiresItem" data-connection="${esc(connection.id)}"><option value="">Nenhum</option>${this.itemOptions(connection.requiresItem)}</select></label>
-      <label><span>Mensagem quando bloqueado</span><textarea data-connection-field="lockedMessage" data-connection="${esc(connection.id)}" rows="3">${esc(connection.lockedMessage ?? '')}</textarea></label>`;
+      <label><span>Mensagem quando bloqueado</span><textarea data-connection-field="lockedMessage" data-connection="${esc(connection.id)}" rows="3">${esc(connection.lockedMessage ?? '')}</textarea></label>
+      <section class="property-section">
+        <div class="panel-title"><span>Botão na tela</span></div>
+        <p class="panel-hint">Arraste a seta sobre a imagem para reposicionar o botão de movimento.</p>
+        <div class="field-row"><label><span>X %</span><input type="number" min="0" max="100" step="0.5" data-connection-field="buttonX" data-connection="${esc(connection.id)}" value="${(connection.buttonX ?? fallback.x).toFixed(1)}" /></label><label><span>Y %</span><input type="number" min="0" max="100" step="0.5" data-connection-field="buttonY" data-connection="${esc(connection.id)}" value="${(connection.buttonY ?? fallback.y).toFixed(1)}" /></label></div>
+        <label><span>Rotação da seta (graus)</span><input type="number" min="0" max="359" step="5" data-connection-field="arrowRotation" data-connection="${esc(connection.id)}" value="${connection.arrowRotation ?? defaultArrowRotation(connection.direction)}" /></label>
+        <button class="wide-button" data-action="reset-connection-button" data-connection="${esc(connection.id)}">Redefinir posição padrão</button>
+      </section>`;
   }
 
   private hotspotFieldsTemplate(hotspot: EditorHotspot, room: EditorRoom): string {
     const level = this.project.activeLevel;
     return `<div class="properties-heading"><div><small>HOTSPOT</small><h3>${esc(hotspot.label)}</h3></div><button class="danger" data-action="delete-hotspot">Excluir</button></div>
       <label><span>Etiqueta</span><input data-hotspot-field="label" value="${esc(hotspot.label)}" /></label>
-      <label><span>Ação</span><select data-hotspot-field="action"><option value="examine" ${hotspot.action === 'examine' ? 'selected' : ''}>Examinar</option><option value="collect" ${hotspot.action === 'collect' ? 'selected' : ''}>Coletar item</option><option value="use" ${hotspot.action === 'use' ? 'selected' : ''}>Abrir / utilizar</option><option value="move" ${hotspot.action === 'move' ? 'selected' : ''}>Mudar de sala</option><option value="event" ${hotspot.action === 'event' ? 'selected' : ''}>Evento / entidade</option></select></label>
+      <label><span>Ação</span><select data-hotspot-field="action"><option value="examine" ${hotspot.action === 'examine' ? 'selected' : ''}>Examinar</option><option value="collect" ${hotspot.action === 'collect' ? 'selected' : ''}>Coletar item</option><option value="use" ${hotspot.action === 'use' ? 'selected' : ''}>Abrir / utilizar</option><option value="move" ${hotspot.action === 'move' ? 'selected' : ''}>Mudar de sala</option><option value="event" ${hotspot.action === 'event' ? 'selected' : ''}>Evento / entidade</option><option value="cutscene" ${hotspot.action === 'cutscene' ? 'selected' : ''}>Cutscene</option></select></label>
       <label><span>Mensagem ao jogador</span><textarea data-hotspot-field="message" rows="4">${esc(hotspot.message)}</textarea></label>
       ${hotspot.action === 'collect' ? `<label><span>Item coletado</span><select data-hotspot-field="item">${this.itemOptions(hotspot.item)}</select></label>` : ''}
       ${hotspot.action === 'use' ? `<label><span>Item necessário</span><select data-hotspot-field="requiresItem"><option value="">Nenhum</option>${this.itemOptions(hotspot.requiresItem)}</select></label>` : ''}
       ${hotspot.action === 'move' ? `<label><span>Sala de destino</span><select data-hotspot-field="targetRoomId">${level.rooms.filter((entry) => entry.id !== room.id).map((entry) => `<option value="${esc(entry.id)}" ${hotspot.targetRoomId === entry.id ? 'selected' : ''}>${esc(entry.name)}</option>`).join('')}</select></label>` : ''}
       ${hotspot.action === 'event' ? `<label><span>Evento</span><select data-hotspot-field="event">${this.eventOptions(hotspot.event)}</select></label>` : ''}
+      ${hotspot.action === 'cutscene' ? this.cutsceneFieldsTemplate(hotspot) : ''}
       <div class="field-row"><label><span>Cor do highlight</span><input type="color" data-hotspot-field="highlightColor" value="${esc(hotspot.highlightColor)}" /></label><label><span>Opacidade</span><input type="range" min="0.05" max="0.65" step="0.05" data-hotspot-field="highlightOpacity" value="${hotspot.highlightOpacity}" /></label></div>
       <label class="check"><input type="checkbox" data-hotspot-field="once" ${hotspot.once ? 'checked' : ''} /><span>Executar apenas uma vez</span></label>
       <section class="property-section">
@@ -244,13 +268,33 @@ export class EditorApp {
         ${hotspot.visibility === 'invisible' ? '<p class="panel-hint">Fica oculto até o jogador clicar na área delimitada; depois disso continua visível.</p>' : ''}
       </section>
       <section class="property-section">
-        <div class="panel-title"><span>Formato da área</span></div>
+        <div class="panel-title"><span>Círculo visível ao jogador</span></div>
+        <p class="panel-hint">O jogador só enxerga este círculo pequeno, nunca a área inteira. Arraste o ponto cheio sobre a imagem para reposicioná-lo; a área toda continua clicável (útil para objetos invisíveis).</p>
+      </section>
+      <section class="property-section">
+        <div class="panel-title"><span>Formato da área clicável</span></div>
         ${hotspot.shapePoints
-          ? '<p class="panel-hint">Arraste os pontos amarelos sobre a imagem para ajustar o contorno.</p><button class="wide-button" data-action="reset-shape">Voltar para retângulo</button>'
-          : '<p class="panel-hint">Por padrão a área é um retângulo/elipse. Converta para um contorno circular com pontos ajustáveis para objetos de forma irregular.</p><button class="wide-button" data-action="make-shape">Usar contorno circular ajustável</button>'}
+          ? `<p class="panel-hint">Arraste os pontos amarelos sobre a imagem para ajustar o contorno.</p>
+             <label><span>Número de vértices</span><input type="number" min="3" max="24" data-hotspot-field="vertexCount" value="${hotspot.shapePoints.length}" /></label>
+             <button class="wide-button" data-action="reset-shape">Voltar para retângulo</button>`
+          : `<p class="panel-hint">Por padrão a área é um retângulo/elipse. Converta para um contorno circular com pontos ajustáveis para objetos de forma irregular.</p><button class="wide-button" data-action="make-shape">Usar contorno circular ajustável</button>`}
       </section>
       <div class="coordinate-readout"><span>X <b>${hotspot.x.toFixed(1)}%</b></span><span>Y <b>${hotspot.y.toFixed(1)}%</b></span><span>L <b>${hotspot.width.toFixed(1)}%</b></span><span>A <b>${hotspot.height.toFixed(1)}%</b></span></div>
       <p class="panel-hint">Arraste a área para mover. Use o quadrado no canto inferior direito para redimensionar.</p>`;
+  }
+
+  private cutsceneFieldsTemplate(hotspot: EditorHotspot): string {
+    return `<label><span>Tipo de mídia</span><select data-hotspot-field="cutsceneMedia">
+        <option value="image" ${hotspot.cutsceneMedia === 'image' ? 'selected' : ''}>Imagem estática</option>
+        <option value="gif" ${hotspot.cutsceneMedia === 'gif' ? 'selected' : ''}>GIF animado</option>
+        <option value="video" ${hotspot.cutsceneMedia === 'video' ? 'selected' : ''}>Vídeo</option>
+      </select></label>
+      <label><span>Caminho do arquivo</span><input data-hotspot-field="cutscenePath" value="${esc(hotspot.cutscenePath)}" placeholder="/assets/cutscenes/exemplo.jpg" /></label>
+      ${hotspot.cutsceneMedia === 'image'
+        ? `<label><span>Duração (segundos)</span><input type="number" min="0.2" step="0.1" data-hotspot-field="cutsceneHoldSeconds" value="${hotspot.cutsceneHoldSeconds}" /></label>`
+        : `<label><span>Repetições</span><input type="number" min="1" max="100" data-hotspot-field="cutsceneRepeatCount" value="${hotspot.cutsceneRepeatCount}" /></label>
+           ${hotspot.cutsceneMedia === 'gif' ? `<label><span>Duração estimada de uma repetição (s)</span><input type="number" min="0.2" step="0.1" data-hotspot-field="cutsceneHoldSeconds" value="${hotspot.cutsceneHoldSeconds}" /></label><p class="panel-hint">GIFs não avisam quando terminam um laço; esse valor estima a duração de cada repetição.</p>` : '<p class="panel-hint">O vídeo avança a repetição sozinho ao terminar.</p>'}`}
+      <p class="panel-hint">Cutscenes não são puláveis pelo jogador.</p>`;
   }
 
   private itemsPanelTemplate(): string {
@@ -273,6 +317,8 @@ export class EditorApp {
     return `<div class="properties-heading"><div><small>ITEM</small><h2>${esc(item.name)}</h2></div><button class="danger" data-action="delete-item" data-item="${esc(item.id)}" ${this.project.data.items.length <= 1 ? 'disabled' : ''}>Excluir</button></div>
       <label><span>Nome</span><input data-item-field="name" value="${esc(item.name)}" /></label>
       <label><span>Ícone (texto/emoji)</span><input data-item-field="icon" value="${esc(item.icon)}" maxlength="4" /></label>
+      <label><span>Imagem (opcional, substitui o ícone)</span><input data-item-field="image" value="${esc(item.image ?? '')}" placeholder="/assets/items/exemplo.png" /></label>
+      ${item.image ? `<div class="image-preview"><img src="${esc(item.image)}" alt="Prévia de ${esc(item.name)}" /><span>${esc(item.image)}</span></div>` : ''}
       <label><span>Descrição</span><textarea data-item-field="description" rows="3">${esc(item.description)}</textarea></label>
       <label><span>Texto ao usar</span><textarea data-item-field="useText" rows="2">${esc(item.useText)}</textarea></label>
       <label><span>Efeito ao usar</span><select data-item-field="effect"><option value="none" ${item.effect === 'none' ? 'selected' : ''}>Nenhum (item de cenário)</option><option value="heal" ${item.effect === 'heal' ? 'selected' : ''}>Cura vida</option><option value="hydrate" ${item.effect === 'hydrate' ? 'selected' : ''}>Mata a sede</option><option value="feed" ${item.effect === 'feed' ? 'selected' : ''}>Mata a fome</option></select></label>
@@ -337,6 +383,7 @@ export class EditorApp {
       <div class="test-message">${esc(game.message)}</div>
       ${this.testInventoryOpen ? this.testInventoryTemplate() : ''}
       ${game.encounter ? this.testEncounterTemplate() : ''}
+      ${game.status === 'cutscene' ? this.testCutsceneTemplate(game) : ''}
       ${game.status === 'gameover' ? '<div class="test-modal"><section><small>FIM DO TESTE</small><h2>O jogador não sobreviveu</h2><button data-test-action="restart">Reiniciar nesta sala</button><button data-test-action="exit">Voltar ao editor</button></section></div>' : ''}
       ${jump ? `<div class="test-jumpscare"><img src="${esc(game.encounter?.image ?? this.project.data.entities[0]?.image ?? '')}" alt="Entidade atacando" /></div>` : ''}
       <div class="test-badge">MODO DE TESTE · alterações não afetam o mapa</div>
@@ -351,7 +398,12 @@ export class EditorApp {
       if (hotspot.visibility === 'hidden' && !revealed) return '';
       const clip = hotspot.shape ? `clip-path:polygon(${hotspot.shape.points.map((point) => `${point.x}% ${point.y}%`).join(',')});` : '';
       const invisible = hotspot.visibility === 'invisible' && !revealed ? ' invisible-hotspot' : '';
-      return `<button class="test-hotspot${invisible}" data-test-action="hotspot" data-hotspot="${esc(hotspot.id)}" style="left:${hotspot.x}%;top:${hotspot.y}%;width:${hotspot.width}%;height:${hotspot.height}%;--highlight:${esc(hotspot.highlight?.color ?? '#d7df77')};--highlight-strength:${(hotspot.highlight?.opacity ?? .22) * 100}%;${clip}"><span>${esc(hotspot.label)}</span></button>`;
+      const indicator = hotspot.indicator ?? { x: 50, y: 50 };
+      return `<div class="test-hotspot-group" style="left:${hotspot.x}%;top:${hotspot.y}%;width:${hotspot.width}%;height:${hotspot.height}%">
+        <button class="test-hotspot-hitbox" data-test-action="hotspot" data-hotspot="${esc(hotspot.id)}" style="${clip}" aria-label="${esc(hotspot.label)}"></button>
+        <i class="test-hotspot-marker${invisible}" style="left:${indicator.x}%;top:${indicator.y}%;--highlight:${esc(hotspot.highlight?.color ?? '#d7df77')};--highlight-strength:${(hotspot.highlight?.opacity ?? .22) * 100}%"></i>
+        <span class="test-hotspot-label" style="left:${indicator.x}%;top:${indicator.y}%">${esc(hotspot.label)}</span>
+      </div>`;
     }).join('');
   }
 
@@ -364,12 +416,34 @@ export class EditorApp {
       const def = items[entry.id];
       return def ? [{ entry, def }] : [];
     });
-    return `<div class="test-inventory"><section><header><div><small>INVENTÁRIO DO TESTE</small><h2>Itens coletados</h2></div><button data-test-action="inventory">×</button></header><div class="test-item-grid">${slots.map(({ entry, def }) => `<button class="${game.selectedItem === entry.id ? 'selected' : ''}" data-test-action="use-item" data-item="${entry.id}"><i>${def.icon}</i><span>${esc(def.name)}</span><b>${entry.quantity}</b></button>`).join('') || '<p>Nenhum item coletado.</p>'}</div><p>Consumíveis são usados imediatamente. Ferramentas ficam selecionadas para uso em hotspots.</p></section></div>`;
+    return `<div class="test-inventory"><section><header><div><small>INVENTÁRIO DO TESTE</small><h2>Itens coletados</h2></div><button data-test-action="inventory">×</button></header><div class="test-item-grid">${slots.map(({ entry, def }) => `<button class="${game.selectedItem === entry.id ? 'selected' : ''}" data-test-action="use-item" data-item="${entry.id}"><i>${def.image ? `<img src="${def.image}" alt="" />` : def.icon}</i><span>${esc(def.name)}</span><b>${entry.quantity}</b></button>`).join('') || '<p>Nenhum item coletado.</p>'}</div><p>Consumíveis são usados imediatamente. Ferramentas ficam selecionadas para uso em hotspots.</p></section></div>`;
   }
 
   private testEncounterTemplate(): string {
     const encounter = this.testGame!.encounter!;
     return `<div class="test-encounter"><img src="${esc(encounter.image)}" alt="${esc(encounter.name)}" /><section><small>DECISÃO RÁPIDA</small><h2>${esc(encounter.name)}</h2><p>${esc(encounter.prompt)}</p><em>${esc(encounter.hint)}</em><div class="test-timer"><i style="width:${(encounter.remaining / encounter.timeLimit) * 100}%"></i></div><nav><button data-test-action="encounter" data-choice="run">Correr</button><button data-test-action="encounter" data-choice="hide">Esconder-se</button></nav></section></div>`;
+  }
+
+  private testCutsceneTemplate(game: Game): string {
+    const cutscene = game.cutscene;
+    if (!cutscene) return '';
+    const progress = cutscene.mediaType === 'image'
+      ? (cutscene.holdSeconds > 0 ? cutscene.elapsed / cutscene.holdSeconds : 1)
+      : (cutscene.repeatCount > 0 ? cutscene.loopsCompleted / cutscene.repeatCount : 1);
+    const media = cutscene.mediaType === 'video'
+      ? `<video src="${esc(cutscene.mediaPath)}" autoplay muted playsinline data-role="test-cutscene-video"></video>`
+      : `<img src="${esc(cutscene.mediaPath)}" alt="Cena" />`;
+    return `<div class="test-cutscene"><div class="test-cutscene-media">${media}</div><div class="test-cutscene-progress"><i style="width:${Math.min(100, Math.max(0, progress * 100))}%"></i></div></div>`;
+  }
+
+  private bindTestCutsceneVideo(): void {
+    const video = this.root.querySelector<HTMLVideoElement>('[data-role="test-cutscene-video"]');
+    if (!video) return;
+    video.onended = () => {
+      this.testGame?.advanceCutsceneLoop();
+      this.lastTestKey = '';
+      this.render();
+    };
   }
 
   private bindEvents(): void {
@@ -407,6 +481,7 @@ export class EditorApp {
       case 'set-start': this.project.activeLevel.startRoomId = this.selectedRoomId; this.project.save(); break;
       case 'set-exit': this.project.activeLevel.escapeRoomId = this.selectedRoomId; this.project.save(); break;
       case 'delete-connection': this.project.deleteConnection(target.dataset.connection ?? ''); this.selectedConnectionId = null; break;
+      case 'reset-connection-button': { const connection = this.project.activeLevel.connections.find((entry) => entry.id === target.dataset.connection); if (connection) { connection.buttonX = undefined; connection.buttonY = undefined; connection.arrowRotation = undefined; this.project.save(); } break; }
       case 'save': this.project.save(); break;
       case 'choose-image': if (this.selectedRoom) { this.selectedRoom.image = target.dataset.image ?? this.selectedRoom.image; this.project.save(); } break;
       case 'open-hotspots': this.openPerspective(); break;
@@ -452,6 +527,7 @@ export class EditorApp {
       const item = this.selectedItem;
       if (itemField === 'effectAmount') item.effectAmount = Number(input.value);
       else if (itemField === 'effect') item.effect = input.value as EditorItem['effect'];
+      else if (itemField === 'image') item.image = input.value || undefined;
       else if (itemField === 'name' || itemField === 'icon' || itemField === 'description' || itemField === 'useText') item[itemField] = input.value;
       this.project.save(); this.render();
       return;
@@ -466,28 +542,32 @@ export class EditorApp {
       return;
     }
     const connectionId = input.dataset.connection;
-    const connectionField = input.dataset.connectionField as keyof EditorConnection | undefined;
+    const connectionField = input.dataset.connectionField as keyof EditorConnection | 'buttonX' | 'buttonY' | 'arrowRotation' | undefined;
     if (connectionId && connectionField) {
       const connection = this.project.activeLevel.connections.find((entry) => entry.id === connectionId);
       if (connection) {
         if (connectionField === 'bidirectional') connection.bidirectional = (input as HTMLInputElement).checked;
         else if (connectionField === 'requiresItem') connection.requiresItem = input.value ? input.value as ItemId : undefined;
+        else if (connectionField === 'buttonX' || connectionField === 'buttonY') connection[connectionField] = clamp(Number(input.value), 0, 100);
+        else if (connectionField === 'arrowRotation') connection.arrowRotation = ((Number(input.value) % 360) + 360) % 360;
         else if (connectionField === 'label' || connectionField === 'direction' || connectionField === 'lockedMessage' || connectionField === 'to') connection[connectionField] = input.value;
         this.project.save(); this.render();
       }
       return;
     }
-    const hotspotField = input.dataset.hotspotField as keyof EditorHotspot | undefined;
+    const hotspotField = input.dataset.hotspotField as keyof EditorHotspot | 'vertexCount' | undefined;
     const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId);
     if (hotspotField && hotspot) {
       if (hotspotField === 'once') hotspot.once = (input as HTMLInputElement).checked;
       else if (hotspotField === 'highlightOpacity') hotspot.highlightOpacity = Number(input.value);
-      else if (hotspotField === 'revealSeconds') hotspot.revealSeconds = Number(input.value);
+      else if (hotspotField === 'revealSeconds' || hotspotField === 'cutsceneHoldSeconds' || hotspotField === 'cutsceneRepeatCount') hotspot[hotspotField] = Number(input.value);
       else if (hotspotField === 'visibility') hotspot.visibility = input.value as EditorHotspot['visibility'];
+      else if (hotspotField === 'cutsceneMedia') hotspot.cutsceneMedia = input.value as EditorHotspot['cutsceneMedia'];
+      else if (hotspotField === 'vertexCount') hotspot.shapePoints = circlePoints(Math.max(3, Math.min(24, Math.round(Number(input.value)))));
       else if (hotspotField === 'item' || hotspotField === 'requiresItem') hotspot[hotspotField] = input.value ? input.value as ItemId : undefined;
       else if (hotspotField === 'action') hotspot.action = input.value as EditorHotspot['action'];
       else if (hotspotField === 'event') hotspot.event = input.value as EditorHotspot['event'];
-      else if (hotspotField === 'label' || hotspotField === 'message' || hotspotField === 'targetRoomId' || hotspotField === 'highlightColor') hotspot[hotspotField] = input.value;
+      else if (hotspotField === 'label' || hotspotField === 'message' || hotspotField === 'targetRoomId' || hotspotField === 'highlightColor' || hotspotField === 'cutscenePath') hotspot[hotspotField] = input.value;
       this.project.save(); this.render();
     }
   }
@@ -496,8 +576,17 @@ export class EditorApp {
     if (this.testMode || event.button !== 0) return;
     const target = event.target as HTMLElement;
     const shapePoint = target.closest<HTMLElement>('[data-role="shape-point"]');
+    const indicatorPoint = target.closest<HTMLElement>('[data-role="indicator-point"]');
     const hotspotBox = target.closest<HTMLElement>('.editable-hotspot');
     const stage = target.closest<HTMLElement>('[data-role="hotspot-stage"]');
+    if (indicatorPoint && hotspotBox && stage && this.selectedRoom) {
+      const hotspot = this.selectedRoom.hotspots.find((entry) => entry.id === hotspotBox.dataset.hotspot);
+      if (!hotspot) return;
+      this.gesture = { type: 'indicator', roomId: this.selectedRoom.id, hotspotId: hotspot.id, startX: event.clientX, startY: event.clientY, origin: { x: hotspot.indicator.x, y: hotspot.indicator.y }, rect: hotspotBox.getBoundingClientRect() };
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (shapePoint && hotspotBox && stage && this.selectedRoom) {
       const hotspot = this.selectedRoom.hotspots.find((entry) => entry.id === hotspotBox.dataset.hotspot);
       const pointIndex = Number(shapePoint.dataset.point);
@@ -516,6 +605,17 @@ export class EditorApp {
       this.gesture = { type: 'hotspot', roomId: this.selectedRoom.id, hotspotId: hotspot.id, resize: Boolean(target.closest('[data-role="hotspot-resize"]')), startX: event.clientX, startY: event.clientY, origin: { x: hotspot.x, y: hotspot.y, width: hotspot.width, height: hotspot.height }, rect: stage.getBoundingClientRect() };
       hotspotBox.classList.add('selected');
       event.preventDefault();
+      return;
+    }
+    const connectionMarker = target.closest<HTMLElement>('.scene-connection');
+    if (connectionMarker && stage) {
+      const connection = this.project.activeLevel.connections.find((entry) => entry.id === connectionMarker.dataset.connection);
+      if (!connection) return;
+      const markerRect = connectionMarker.getBoundingClientRect();
+      const stageRect = stage.getBoundingClientRect();
+      const originX = ((markerRect.left + markerRect.width / 2 - stageRect.left) / stageRect.width) * 100;
+      const originY = ((markerRect.top + markerRect.height / 2 - stageRect.top) / stageRect.height) * 100;
+      this.gesture = { type: 'connectionButton', connectionId: connection.id, startX: event.clientX, startY: event.clientY, origin: { x: originX, y: originY }, rect: stageRect };
       return;
     }
     const output = target.closest<HTMLElement>('[data-role="output-port"]');
@@ -575,8 +675,28 @@ export class EditorApp {
       point.y = clamp(gesture.origin.y + dy, -20, 120);
       const handle = this.root.querySelector<HTMLElement>(`.editable-hotspot[data-hotspot="${CSS.escape(hotspot!.id)}"] [data-point="${gesture.pointIndex}"]`);
       if (handle) { handle.style.left = `${point.x}%`; handle.style.top = `${point.y}%`; }
-      const box = this.root.querySelector<HTMLElement>(`.editable-hotspot[data-hotspot="${CSS.escape(hotspot!.id)}"]`);
-      if (box) box.style.clipPath = `polygon(${hotspot!.shapePoints!.map((entry) => `${entry.x}% ${entry.y}%`).join(',')})`;
+      const fill = this.root.querySelector<HTMLElement>(`.editable-hotspot[data-hotspot="${CSS.escape(hotspot!.id)}"] .hotspot-fill`);
+      if (fill) fill.style.clipPath = `polygon(${hotspot!.shapePoints!.map((entry) => `${entry.x}% ${entry.y}%`).join(',')})`;
+    } else if (this.gesture.type === 'indicator') {
+      const gesture = this.gesture;
+      const room = this.project.findRoom(gesture.roomId);
+      const hotspot = room?.hotspots.find((entry) => entry.id === gesture.hotspotId);
+      if (!hotspot) return;
+      const dx = ((event.clientX - gesture.startX) / gesture.rect.width) * 100;
+      const dy = ((event.clientY - gesture.startY) / gesture.rect.height) * 100;
+      hotspot.indicator = { x: clamp(gesture.origin.x + dx, -10, 110), y: clamp(gesture.origin.y + dy, -10, 110) };
+      const handle = this.root.querySelector<HTMLElement>(`.editable-hotspot[data-hotspot="${CSS.escape(hotspot.id)}"] [data-role="indicator-point"]`);
+      if (handle) { handle.style.left = `${hotspot.indicator.x}%`; handle.style.top = `${hotspot.indicator.y}%`; }
+    } else if (this.gesture.type === 'connectionButton') {
+      const gesture = this.gesture;
+      const connection = this.project.activeLevel.connections.find((entry) => entry.id === gesture.connectionId);
+      if (!connection) return;
+      const dx = ((event.clientX - gesture.startX) / gesture.rect.width) * 100;
+      const dy = ((event.clientY - gesture.startY) / gesture.rect.height) * 100;
+      connection.buttonX = clamp(gesture.origin.x + dx, 0, 100);
+      connection.buttonY = clamp(gesture.origin.y + dy, 0, 100);
+      const marker = this.root.querySelector<HTMLElement>(`.scene-connection[data-connection="${CSS.escape(connection.id)}"]`);
+      if (marker) { marker.style.left = `${connection.buttonX}%`; marker.style.top = `${connection.buttonY}%`; }
     } else {
       const gesture = this.gesture;
       if (gesture.type !== 'hotspot') return;
@@ -608,7 +728,7 @@ export class EditorApp {
     }
     if (!this.gesture) return;
     this.project.save();
-    const needsRerender = this.gesture.type === 'hotspot' || this.gesture.type === 'shapePoint';
+    const needsRerender = this.gesture.type === 'hotspot' || this.gesture.type === 'shapePoint' || this.gesture.type === 'indicator' || this.gesture.type === 'connectionButton';
     this.gesture = null;
     if (needsRerender) this.render();
     else this.root.querySelector('[data-role="canvas"]')?.classList.remove('panning');
@@ -657,10 +777,6 @@ export class EditorApp {
     this.selectedHotspotId = null;
     this.selectedConnectionId = null;
     this.resetView();
-  }
-
-  private directionIcon(direction: string): string {
-    return ({ forward: '↑', back: '↓', left: '←', right: '→' } as Record<string, string>)[direction] ?? '↗';
   }
 
   private exportJSON(): void {
@@ -725,7 +841,7 @@ export class EditorApp {
         this.testJumpscareUntil = now + 850;
         this.audio.play('jumpscare');
       }
-      const key = JSON.stringify({ position: this.testGame.position, status: this.testGame.status, message: this.testGame.message, inventory: this.testGame.inventory, selected: this.testGame.selectedItem, encounter: this.testGame.encounter?.id, attack: this.testAttackNonce, jump: now < this.testJumpscareUntil, panel: this.testInventoryOpen, flags: this.testGame.flags });
+      const key = JSON.stringify({ position: this.testGame.position, status: this.testGame.status, message: this.testGame.message, inventory: this.testGame.inventory, selected: this.testGame.selectedItem, encounter: this.testGame.encounter?.id, cutscene: this.testGame.cutscene?.hotspotId ?? null, attack: this.testAttackNonce, jump: now < this.testJumpscareUntil, panel: this.testInventoryOpen, flags: this.testGame.flags });
       if (key !== this.lastTestKey) { this.lastTestKey = key; this.render(); }
       else this.updateTestReadouts();
     }
@@ -742,5 +858,13 @@ export class EditorApp {
     });
     const timer = this.root.querySelector<HTMLElement>('.test-timer i');
     if (timer && this.testGame.encounter) timer.style.width = `${(this.testGame.encounter.remaining / this.testGame.encounter.timeLimit) * 100}%`;
+    if (this.testGame.cutscene) {
+      const cutscene = this.testGame.cutscene;
+      const progress = cutscene.mediaType === 'image'
+        ? (cutscene.holdSeconds > 0 ? cutscene.elapsed / cutscene.holdSeconds : 1)
+        : (cutscene.repeatCount > 0 ? cutscene.loopsCompleted / cutscene.repeatCount : 1);
+      const bar = this.root.querySelector<HTMLElement>('.test-cutscene-progress i');
+      if (bar) bar.style.width = `${Math.min(100, Math.max(0, progress * 100))}%`;
+    }
   }
 }

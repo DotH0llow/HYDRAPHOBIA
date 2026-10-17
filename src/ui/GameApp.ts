@@ -2,11 +2,24 @@ import { ITEMS, type ItemDefinition, type RoomDefinition } from '../config/world
 import { Game } from '../core/Game';
 import { EditorProject } from '../editor/EditorProject';
 import { entitiesToRuntime, itemsToRuntime, levelToWorld } from '../editor/mapAdapter';
-import { AudioSystem } from '../systems/AudioSystem';
+import { AudioSystem, type Cue } from '../systems/AudioSystem';
 import { SaveSystem } from '../systems/SaveSystem';
 import type { Direction, EncounterAction, HotspotId, ItemId, Preferences, SaveData, Screen } from '../types';
 
 type NumericPreferenceKey = Exclude<keyof Preferences, 'showHealthBar'>;
+
+const DANGER_CUES: Record<number, Cue[]> = {
+  1: ['discomfort'],
+  2: ['suspicion-step', 'suspicion-scratch'],
+  3: ['threat-step', 'threat-breath'],
+  4: ['danger-scrape', 'danger-silence'],
+};
+const DANGER_INTERVALS: Record<number, [number, number]> = {
+  1: [9000, 16000],
+  2: [7000, 13000],
+  3: [5000, 9000],
+  4: [3000, 6000],
+};
 
 export class GameApp {
   private screen: Screen = 'menu';
@@ -25,6 +38,8 @@ export class GameApp {
   private jumpscareImage = '/assets/entities/watcher.jpg';
   private seenAttackNonce = 0;
   private devPanelOpen = false;
+  private dangerSoundTier = 0;
+  private nextDangerSoundAt = 0;
 
   constructor(private readonly root: HTMLElement) {
     this.save = this.saves.load();
@@ -49,6 +64,7 @@ export class GameApp {
       }
       if (this.game.status === 'gameover' && Date.now() >= this.jumpscareUntil) { this.screen = 'gameover'; this.forcePaint = true; }
       if (this.game.status === 'escaped') { this.screen = 'escaped'; this.audio.play('escape'); this.save.game = null; this.persistSave(); this.forcePaint = true; }
+      this.updateDangerAmbience();
     }
     this.render();
     requestAnimationFrame(this.tick);
@@ -63,6 +79,7 @@ export class GameApp {
       this.root.innerHTML = this.template();
       this.renderedStructure = structure;
       this.forcePaint = false;
+      this.bindCutsceneVideo();
     } else if (this.screen === 'game') this.updateReadouts();
   }
 
@@ -73,6 +90,7 @@ export class GameApp {
       room: this.game.position,
       status: this.game.status,
       encounter: this.game.encounter?.id,
+      cutscene: this.game.cutscene?.hotspotId ?? null,
       inventory: this.game.inventory,
       inventoryOpen: this.inventoryOpen,
       focusedItem: this.focusedItem,
@@ -138,16 +156,34 @@ export class GameApp {
         </div>
       </header>
       <nav class="movement" aria-label="Movimentação">
-        ${exits.map(([direction, exit]) => `<button class="move-${direction} ${exit.requires && !this.game!.flags[exit.requires] ? 'locked' : ''}" data-action="move" data-direction="${direction}" aria-label="${exit.label}"><i>${this.directionIcon(direction)}</i><span>${exit.label}</span></button>`).join('')}
+        ${exits.map(([direction, exit]) => this.movementButton(direction, exit)).join('')}
       </nav>
       <div class="message-strip" role="status"><i></i><p>${this.game.message}</p></div>
       <button class="inventory-button ${this.game.selectedItem ? 'item-selected' : ''}" data-action="inventory"><span>▦</span><b>Inventário</b><small>${this.game.inventory.reduce((sum, item) => sum + item.quantity, 0)} itens</small></button>
       ${this.inventoryOpen ? this.inventoryTemplate() : ''}
       ${this.game.encounter ? this.encounterTemplate() : ''}
+      ${this.game.status === 'cutscene' ? this.cutsceneTemplate() : ''}
       ${this.game.status === 'paused' ? this.pauseTemplate() : ''}
       ${Date.now() < this.jumpscareUntil ? this.jumpscareTemplate() : ''}
       ${this.devToolsTemplate()}
     </main>`;
+  }
+
+  private movementButton(direction: Direction, exit: { to: string; label: string; requires?: string; buttonX?: number; buttonY?: number; arrowRotation?: number }): string {
+    const locked = exit.requires && !this.game!.flags[exit.requires];
+    const fallback = this.defaultButtonPosition(direction);
+    const x = exit.buttonX ?? fallback.x;
+    const y = exit.buttonY ?? fallback.y;
+    const rotation = exit.arrowRotation ?? this.defaultArrowRotation(direction);
+    return `<button class="move-btn ${locked ? 'locked' : ''}" data-action="move" data-direction="${direction}" aria-label="${exit.label}" style="left:${x}%;top:${y}%"><i style="--rotate:${rotation}deg">↑</i><span>${exit.label}</span></button>`;
+  }
+
+  private defaultButtonPosition(direction: Direction): { x: number; y: number } {
+    return ({ forward: { x: 50, y: 16 }, back: { x: 50, y: 82 }, left: { x: 3, y: 50 }, right: { x: 97, y: 50 } } as Record<string, { x: number; y: number }>)[direction] ?? { x: 50, y: 50 };
+  }
+
+  private defaultArrowRotation(direction: Direction): number {
+    return ({ forward: 0, back: 180, left: 270, right: 90 } as Record<string, number>)[direction] ?? 45;
   }
 
   private hotspotMarkup(room: RoomDefinition): string {
@@ -158,7 +194,12 @@ export class GameApp {
       if (hotspot.visibility === 'hidden' && !revealed) return '';
       const clip = hotspot.shape ? `clip-path:polygon(${hotspot.shape.points.map((point) => `${point.x}% ${point.y}%`).join(',')});` : '';
       const invisible = hotspot.visibility === 'invisible' && !revealed ? ' invisible-hotspot' : '';
-      return `<button class="hotspot${invisible}" data-action="hotspot" data-hotspot="${hotspot.id}" style="--x:${hotspot.x}%;--y:${hotspot.y}%;--w:${hotspot.width}%;--h:${hotspot.height}%;${clip}" aria-label="${hotspot.label}"><span>${hotspot.label}</span></button>`;
+      const indicator = hotspot.indicator ?? { x: 50, y: 50 };
+      return `<div class="hotspot-group" style="--x:${hotspot.x}%;--y:${hotspot.y}%;--w:${hotspot.width}%;--h:${hotspot.height}%">
+        <button class="hotspot-hitbox" data-action="hotspot" data-hotspot="${hotspot.id}" style="${clip}" aria-label="${hotspot.label}"></button>
+        <i class="hotspot-marker${invisible}" style="left:${indicator.x}%;top:${indicator.y}%"></i>
+        <span class="hotspot-label" style="left:${indicator.x}%;top:${indicator.y}%">${hotspot.label}</span>
+      </div>`;
     }).join('');
   }
 
@@ -179,7 +220,7 @@ export class GameApp {
           ${slots.map((entry, index) => {
             const def = entry ? this.items[entry.id] : undefined;
             return entry && def
-              ? `<button class="item-slot ${game.selectedItem === entry.id ? 'selected' : ''} ${this.focusedItem === entry.id ? 'focused' : ''}" data-action="focus-item" data-item="${entry.id}"><span>${def.icon}</span><b>${def.name}</b><em title="Quantidade no inventário" aria-label="${entry.quantity} unidade${entry.quantity === 1 ? '' : 's'}">${entry.quantity}</em></button>`
+              ? `<button class="item-slot ${game.selectedItem === entry.id ? 'selected' : ''} ${this.focusedItem === entry.id ? 'focused' : ''}" data-action="focus-item" data-item="${entry.id}"><span>${def.image ? `<img src="${def.image}" alt="" />` : def.icon}</span><b>${def.name}</b><em title="Quantidade no inventário" aria-label="${entry.quantity} unidade${entry.quantity === 1 ? '' : 's'}">${entry.quantity}</em></button>`
               : `<div class="item-slot empty"><small>${String(index + 1).padStart(2, '0')}</small></div>`;
           }).join('')}
         </div>
@@ -191,7 +232,7 @@ export class GameApp {
   }
 
   private itemDetailsTemplate(id: ItemId | null, item = id ? this.items[id] : null): string {
-    return item && id ? `<div class="item-large">${item.icon}</div><div><small>ITEM SELECIONADO</small><h3>${item.name}</h3><p>${item.description}</p><div class="item-actions"><button data-action="use-item" data-item="${id}">Usar</button><button data-action="examine-item" data-item="${id}">Examinar</button><button class="discard" data-action="discard-item" data-item="${id}">Descartar</button></div></div>` : '<p class="empty-details">Selecione um item para examinar ou utilizar.</p>';
+    return item && id ? `<div class="item-large">${item.image ? `<img src="${item.image}" alt="${item.name}" />` : item.icon}</div><div><small>ITEM SELECIONADO</small><h3>${item.name}</h3><p>${item.description}</p><div class="item-actions"><button data-action="use-item" data-item="${id}">Usar</button><button data-action="examine-item" data-item="${id}">Examinar</button><button class="discard" data-action="discard-item" data-item="${id}">Descartar</button></div></div>` : '<p class="empty-details">Selecione um item para examinar ou utilizar.</p>';
   }
 
   private encounterTemplate(): string {
@@ -205,6 +246,29 @@ export class GameApp {
         <div class="decision-buttons"><button data-action="encounter" data-choice="run">Correr</button><button data-action="encounter" data-choice="hide">Esconder-se</button></div>
       </section>
     </div>`;
+  }
+
+  private cutsceneTemplate(): string {
+    const cutscene = this.game!.cutscene;
+    if (!cutscene) return '';
+    const progress = cutscene.mediaType === 'image'
+      ? (cutscene.holdSeconds > 0 ? cutscene.elapsed / cutscene.holdSeconds : 1)
+      : (cutscene.repeatCount > 0 ? cutscene.loopsCompleted / cutscene.repeatCount : 1);
+    const media = cutscene.mediaType === 'video'
+      ? `<video src="${cutscene.mediaPath}" autoplay muted playsinline data-role="cutscene-video"></video>`
+      : `<img src="${cutscene.mediaPath}" alt="Cena" />`;
+    return `<div class="cutscene-layer" role="dialog" aria-label="Cena"><div class="cutscene-media">${media}</div><div class="cutscene-progress"><i style="width:${Math.min(100, Math.max(0, progress * 100))}%"></i></div></div>`;
+  }
+
+  private bindCutsceneVideo(): void {
+    const video = this.root.querySelector<HTMLVideoElement>('[data-role="cutscene-video"]');
+    if (!video) return;
+    video.onended = () => {
+      this.game?.advanceCutsceneLoop();
+      this.persist();
+      this.forcePaint = true;
+      this.render(true);
+    };
   }
 
   private pauseTemplate(): string {
@@ -315,6 +379,8 @@ export class GameApp {
     this.inventoryOpen = false;
     this.focusedItem = null;
     this.seenAttackNonce = 0;
+    this.dangerSoundTier = 0;
+    this.nextDangerSoundAt = 0;
     this.persist();
     this.audio.play('step');
   }
@@ -326,6 +392,8 @@ export class GameApp {
     this.game = new Game(this.save.game, Math.random, data.world, undefined, data.items, data.entities);
     this.screen = 'game';
     this.inventoryOpen = false;
+    this.dangerSoundTier = 0;
+    this.nextDangerSoundAt = 0;
     this.audio.play('step');
   }
 
@@ -363,9 +431,27 @@ export class GameApp {
   }
 
   private triggerJumpscare(): void {
-    this.jumpscareUntil = Date.now() + 850 + this.save.preferences.jumpscareIntensity * 500;
+    const raw = 850 + this.save.preferences.jumpscareIntensity * 500 - 1200;
+    this.jumpscareUntil = Date.now() + Math.max(50, raw);
     this.audio.play('jumpscare');
     this.forcePaint = true;
+  }
+
+  private updateDangerAmbience(): void {
+    if (!this.game || this.game.status !== 'exploring') return;
+    const danger = this.game.danger;
+    const tier = danger >= 80 ? 4 : danger >= 60 ? 3 : danger >= 40 ? 2 : danger >= 20 ? 1 : 0;
+    if (tier === 0) { this.dangerSoundTier = 0; return; }
+    const now = Date.now();
+    if (tier !== this.dangerSoundTier || now >= this.nextDangerSoundAt) {
+      this.dangerSoundTier = tier;
+      const options = DANGER_CUES[tier]!;
+      const cue = options[Math.floor(Math.random() * options.length)]!;
+      const pan = tier >= 2 ? Math.random() * 2 - 1 : 0;
+      this.audio.play(cue, pan);
+      const [min, max] = DANGER_INTERVALS[tier]!;
+      this.nextDangerSoundAt = now + min + Math.random() * (max - min);
+    }
   }
 
   private handleInput(input: HTMLInputElement): void {
@@ -441,6 +527,14 @@ export class GameApp {
       const timer = this.root.querySelector<HTMLElement>('.decision-timer i');
       if (timer) timer.style.width = `${(this.game.encounter.remaining / this.game.encounter.timeLimit) * 100}%`;
     }
+    if (this.game.cutscene) {
+      const cutscene = this.game.cutscene;
+      const progress = cutscene.mediaType === 'image'
+        ? (cutscene.holdSeconds > 0 ? cutscene.elapsed / cutscene.holdSeconds : 1)
+        : (cutscene.repeatCount > 0 ? cutscene.loopsCompleted / cutscene.repeatCount : 1);
+      const bar = this.root.querySelector<HTMLElement>('.cutscene-progress i');
+      if (bar) bar.style.width = `${Math.min(100, Math.max(0, progress * 100))}%`;
+    }
   }
 
   private updateInventoryFocus(): void {
@@ -492,10 +586,6 @@ export class GameApp {
     if (document.fullscreenElement) await document.exitFullscreen();
     else await document.documentElement.requestFullscreen();
     this.forcePaint = true;
-  }
-
-  private directionIcon(direction: Direction): string {
-    return ({ forward: '↑', back: '↓', left: '←', right: '→' } as Record<string, string>)[direction] ?? '↗';
   }
 
   private formatTime(seconds: number): string {

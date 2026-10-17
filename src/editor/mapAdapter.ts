@@ -21,6 +21,11 @@ const hotspotToRuntime = (hotspot: EditorHotspot): HotspotDefinition => ({
   visibility: hotspot.visibility,
   revealSeconds: hotspot.revealSeconds,
   shape: hotspot.shapePoints && hotspot.shapePoints.length >= 3 ? { points: hotspot.shapePoints.map((point) => ({ x: point.x, y: point.y })) } : undefined,
+  indicator: { x: hotspot.indicator.x, y: hotspot.indicator.y },
+  cutsceneMedia: hotspot.cutsceneMedia,
+  cutscenePath: hotspot.cutscenePath || undefined,
+  cutsceneHoldSeconds: hotspot.cutsceneHoldSeconds,
+  cutsceneRepeatCount: hotspot.cutsceneRepeatCount,
 });
 
 export const levelToWorld = (level: EditorLevel): WorldDefinition => {
@@ -46,6 +51,9 @@ export const levelToWorld = (level: EditorLevel): WorldDefinition => {
       requires: connection.requiresFlag,
       requiresItem: connection.requiresItem,
       lockedMessage: connection.lockedMessage,
+      buttonX: connection.buttonX,
+      buttonY: connection.buttonY,
+      arrowRotation: connection.arrowRotation,
     };
     if (connection.bidirectional) {
       destination.exits[`voltar-${connection.id}`] = {
@@ -60,7 +68,7 @@ export const levelToWorld = (level: EditorLevel): WorldDefinition => {
 export const itemsToRuntime = (items: EditorItem[]): Record<ItemId, ItemDefinition> => {
   const result: Record<ItemId, ItemDefinition> = {};
   items.forEach((item) => {
-    result[item.id] = { name: item.name, icon: item.icon, description: item.description, useText: item.useText, effect: item.effect, effectAmount: item.effectAmount };
+    result[item.id] = { name: item.name, icon: item.icon, description: item.description, useText: item.useText, effect: item.effect, effectAmount: item.effectAmount, image: item.image };
   });
   return result;
 };

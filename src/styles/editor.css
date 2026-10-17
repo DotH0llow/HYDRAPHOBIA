@@ -134,13 +134,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .hotspot-editor-layout { min-height: 0; display: grid; grid-template-columns: minmax(520px, 1fr) 320px; }
 .hotspot-stage { position: relative; align-self: center; width: calc(100% - 3rem); aspect-ratio: 16 / 9; margin: 1.5rem; overflow: hidden; border: 1px solid #555a48; background: #050605; box-shadow: 0 18px 50px #0009; }
 .hotspot-stage > img { display: block; width: 100%; height: 100%; object-fit: cover; user-select: none; pointer-events: none; }
-.editable-hotspot { position: absolute; border: 1px dashed var(--hotspot-color); background-color: color-mix(in srgb, var(--hotspot-color) var(--hotspot-strength), transparent); background-image: radial-gradient(circle, color-mix(in srgb, var(--hotspot-color) 65%, transparent) .7px, transparent .9px); background-size: 7px 7px; cursor: move; }
+.editable-hotspot { position: absolute; border: 1px dashed var(--hotspot-color); cursor: move; }
 .editable-hotspot.selected { border-style: solid; box-shadow: 0 0 0 2px #fff3, 0 0 20px var(--hotspot-color); }
 .editable-hotspot.muted-visibility { border-style: dotted; opacity: .68; }
-.editable-hotspot span { position: absolute; left: 0; top: -22px; padding: .25rem .4rem; color: #0a0c08; background: var(--hotspot-color); font: 700 .6rem "Courier New", monospace; white-space: nowrap; }
+.editable-hotspot .hotspot-fill { position: absolute; inset: 0; background-color: color-mix(in srgb, var(--hotspot-color) var(--hotspot-strength), transparent); background-image: radial-gradient(circle, color-mix(in srgb, var(--hotspot-color) 65%, transparent) .7px, transparent .9px); background-size: 7px 7px; pointer-events: none; }
+.editable-hotspot > span { position: absolute; left: 0; top: -22px; padding: .25rem .4rem; color: #0a0c08; background: var(--hotspot-color); font: 700 .6rem "Courier New", monospace; white-space: nowrap; pointer-events: none; }
 .editable-hotspot i { position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px; border: 1px solid #0b0d0a; background: var(--hotspot-color); cursor: nwse-resize; }
 .editable-hotspot .shape-point { right: auto; bottom: auto; width: 11px; height: 11px; margin: -6px 0 0 -6px; border: 2px solid #0b0d0a; border-radius: 50%; background: var(--acid); box-shadow: 0 0 6px #000a; cursor: grab; z-index: 2; }
 .editable-hotspot .shape-point:active { cursor: grabbing; }
+.editable-hotspot .indicator-point { right: auto; bottom: auto; width: 16px; height: 16px; margin: -8px 0 0 -8px; border: 2px solid #fff; border-radius: 50%; background: var(--hotspot-color); box-shadow: 0 0 0 2px #000a, 0 0 10px #000c; cursor: grab; z-index: 3; }
+.editable-hotspot .indicator-point:active { cursor: grabbing; }
 .scene-connection { position: absolute; z-index: 8; min-width: 48px; min-height: 48px; transform: translate(-50%, -50%); padding: 0; border: 1px solid #8b8f65; border-radius: 50%; background: #0a0c0ad9; box-shadow: 0 5px 18px #000b; }
 .scene-connection i { display: grid; place-items: center; font: normal 1.5rem "Courier New", monospace; }
 .scene-connection span { position: absolute; left: 50%; top: calc(100% + 7px); width: max-content; max-width: 170px; transform: translateX(-50%); padding: .28rem .45rem; background: var(--acid); color: #000; font: 700 .6rem "Courier New", monospace; }
@@ -180,14 +183,21 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .test-stats [data-test-stat="thirst"] em { background: #3f9ed1; }
 .test-stats [data-test-stat="hunger"] em { background: #df8738; }
 .test-stats [data-test-stat="anxiety"] em { background: #a773d6; }
-.test-hotspot { position: absolute; z-index: 4; border: 1px solid var(--highlight); border-radius: 50%; background: color-mix(in srgb, var(--highlight) 42%, transparent); transition: opacity .4s; }
-.test-hotspot:hover { background: color-mix(in srgb, var(--highlight) 70%, transparent); box-shadow: 0 0 22px color-mix(in srgb, var(--highlight) 55%, transparent); }
-.test-hotspot span { position: absolute; left: 50%; bottom: -28px; transform: translateX(-50%); padding: .35rem .5rem; color: #050604; background: var(--highlight); opacity: 0; font: 700 .62rem "Courier New", monospace; white-space: nowrap; }
-.test-hotspot:hover span { opacity: 1; }
-.test-hotspot.invisible-hotspot { opacity: 0; }
+.test-hotspot-group { position: absolute; z-index: 4; }
+.test-hotspot-hitbox { position: absolute; inset: 0; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.test-hotspot-marker { position: absolute; width: 38px; height: 38px; margin: -19px 0 0 -19px; border: 1px solid var(--highlight); border-radius: 50%; background: color-mix(in srgb, var(--highlight) 42%, transparent); pointer-events: none; transition: opacity .4s, background .18s; }
+.test-hotspot-group:hover .test-hotspot-marker { background: color-mix(in srgb, var(--highlight) 70%, transparent); box-shadow: 0 0 22px color-mix(in srgb, var(--highlight) 55%, transparent); }
+.test-hotspot-label { position: absolute; transform: translate(-50%, 20px); padding: .35rem .5rem; color: #050604; background: var(--highlight); opacity: 0; pointer-events: none; font: 700 .62rem "Courier New", monospace; white-space: nowrap; }
+.test-hotspot-group:hover .test-hotspot-label { opacity: 1; }
+.test-hotspot-marker.invisible-hotspot { opacity: 0; }
+.test-cutscene { position: absolute; z-index: 55; inset: 0; display: grid; place-items: center; background: #000; }
+.test-cutscene-media { position: absolute; inset: 0; display: grid; place-items: center; }
+.test-cutscene-media img, .test-cutscene-media video { max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.test-cutscene-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: #15170f; }
+.test-cutscene-progress i { display: block; height: 100%; background: var(--acid); transition: width .15s linear; }
 
 .editor-topbar button.primary, .wide-button.primary, .room-list em, .panel-title b,
-.editable-hotspot span, .scene-connection span, .test-hotspot span, .test-item-grid b { color: #000; }
+.editable-hotspot > span, .scene-connection span, .test-hotspot-label, .test-item-grid b { color: #000; }
 .test-exits { position: absolute; z-index: 7; left: 50%; bottom: 88px; display: flex; justify-content: center; gap: .55rem; width: min(900px, 85vw); transform: translateX(-50%); }
 .test-exits button { min-width: 130px; padding: .6rem; border: 1px solid #777b64; background: #0b0e0bdd; box-shadow: 0 8px 20px #0008; }
 .test-exits button:hover { border-color: var(--acid); }
