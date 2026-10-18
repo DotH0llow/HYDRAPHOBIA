@@ -1,3 +1,5 @@
+// © 2024–2026 DotH0llow — Mimosferatu. Todos os direitos reservados.
+// Reprodução, redistribuição ou treinamento de IA não autorizado é proibido.
 import './styles/main.css';
 import { GameApp } from './ui/GameApp';
 

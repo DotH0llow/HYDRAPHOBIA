@@ -37,7 +37,7 @@ export class AudioSystem {
     if (cue === 'danger-silence') { this.duckAmbience(2 + Math.random() * 1.2); return; }
     const master = context.createGain();
     const panner = context.createStereoPanner();
-    const cueLevel = cue === 'jumpscare' ? 0.7 * (0.25 + this.preferences.jumpscareIntensity * 0.75) : 0.34;
+    const cueLevel = cue === 'jumpscare' ? 0.7 * (0.25 + this.preferences.jumpscareIntensity * 0.75) : 0.272;
     master.gain.setValueAtTime(this.effectsLevel(cueLevel), now);
     panner.pan.value = Math.max(-1, Math.min(1, pan));
     master.connect(panner).connect(context.destination);
@@ -56,7 +56,7 @@ export class AudioSystem {
 
   private tones(context: AudioContext, target: AudioNode, now: number, cue: Cue): void {
     const frequencies: Record<string, number[]> = {
-      click: [260], step: [68, 53], pickup: [440, 660], use: [330, 495, 660], locked: [82, 67], escape: [220, 330, 440, 660],
+      click: [210], step: [68, 53], pickup: [440, 660], use: [330, 495, 660], locked: [82, 67], escape: [220, 330, 440, 660],
     };
     (frequencies[cue] ?? [120]).forEach((frequency, index, list) => {
       const oscillator = context.createOscillator();

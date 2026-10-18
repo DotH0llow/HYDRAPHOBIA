@@ -42,6 +42,14 @@ export interface HotspotDefinition {
   hideoutImage?: string;
 }
 
+export interface RoomLight {
+  x: number;
+  y: number;
+  radius: number;
+  intensity: number;
+  color?: string;
+}
+
 export interface RoomDefinition {
   id: RoomId;
   name: string;
@@ -50,6 +58,8 @@ export interface RoomDefinition {
   description: string;
   exits: Record<Direction, ExitDefinition>;
   hotspots: HotspotDefinition[];
+  darknessLevel?: number;
+  lights?: RoomLight[];
 }
 
 export interface WorldDefinition {

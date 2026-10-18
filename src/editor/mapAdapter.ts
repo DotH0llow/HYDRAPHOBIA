@@ -40,6 +40,8 @@ export const levelToWorld = (level: EditorLevel): WorldDefinition => {
       description: room.description,
       exits: {},
       hotspots: room.hotspots.map(hotspotToRuntime),
+      darknessLevel: room.darknessLevel,
+      lights: room.lights?.map((l) => ({ x: l.x, y: l.y, radius: l.radius, intensity: l.intensity, color: l.color })),
     };
   });
   level.connections.forEach((connection) => {

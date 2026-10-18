@@ -1,0 +1,23 @@
+User-agent: *
+Disallow: /
+
+User-agent: GPTBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: Claude-Web
+Disallow: /
+
+User-agent: Omgilibot
+Disallow: /
+
+# Mimosferatu — © 2024–2026 DotH0llow. All rights reserved.
+# Unauthorized scraping, reproduction, or AI training on this content is prohibited.

@@ -53,6 +53,15 @@ export interface EditorHotspot {
   hideoutImage?: string;
 }
 
+export interface EditorLight {
+  id: string;
+  x: number;
+  y: number;
+  radius: number;
+  intensity: number;
+  color: string;
+}
+
 export interface EditorRoom {
   id: string;
   name: string;
@@ -61,6 +70,8 @@ export interface EditorRoom {
   image: string;
   position: EditorPosition;
   hotspots: EditorHotspot[];
+  darknessLevel?: number;
+  lights?: EditorLight[];
 }
 
 export interface EditorLevel {

@@ -46,6 +46,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .scene { position: absolute; inset: 0; overflow: hidden; background: #050604; animation: scene-enter .48s ease both; }
 .scene > img { width: 100%; height: 100%; object-fit: cover; display: block; transform: scale(1.015); }
 .scene-grade { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 46%, transparent 35%, #010201a8 100%), linear-gradient(0deg, #0008, transparent 20% 75%, #0007); box-shadow: inset 0 0 7vw #000; }
+.scene-darkness-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
 .scene-noise { z-index: 2; }
 .hotspot-group { --x: 0%; --y: 0%; --w: 10%; --h: 10%; position: absolute; z-index: 5; left: var(--x); top: var(--y); width: var(--w); height: var(--h); }
 .hotspot-hitbox { position: absolute; inset: 0; padding: 0; border: 0; background: transparent; cursor: pointer; }

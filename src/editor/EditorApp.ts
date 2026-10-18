@@ -5,7 +5,7 @@ import { DEFAULT_PREFERENCES } from '../systems/SaveSystem';
 import type { EncounterAction, ItemId } from '../types';
 import { EditorProject } from './EditorProject';
 import { entitiesToRuntime, itemsToRuntime, levelToWorld } from './mapAdapter';
-import { DEFAULT_SHAPE_POINT_COUNT, ENTITY_IMAGE_LIBRARY, IMAGE_LIBRARY, detectMediaType, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorRoom } from './types';
+import { DEFAULT_SHAPE_POINT_COUNT, ENTITY_IMAGE_LIBRARY, IMAGE_LIBRARY, detectMediaType, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorLight, type EditorRoom } from './types';
 
 type Panel = 'map' | 'items' | 'entities';
 
@@ -15,7 +15,8 @@ type Gesture =
   | { type: 'hotspot'; roomId: string; hotspotId: string; resize: boolean; startX: number; startY: number; origin: { x: number; y: number; width: number; height: number }; rect: DOMRect }
   | { type: 'shapePoint'; roomId: string; hotspotId: string; pointIndex: number; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect }
   | { type: 'indicator'; roomId: string; hotspotId: string; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect }
-  | { type: 'connectionButton'; connectionId: string; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect };
+  | { type: 'connectionButton'; connectionId: string; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect }
+  | { type: 'lightSpot'; roomId: string; lightId: string; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect };
 
 const esc = (value: unknown): string => String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]!);
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
@@ -38,6 +39,7 @@ export class EditorApp {
   private selectedItemId: string | null = this.project.data.items[0]?.id ?? null;
   private selectedEntityId: string | null = this.project.data.entities[0]?.id ?? null;
   private hotspotEditorOpen = false;
+  private selectedLightId: string | null = null;
   private pan = { x: 80, y: 60 };
   private zoom = 0.82;
   private gesture: Gesture | null = null;
@@ -66,6 +68,37 @@ export class EditorApp {
   private render(): void {
     this.root.innerHTML = this.testMode ? this.playtestTemplate() : this.editorTemplate();
     if (this.testMode) this.bindTestCutsceneVideo();
+    else if (this.hotspotEditorOpen) this.updateDarknessCanvas();
+  }
+
+  private updateDarknessCanvas(): void {
+    const canvas = this.root.querySelector<HTMLCanvasElement>('[data-role="darkness-canvas"]');
+    if (!canvas) return;
+    const room = this.selectedRoom;
+    const darkness = room?.darknessLevel ?? 0;
+    const lights = room?.lights ?? [];
+    canvas.width = canvas.offsetWidth || 640;
+    canvas.height = canvas.offsetHeight || 360;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (darkness <= 0 && lights.length === 0) return;
+    ctx.fillStyle = `rgba(0,0,0,${darkness})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (lights.length > 0) {
+      ctx.globalCompositeOperation = 'destination-out';
+      for (const light of lights) {
+        const cx = (light.x / 100) * canvas.width;
+        const cy = (light.y / 100) * canvas.height;
+        const r = (light.radius / 100) * canvas.width;
+        const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        grd.addColorStop(0, `rgba(0,0,0,${light.intensity})`);
+        grd.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
   }
 
   private editorTemplate(): string {
@@ -203,8 +236,8 @@ export class EditorApp {
     return `<div class="hotspot-editor-layer"><section class="hotspot-editor-window">
       <header><div><small>EDITOR DA PERSPECTIVA · SEM MECÂNICAS DE JOGO</small><h2>${esc(room.name)}</h2></div><nav><button data-action="add-hotspot">+ Nova área</button><button data-action="close-hotspots">Concluir</button></nav></header>
       <div class="hotspot-editor-layout">
-        <div class="hotspot-stage" data-role="hotspot-stage"><img src="${esc(room.image)}" alt="${esc(room.description)}" />${room.hotspots.map((entry) => this.editableHotspotTemplate(entry, connection)).join('')}${connections.map((entry, index) => this.sceneConnectionMarker(entry, index, connections.length)).join('')}</div>
-        <aside class="hotspot-settings">${connection ? this.sceneConnectionFields(connection) : hotspot ? this.hotspotFieldsTemplate(hotspot, room) : '<div class="empty-hotspot"><b>Selecione um elemento</b><p>Clique em um caminho nas bordas ou em uma área interativa sobre a imagem.</p></div>'}</aside>
+        <div class="hotspot-stage" data-role="hotspot-stage"><img src="${esc(room.image)}" alt="${esc(room.description)}" />${room.hotspots.map((entry) => this.editableHotspotTemplate(entry, connection)).join('')}${connections.map((entry, index) => this.sceneConnectionMarker(entry, index, connections.length)).join('')}${this.lightMarkersTemplate(room)}<canvas class="stage-darkness-canvas" data-role="darkness-canvas" aria-hidden="true"></canvas></div>
+        <aside class="hotspot-settings">${connection ? this.sceneConnectionFields(connection) : hotspot ? this.hotspotFieldsTemplate(hotspot, room) : this.sceneLightingTemplate(room)}</aside>
       </div>
     </section></div>`;
   }
@@ -214,7 +247,7 @@ export class EditorApp {
     const clip = entry.shapePoints ? `clip-path:polygon(${entry.shapePoints.map((point) => `${point.x}% ${point.y}%`).join(',')});` : '';
     const shapePointHandles = selected && entry.shapePoints ? entry.shapePoints.map((point, index) => `<i class="shape-point" data-role="shape-point" data-point="${index}" style="left:${point.x}%;top:${point.y}%"></i>`).join('') : '';
     const indicatorHandle = selected ? `<i class="indicator-point" data-role="indicator-point" title="Círculo visível ao jogador" style="left:${entry.indicator.x}%;top:${entry.indicator.y}%"></i>` : '';
-    return `<button class="editable-hotspot ${selected ? 'selected' : ''} ${entry.visibility !== 'visible' ? 'muted-visibility' : ''}" data-hotspot="${esc(entry.id)}" style="left:${entry.x}%;top:${entry.y}%;width:${entry.width}%;height:${entry.height}%;--hotspot-color:${esc(entry.highlightColor)};--hotspot-strength:${entry.highlightOpacity * 100}%">
+    return `<button class="editable-hotspot ${selected ? 'selected' : ''} ${entry.visibility !== 'visible' ? 'muted-visibility' : ''} ${entry.shapePoints ? 'shape-mode' : ''}" data-hotspot="${esc(entry.id)}" style="left:${entry.x}%;top:${entry.y}%;width:${entry.width}%;height:${entry.height}%;--hotspot-color:${esc(entry.highlightColor)};--hotspot-strength:${entry.highlightOpacity * 100}%">
       <i class="hotspot-fill" style="${clip}"></i>
       <span>${esc(entry.label)}</span>
       ${entry.shapePoints ? '' : '<i data-role="hotspot-resize"></i>'}
@@ -249,6 +282,40 @@ export class EditorApp {
         <div class="field-row"><label><span>X %</span><input type="number" min="0" max="100" step="0.5" data-connection-field="buttonX" data-connection="${esc(connection.id)}" value="${(connection.buttonX ?? fallback.x).toFixed(1)}" /></label><label><span>Y %</span><input type="number" min="0" max="100" step="0.5" data-connection-field="buttonY" data-connection="${esc(connection.id)}" value="${(connection.buttonY ?? fallback.y).toFixed(1)}" /></label></div>
         <label><span>Rotação da seta (graus)</span><input type="number" min="0" max="359" step="5" data-connection-field="arrowRotation" data-connection="${esc(connection.id)}" value="${connection.arrowRotation ?? defaultArrowRotation(connection.direction)}" /></label>
         <button class="wide-button" data-action="reset-connection-button" data-connection="${esc(connection.id)}">Redefinir posição padrão</button>
+      </section>`;
+  }
+
+  private lightMarkersTemplate(room: EditorRoom): string {
+    return (room.lights ?? []).map((light) => {
+      const selected = light.id === this.selectedLightId;
+      return `<button class="light-marker ${selected ? 'selected' : ''}" data-role="light-spot" data-light="${esc(light.id)}" data-action="select-light" style="left:${light.x}%;top:${light.y}%;--light-r:${light.radius}%;--light-color:${esc(light.color ?? '#fffbe8')}" title="Foco de luz — arraste para mover">☀</button>`;
+    }).join('');
+  }
+
+  private sceneLightingTemplate(room: EditorRoom): string {
+    const darkness = room.darknessLevel ?? 0;
+    const lights = room.lights ?? [];
+    return `<div class="properties-heading"><div><small>CENA</small><h3>${esc(room.name)}</h3></div></div>
+      <label><span>Nível de escuridão</span>
+        <div class="input-with-browse"><input type="range" min="0" max="1" step="0.05" data-scene-field="darknessLevel" value="${darkness}" style="flex:1" /><b style="width:3rem;text-align:right;font:.65rem 'Courier New',monospace">${Math.round(darkness * 100)}%</b></div>
+      </label>
+      <section class="property-section">
+        <div class="panel-title"><span>Focos de Luz</span><b>${lights.length}</b></div>
+        <p class="panel-hint">Clique em "Adicionar foco" e arraste os círculos sobre a imagem para posicioná-los. Precisam de escuridão para aparecer.</p>
+        ${lights.map((light) => `
+          <div class="light-entry ${this.selectedLightId === light.id ? 'active' : ''}" data-action="select-light" data-light="${esc(light.id)}" style="cursor:pointer;padding:.4rem .55rem;border:1px solid #${this.selectedLightId === light.id ? '8c9164' : '34382f'};background:#0b0d0b;margin-bottom:.3rem">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font:.62rem 'Courier New',monospace">Foco · ${light.x.toFixed(0)}% ${light.y.toFixed(0)}%</span>
+              <button class="danger" data-action="delete-light" data-light="${esc(light.id)}" style="padding:.2rem .35rem;font-size:.6rem;background:#1a1215;border:1px solid #5a2d29">×</button>
+            </div>
+            ${this.selectedLightId === light.id ? `
+              <label style="display:grid;gap:.25rem;margin:.5rem 0 0"><span style="color:#8e9284;font:.6rem 'Courier New',monospace;text-transform:uppercase">Raio (%)</span><input type="number" min="2" max="60" step="1" data-light-field="radius" data-light="${esc(light.id)}" value="${light.radius}" /></label>
+              <label style="display:grid;gap:.25rem;margin:.4rem 0 0"><span style="color:#8e9284;font:.6rem 'Courier New',monospace;text-transform:uppercase">Intensidade</span><input type="range" min="0.1" max="1" step="0.05" data-light-field="intensity" data-light="${esc(light.id)}" value="${light.intensity}" /></label>
+              <label style="display:grid;gap:.25rem;margin:.4rem 0 0"><span style="color:#8e9284;font:.6rem 'Courier New',monospace;text-transform:uppercase">Cor da luz</span><input type="color" data-light-field="color" data-light="${esc(light.id)}" value="${esc(light.color ?? '#fffbe8')}" /></label>
+            ` : ''}
+          </div>
+        `).join('')}
+        <button class="wide-button" data-action="add-light">+ Adicionar foco de luz</button>
       </section>`;
   }
 
@@ -499,11 +566,38 @@ export class EditorApp {
       case 'open-hotspots': this.openPerspective(); break;
       case 'open-hotspot': this.hotspotEditorOpen = true; this.selectedHotspotId = target.dataset.hotspot ?? null; this.selectedConnectionId = null; break;
       case 'select-scene-connection': this.selectedConnectionId = target.dataset.connection ?? null; this.selectedHotspotId = null; break;
-      case 'close-hotspots': this.hotspotEditorOpen = false; this.selectedHotspotId = null; this.selectedConnectionId = null; this.project.save(); break;
+      case 'close-hotspots': this.hotspotEditorOpen = false; this.selectedHotspotId = null; this.selectedConnectionId = null; this.selectedLightId = null; this.project.save(); break;
       case 'add-hotspot': if (this.selectedRoom) { const hotspot = this.project.addHotspot(this.selectedRoom.id); this.selectedHotspotId = hotspot?.id ?? null; this.selectedConnectionId = null; } break;
       case 'delete-hotspot': if (this.selectedRoom && this.selectedHotspotId && window.confirm('Excluir esta área interativa?')) { this.project.deleteHotspot(this.selectedRoom.id, this.selectedHotspotId); this.selectedHotspotId = this.selectedRoom.hotspots[0]?.id ?? null; } break;
       case 'make-shape': { const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId); if (hotspot) { hotspot.shapePoints = circlePoints(); this.project.save(); } break; }
       case 'reset-shape': { const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId); if (hotspot) { hotspot.shapePoints = undefined; this.project.save(); } break; }
+      case 'add-light': {
+        const room = this.selectedRoom;
+        if (room) {
+          if (!room.lights) room.lights = [];
+          const { createId } = await import('./EditorProject');
+          const light: EditorLight = { id: createId('luz'), x: 50, y: 50, radius: 20, intensity: 0.9, color: '#fffbe8' };
+          room.lights.push(light);
+          this.selectedLightId = light.id;
+          this.project.save();
+        }
+        break;
+      }
+      case 'delete-light': {
+        const room = this.selectedRoom;
+        const lightId = target.dataset.light;
+        if (room && lightId) {
+          room.lights = (room.lights ?? []).filter((l) => l.id !== lightId);
+          if (this.selectedLightId === lightId) this.selectedLightId = null;
+          this.project.save();
+        }
+        break;
+      }
+      case 'select-light': {
+        const lightId = target.dataset.light;
+        this.selectedLightId = this.selectedLightId === lightId ? null : (lightId ?? null);
+        break;
+      }
       case 'zoom-in': this.setZoom(this.zoom + .12); break;
       case 'zoom-out': this.setZoom(this.zoom - .12); break;
       case 'reset-view': this.resetView(); break;
@@ -542,7 +636,11 @@ export class EditorApp {
     if (input.matches('[data-role="import-file"]') && input instanceof HTMLInputElement) { await this.importJSON(input.files?.[0]); return; }
     if ((input.matches('[data-role="browse-image"]') || input.matches('[data-role="browse-media"]')) && input instanceof HTMLInputElement && input.files?.[0]) {
       const file = input.files[0];
-      const objectUrl = URL.createObjectURL(file);
+      const objectUrl = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
+      });
       const target = this.browseTarget;
       if (target === 'room-image' && this.selectedRoom) { this.selectedRoom.image = objectUrl; this.project.save(); }
       else if (target === 'item-image' && this.selectedItem) { this.selectedItem.image = objectUrl; this.project.save(); }
@@ -600,6 +698,23 @@ export class EditorApp {
         } else if ((connectionField as string) === 'customDirection') { connection.direction = input.value; }
         else if (connectionField === 'label' || connectionField === 'lockedMessage' || connectionField === 'to') connection[connectionField] = input.value;
         this.project.save(); this.render();
+      }
+      return;
+    }
+    const sceneField = input.dataset.sceneField as string | undefined;
+    if (sceneField && this.selectedRoom) {
+      if (sceneField === 'darknessLevel') { this.selectedRoom.darknessLevel = Number(input.value); this.project.save(); this.updateDarknessCanvas(); }
+      return;
+    }
+    const lightField = input.dataset.lightField as string | undefined;
+    const lightId = input.dataset.light;
+    if (lightField && lightId && this.selectedRoom) {
+      const light = this.selectedRoom.lights?.find((l) => l.id === lightId);
+      if (light) {
+        if (lightField === 'radius') light.radius = clamp(Number(input.value), 2, 60);
+        else if (lightField === 'intensity') light.intensity = clamp(Number(input.value), 0, 1);
+        else if (lightField === 'color') light.color = input.value;
+        this.project.save(); this.updateDarknessCanvas(); this.render();
       }
       return;
     }
@@ -661,11 +776,25 @@ export class EditorApp {
     if (connectionMarker && stage) {
       const connection = this.project.activeLevel.connections.find((entry) => entry.id === connectionMarker.dataset.connection);
       if (!connection) return;
+      this.selectedConnectionId = connection.id;
+      this.selectedHotspotId = null;
       const markerRect = connectionMarker.getBoundingClientRect();
       const stageRect = stage.getBoundingClientRect();
       const originX = ((markerRect.left + markerRect.width / 2 - stageRect.left) / stageRect.width) * 100;
       const originY = ((markerRect.top + markerRect.height / 2 - stageRect.top) / stageRect.height) * 100;
       this.gesture = { type: 'connectionButton', connectionId: connection.id, startX: event.clientX, startY: event.clientY, origin: { x: originX, y: originY }, rect: stageRect };
+      return;
+    }
+    const lightMarker = target.closest<HTMLElement>('[data-role="light-spot"]');
+    if (lightMarker && stage && this.selectedRoom) {
+      const light = this.selectedRoom.lights?.find((l) => l.id === lightMarker.dataset.light);
+      if (!light) return;
+      this.selectedLightId = light.id;
+      this.selectedHotspotId = null;
+      this.selectedConnectionId = null;
+      this.gesture = { type: 'lightSpot', roomId: this.selectedRoom.id, lightId: light.id, startX: event.clientX, startY: event.clientY, origin: { x: light.x, y: light.y }, rect: stage.getBoundingClientRect() };
+      event.preventDefault();
+      event.stopPropagation();
       return;
     }
     const output = target.closest<HTMLElement>('[data-role="output-port"]');
@@ -747,6 +876,18 @@ export class EditorApp {
       connection.buttonY = clamp(gesture.origin.y + dy, 0, 100);
       const marker = this.root.querySelector<HTMLElement>(`.scene-connection[data-connection="${CSS.escape(connection.id)}"]`);
       if (marker) { marker.style.left = `${connection.buttonX}%`; marker.style.top = `${connection.buttonY}%`; }
+    } else if (this.gesture.type === 'lightSpot') {
+      const gesture = this.gesture;
+      const room = this.project.findRoom(gesture.roomId);
+      const light = room?.lights?.find((l) => l.id === gesture.lightId);
+      if (!light) return;
+      const dx = ((event.clientX - gesture.startX) / gesture.rect.width) * 100;
+      const dy = ((event.clientY - gesture.startY) / gesture.rect.height) * 100;
+      light.x = clamp(gesture.origin.x + dx, 0, 100);
+      light.y = clamp(gesture.origin.y + dy, 0, 100);
+      const el = this.root.querySelector<HTMLElement>(`[data-role="light-spot"][data-light="${CSS.escape(light.id)}"]`);
+      if (el) { el.style.left = `${light.x}%`; el.style.top = `${light.y}%`; }
+      this.updateDarknessCanvas();
     } else {
       const gesture = this.gesture;
       if (gesture.type !== 'hotspot') return;
@@ -778,7 +919,7 @@ export class EditorApp {
     }
     if (!this.gesture) return;
     this.project.save();
-    const needsRerender = this.gesture.type === 'hotspot' || this.gesture.type === 'shapePoint' || this.gesture.type === 'indicator' || this.gesture.type === 'connectionButton';
+    const needsRerender = this.gesture.type === 'hotspot' || this.gesture.type === 'shapePoint' || this.gesture.type === 'indicator' || this.gesture.type === 'connectionButton' || this.gesture.type === 'lightSpot';
     this.gesture = null;
     if (needsRerender) this.render();
     else this.root.querySelector('[data-role="canvas"]')?.classList.remove('panning');

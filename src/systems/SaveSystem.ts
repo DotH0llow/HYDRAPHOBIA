@@ -2,10 +2,23 @@ import type { GameSave, InventoryEntry, Preferences, RoomId, SaveData } from '..
 
 const STORAGE_KEY = 'limiar:save:v2';
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
+const INTEGRITY_SEED = 'limiar:v2:integrity:f4k3r$';
 export const DEFAULT_PREFERENCES: Preferences = { masterVolume: 0.72, musicVolume: 0.34, effectsVolume: 0.78, jumpscareIntensity: 0.8, showHealthBar: false };
 export const DEFAULT_SAVE: SaveData = { version: 2, updatedAt: '', game: null, preferences: DEFAULT_PREFERENCES };
 
 type SaveStorage = Pick<Storage, 'getItem' | 'setItem'> & Partial<Pick<Storage, 'removeItem'>>;
+
+type PersistedSave = SaveData & { _ic?: string };
+
+function computeIntegrity(data: SaveData): string {
+  const payload = INTEGRITY_SEED + JSON.stringify({ version: data.version, updatedAt: data.updatedAt, game: data.game });
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < payload.length; i++) {
+    hash ^= payload.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
 
 export class SaveSystem {
   constructor(private readonly storage: SaveStorage | null = typeof localStorage === 'undefined' ? null : localStorage) {}
@@ -14,12 +27,25 @@ export class SaveSystem {
     try {
       const raw = this.storage?.getItem(STORAGE_KEY);
       if (!raw) return structuredClone(DEFAULT_SAVE);
-      return this.validate(JSON.parse(raw) as unknown);
+      const parsed = JSON.parse(raw) as PersistedSave;
+      const validated = this.validate(parsed);
+      if (validated.game !== null) {
+        const expected = computeIntegrity(validated);
+        if (parsed._ic !== expected) {
+          validated.game = null;
+        }
+      }
+      return validated;
     } catch { return structuredClone(DEFAULT_SAVE); }
   }
 
   save(data: SaveData): boolean {
-    try { this.storage?.setItem(STORAGE_KEY, JSON.stringify(this.validate(data))); return this.storage !== null; }
+    try {
+      const validated = this.validate(data);
+      const persisted: PersistedSave = { ...validated, _ic: computeIntegrity(validated) };
+      this.storage?.setItem(STORAGE_KEY, JSON.stringify(persisted));
+      return this.storage !== null;
+    }
     catch { return false; }
   }
 

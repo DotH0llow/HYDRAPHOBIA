@@ -180,7 +180,13 @@ export class Game {
       return { changed: false, message: this.message };
     }
 
-    if (hotspot.visibility === 'invisible') this.flags[`reveal:${this.position}:${id}`] = true;
+    const revealKey = `reveal:${this.position}:${id}`;
+    if (hotspot.visibility === 'invisible' && !this.flags[revealKey]) {
+      this.flags[revealKey] = true;
+      this.message = `Você encontrou algo: ${hotspot.label}.`;
+      return { changed: true, message: this.message };
+    }
+    if (hotspot.visibility === 'invisible') this.flags[revealKey] = true;
     this.addDanger(hotspot.kind === 'examine' ? 2 : 1);
 
     if (hotspot.kind === 'collect' && hotspot.item) {

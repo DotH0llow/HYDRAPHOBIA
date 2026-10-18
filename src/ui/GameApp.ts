@@ -80,7 +80,38 @@ export class GameApp {
       this.renderedStructure = structure;
       this.forcePaint = false;
       this.bindCutsceneVideo();
+      if (this.screen === 'game' && this.game) this.updateDarknessCanvas();
     } else if (this.screen === 'game') this.updateReadouts();
+  }
+
+  private updateDarknessCanvas(): void {
+    const canvas = this.root.querySelector<HTMLCanvasElement>('[data-role="scene-darkness"]');
+    if (!canvas || !this.game) return;
+    const room = this.game.room as RoomDefinition;
+    const darkness = room.darknessLevel ?? 0;
+    const lights = room.lights ?? [];
+    canvas.width = canvas.offsetWidth || canvas.parentElement?.clientWidth || 800;
+    canvas.height = canvas.offsetHeight || canvas.parentElement?.clientHeight || 600;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (darkness <= 0 && lights.length === 0) return;
+    ctx.fillStyle = `rgba(0,0,0,${darkness})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (lights.length > 0) {
+      ctx.globalCompositeOperation = 'destination-out';
+      for (const light of lights) {
+        const cx = (light.x / 100) * canvas.width;
+        const cy = (light.y / 100) * canvas.height;
+        const r = (light.radius / 100) * canvas.width;
+        const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        grd.addColorStop(0, `rgba(0,0,0,${light.intensity})`);
+        grd.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
   }
 
   private structureKey(): string {
@@ -144,6 +175,7 @@ export class GameApp {
       <section class="scene" aria-label="${room.name}">
         <img src="${room.image}" alt="${room.description}" />
         <div class="scene-grade"></div><div class="scene-noise"></div>
+        <canvas class="scene-darkness-canvas" data-role="scene-darkness" aria-hidden="true"></canvas>
         ${this.hotspotMarkup(room)}
       </section>
       <div class="blood-overlay" data-blood-level="${this.bloodLevel()}" aria-hidden="true"><i></i><i></i><i></i></div>
@@ -503,6 +535,7 @@ export class GameApp {
   }
 
   private handleKey(event: KeyboardEvent): void {
+    if (event.key === 'Tab' && this.screen === 'game') { event.preventDefault(); return; }
     const key = event.key.toLowerCase();
     if (key === 'i' && this.screen === 'game' && this.game && (this.inventoryOpen || this.game.status === 'exploring')) {
       this.inventoryOpen = !this.inventoryOpen;
