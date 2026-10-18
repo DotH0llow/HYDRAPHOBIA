@@ -1,5 +1,5 @@
 import { DEFAULT_WORLD, ENTITIES, ITEMS, type EntityDefinition, type HotspotDefinition, type ItemDefinition, type WorldDefinition } from '../config/world';
-import type { CutsceneState, Direction, Encounter, EncounterAction, EntityId, GameSave, GameStatus, HotspotId, InventoryEntry, ItemId, RoomId, Stats } from '../types';
+import type { CutsceneState, Direction, Encounter, EncounterAction, EntityId, GameSave, GameStatus, HideoutState, HotspotId, InventoryEntry, ItemId, RoomId, Stats } from '../types';
 
 export interface ActionResult {
   changed: boolean;
@@ -25,6 +25,7 @@ export class Game {
   invincible = false;
   roomTime: Record<RoomId, number> = {};
   cutscene: CutsceneState | null = null;
+  hideout: HideoutState | null = null;
 
   private roomDwellTimer = 0;
   private dangerTickTimer = 0;
@@ -55,6 +56,11 @@ export class Game {
   update(delta: number): void {
     if (this.status === 'paused' || this.status === 'gameover' || this.status === 'escaped' || delta <= 0) return;
     const capped = Math.min(delta, 0.25);
+
+    if (this.status === 'hidden') {
+      this.updateHidden(capped);
+      return;
+    }
     this.elapsed += capped;
 
     if (this.status === 'encounter' && this.encounter) {
@@ -82,6 +88,23 @@ export class Game {
 
     this.updateRoomTimers(capped);
     this.updateAnxiety(capped);
+  }
+
+  private updateHidden(delta: number): void {
+    this.stats.hunger = this.clamp(this.stats.hunger - delta * 0.048);
+    this.stats.thirst = this.clamp(this.stats.thirst - delta * 0.072);
+    this.stats.anxiety = this.clamp(this.stats.anxiety - delta * 2);
+    if (this.stats.hunger === 0 || this.stats.thirst === 0) {
+      if (!this.invincible) this.stats.health = this.clamp(this.stats.health - delta * 0.4);
+      if (this.stats.health === 0) this.status = 'gameover';
+    }
+  }
+
+  exitHideout(): void {
+    if (this.status !== 'hidden') return;
+    this.status = 'exploring';
+    this.hideout = null;
+    this.message = 'Você sai do esconderijo com cuidado.';
   }
 
   private updateCutscene(delta: number): void {
@@ -144,6 +167,10 @@ export class Game {
   }
 
   interact(id: HotspotId): ActionResult {
+    if (this.status === 'hidden') {
+      if (this.hideout?.hotspotId === id) { this.exitHideout(); return { changed: true, message: this.message }; }
+      return { changed: false, message: 'Você está escondido. Saia primeiro.' };
+    }
     if (this.status !== 'exploring') return { changed: false, message: 'Agora não.' };
     const hotspot = this.room.hotspots.find((entry) => entry.id === id);
     if (!hotspot) return { changed: false, message: 'Não há nada ali.' };
@@ -185,6 +212,14 @@ export class Game {
       this.selectedItem = null;
       if (hotspot.once) this.flags[usedFlag] = true;
       this.message = hotspot.message || this.room.description;
+      return { changed: true, message: this.message };
+    }
+    if (hotspot.kind === 'hideout') {
+      this.hideout = { hotspotId: id, image: hotspot.hideoutImage };
+      this.status = 'hidden';
+      this.message = hotspot.message || 'Você se esconde e prende a respiração.';
+      if (hotspot.once) this.flags[usedFlag] = true;
+      this.stats.anxiety = this.clamp(this.stats.anxiety - 5);
       return { changed: true, message: this.message };
     }
     if (hotspot.kind === 'event' && hotspot.event) {
@@ -279,6 +314,8 @@ export class Game {
 
   debugAddItem(id: ItemId): void { this.addItem(id); }
 
+  debugSetDanger(value: number): void { this.danger = this.clamp(value); }
+
   setInvincible(value: boolean): void { this.invincible = value; }
 
   private updateRoomTimers(delta: number): void {
@@ -357,7 +394,7 @@ export class Game {
   private startEncounter(id: EntityId): void {
     const definition = this.entities[id];
     if (!definition) return;
-    this.encounter = { id, name: definition.name, prompt: definition.prompt, hint: definition.hint, solution: definition.solution, remaining: definition.timeLimit, timeLimit: definition.timeLimit, image: definition.image };
+    this.encounter = { id, name: definition.name, prompt: definition.prompt, hint: definition.hint, solution: definition.solution, remaining: definition.timeLimit, timeLimit: definition.timeLimit, image: definition.image, jumpscareDuration: definition.jumpscareSeconds };
     this.status = 'encounter';
     this.message = this.encounter.prompt;
     this.stats.anxiety = this.clamp(this.stats.anxiety + 10);

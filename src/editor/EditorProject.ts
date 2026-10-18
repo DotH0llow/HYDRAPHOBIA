@@ -10,7 +10,7 @@ type EditorStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
 const cleanId = (value: string): string => value.trim().replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
-const ACTIONS = new Set<EditorHotspotAction>(['examine', 'collect', 'use', 'move', 'event', 'cutscene']);
+const ACTIONS = new Set<EditorHotspotAction>(['examine', 'collect', 'use', 'move', 'event', 'cutscene', 'hideout']);
 const VISIBILITIES = new Set<HotspotVisibility>(['visible', 'hidden', 'invisible']);
 const EFFECTS = new Set<ItemEffect>(['none', 'heal', 'hydrate', 'feed']);
 const SOLUTIONS = new Set<EncounterAction>(['run', 'hide']);
@@ -210,7 +210,7 @@ export class EditorProject {
   findEntity(id: string): EditorEntity | undefined { return this.data.entities.find((entity) => entity.id === id); }
 
   addEntity(): EditorEntity {
-    const entity: EditorEntity = { id: createId('entidade'), name: 'Nova entidade', prompt: 'Algo se aproxima no escuro.', hint: 'Decida rápido.', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg' };
+    const entity: EditorEntity = { id: createId('entidade'), name: 'Nova entidade', prompt: 'Algo se aproxima no escuro.', hint: 'Decida rápido.', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg', jumpscareSeconds: undefined };
     this.data.entities.push(entity);
     this.save();
     return entity;
@@ -360,6 +360,7 @@ export class EditorProject {
       cutscenePath: typeof hotspot.cutscenePath === 'string' ? hotspot.cutscenePath : '',
       cutsceneHoldSeconds: number(hotspot.cutsceneHoldSeconds, 4, 0.2, 600),
       cutsceneRepeatCount: Math.round(number(hotspot.cutsceneRepeatCount, 1, 1, 100)),
+      hideoutImage: typeof hotspot.hideoutImage === 'string' ? hotspot.hideoutImage : undefined,
     }];
   }
 
@@ -396,6 +397,7 @@ export class EditorProject {
       solution: SOLUTIONS.has(entity.solution as EncounterAction) ? entity.solution as EncounterAction : 'hide',
       timeLimit: number(entity.timeLimit, 5, 1, 30),
       image: typeof entity.image === 'string' && entity.image ? entity.image : '/assets/entities/watcher.jpg',
+      jumpscareSeconds: typeof entity.jumpscareSeconds === 'number' && entity.jumpscareSeconds > 0 ? entity.jumpscareSeconds : undefined,
     }];
   }
 }

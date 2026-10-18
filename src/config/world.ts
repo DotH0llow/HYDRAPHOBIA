@@ -22,7 +22,7 @@ export interface HotspotDefinition {
   y: number;
   width: number;
   height: number;
-  kind: 'examine' | 'collect' | 'use' | 'move' | 'event' | 'cutscene';
+  kind: 'examine' | 'collect' | 'use' | 'move' | 'event' | 'cutscene' | 'hideout';
   message: string;
   item?: ItemId;
   requiresItem?: ItemId;
@@ -39,6 +39,7 @@ export interface HotspotDefinition {
   cutscenePath?: string;
   cutsceneHoldSeconds?: number;
   cutsceneRepeatCount?: number;
+  hideoutImage?: string;
 }
 
 export interface RoomDefinition {
@@ -76,6 +77,7 @@ export interface EntityDefinition {
   solution: EncounterAction;
   timeLimit: number;
   image: string;
+  jumpscareSeconds?: number;
 }
 
 export const ITEMS: Record<ItemId, ItemDefinition> = {

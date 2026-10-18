@@ -1,5 +1,5 @@
 export type Screen = 'menu' | 'game' | 'settings' | 'gameover' | 'escaped' | 'exit';
-export type GameStatus = 'exploring' | 'encounter' | 'paused' | 'gameover' | 'escaped' | 'cutscene';
+export type GameStatus = 'exploring' | 'encounter' | 'paused' | 'gameover' | 'escaped' | 'cutscene' | 'hidden';
 export type CutsceneMediaType = 'image' | 'gif' | 'video';
 export type Direction = string;
 export type RoomId = string;
@@ -30,6 +30,12 @@ export interface Encounter {
   remaining: number;
   timeLimit: number;
   image: string;
+  jumpscareDuration?: number;
+}
+
+export interface HideoutState {
+  hotspotId: HotspotId;
+  image?: string;
 }
 
 export interface CutsceneState {

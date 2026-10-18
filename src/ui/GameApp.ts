@@ -59,7 +59,7 @@ export class GameApp {
       this.game.update(delta);
       if (this.game.attackNonce !== this.seenAttackNonce) {
         this.seenAttackNonce = this.game.attackNonce;
-        this.triggerJumpscare();
+        this.triggerJumpscare(this.game.encounter?.jumpscareDuration);
         this.persist();
       }
       if (this.game.status === 'gameover' && Date.now() >= this.jumpscareUntil) { this.screen = 'gameover'; this.forcePaint = true; }
@@ -91,6 +91,7 @@ export class GameApp {
       status: this.game.status,
       encounter: this.game.encounter?.id,
       cutscene: this.game.cutscene?.hotspotId ?? null,
+      hideout: this.game.hideout?.hotspotId ?? null,
       inventory: this.game.inventory,
       inventoryOpen: this.inventoryOpen,
       focusedItem: this.focusedItem,
@@ -163,6 +164,7 @@ export class GameApp {
       ${this.inventoryOpen ? this.inventoryTemplate() : ''}
       ${this.game.encounter ? this.encounterTemplate() : ''}
       ${this.game.status === 'cutscene' ? this.cutsceneTemplate() : ''}
+      ${this.game.status === 'hidden' ? this.hiddenTemplate() : ''}
       ${this.game.status === 'paused' ? this.pauseTemplate() : ''}
       ${Date.now() < this.jumpscareUntil ? this.jumpscareTemplate() : ''}
       ${this.devToolsTemplate()}
@@ -193,11 +195,11 @@ export class GameApp {
       const revealed = Boolean(this.game!.flags[`reveal:${room.id}:${hotspot.id}`]);
       if (hotspot.visibility === 'hidden' && !revealed) return '';
       const clip = hotspot.shape ? `clip-path:polygon(${hotspot.shape.points.map((point) => `${point.x}% ${point.y}%`).join(',')});` : '';
-      const invisible = hotspot.visibility === 'invisible' && !revealed ? ' invisible-hotspot' : '';
+      const invisible = hotspot.visibility === 'invisible' && !revealed;
       const indicator = hotspot.indicator ?? { x: 50, y: 50 };
-      return `<div class="hotspot-group" style="--x:${hotspot.x}%;--y:${hotspot.y}%;--w:${hotspot.width}%;--h:${hotspot.height}%">
+      return `<div class="hotspot-group${invisible ? ' hotspot-invisible' : ''}" style="--x:${hotspot.x}%;--y:${hotspot.y}%;--w:${hotspot.width}%;--h:${hotspot.height}%">
         <button class="hotspot-hitbox" data-action="hotspot" data-hotspot="${hotspot.id}" style="${clip}" aria-label="${hotspot.label}"></button>
-        <i class="hotspot-marker${invisible}" style="left:${indicator.x}%;top:${indicator.y}%"></i>
+        <i class="hotspot-marker${invisible ? ' invisible-hotspot' : ''}" style="left:${indicator.x}%;top:${indicator.y}%"></i>
         <span class="hotspot-label" style="left:${indicator.x}%;top:${indicator.y}%">${hotspot.label}</span>
       </div>`;
     }).join('');
@@ -284,6 +286,19 @@ export class GameApp {
     </div>`;
   }
 
+  private hiddenTemplate(): string {
+    const hideout = this.game!.hideout;
+    const bg = hideout?.image ? `<img src="${hideout.image}" alt="Esconderijo" />` : '';
+    return `<div class="hidden-layer">
+      ${bg}
+      <div class="hidden-overlay">
+        <small>ESCONDIDO</small>
+        <p>Você prende a respiração. A ansiedade diminui lentamente.</p>
+        <button class="primary" data-action="exit-hideout">Sair do esconderijo</button>
+      </div>
+    </div>`;
+  }
+
   private jumpscareTemplate(): string {
     return `<div class="jumpscare" style="--intensity:${this.save.preferences.jumpscareIntensity}" aria-label="Ataque repentino"><img src="${this.jumpscareImage}" alt="Entidade atacando" /><div class="jump-static"></div></div>`;
   }
@@ -299,7 +314,7 @@ export class GameApp {
     const itemOptions = Object.entries(this.items).map(([id, item]) => `<option value="${id}">${item.name}</option>`).join('');
     return `<aside class="dev-panel"><header><b>DEV cheats</b><button data-action="dev-toggle">×</button></header>
       ${(['health', 'thirst', 'hunger', 'anxiety'] as const).map((key) => `<label><span>${key}</span><input type="number" min="0" max="100" value="${Math.round(this.game!.stats[key])}" data-dev-stat="${key}" /></label>`).join('')}
-      <div class="dev-readout"><span>perigo</span><b>${Math.round(this.game.danger)}</b></div>
+      <label><span>perigo</span><input type="number" min="0" max="100" value="${Math.round(this.game.danger)}" data-dev-danger /></label>
       <label class="dev-check"><input type="checkbox" data-dev-invincible ${this.game.invincible ? 'checked' : ''} /><span>Invencibilidade</span></label>
       <label class="dev-check"><input type="checkbox" data-dev-health-bar ${this.save.preferences.showHealthBar ? 'checked' : ''} /><span>Mostrar barra de vida</span></label>
       <div class="dev-add"><select data-dev-item>${itemOptions}</select><button data-action="dev-add-item">Adicionar item</button></div>
@@ -359,6 +374,7 @@ export class GameApp {
       case 'examine-item': this.game?.examineItem(data.item as ItemId); this.inventoryOpen = false; break;
       case 'discard-item': this.game?.discardItem(data.item as ItemId); this.focusedItem = null; this.persist(); break;
       case 'encounter': this.respond(data.choice as EncounterAction); break;
+      case 'exit-hideout': this.game?.exitHideout(); this.audio.play('step'); break;
       case 'resume': this.game?.pause(false); this.audio.play('click'); break;
       case 'dev-toggle': this.devPanelOpen = !this.devPanelOpen; break;
       case 'dev-add-item': {
@@ -425,14 +441,15 @@ export class GameApp {
     if (!this.game) return;
     const entityImage = this.game.encounter?.image ?? this.jumpscareImage;
     const result = this.game.respondToEncounter(action);
-    if (result.attack) { this.jumpscareImage = entityImage; this.seenAttackNonce = this.game.attackNonce; this.triggerJumpscare(); }
+    if (result.attack) { this.jumpscareImage = entityImage; this.seenAttackNonce = this.game.attackNonce; this.triggerJumpscare(this.game.encounter?.jumpscareDuration); }
     else this.audio.play('step');
     this.persist();
   }
 
-  private triggerJumpscare(): void {
-    const raw = 850 + this.save.preferences.jumpscareIntensity * 500 - 1200;
-    this.jumpscareUntil = Date.now() + Math.max(50, raw);
+  private triggerJumpscare(entityDuration?: number): void {
+    const baseDuration = (entityDuration ?? 1.55) * 1000;
+    const duration = baseDuration * (0.4 + this.save.preferences.jumpscareIntensity * 0.6);
+    this.jumpscareUntil = Date.now() + Math.max(300, duration);
     this.audio.play('jumpscare');
     this.forcePaint = true;
   }
@@ -459,6 +476,10 @@ export class GameApp {
     if (debugStat && this.game) {
       this.game.debugSetStat(debugStat, Number(input.value));
       this.updateReadouts();
+      return;
+    }
+    if (input.hasAttribute('data-dev-danger') && this.game) {
+      this.game.debugSetDanger(Number(input.value));
       return;
     }
     if (input.hasAttribute('data-dev-invincible') && this.game) {

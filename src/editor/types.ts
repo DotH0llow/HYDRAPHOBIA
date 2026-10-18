@@ -1,7 +1,7 @@
 import type { ItemEffect } from '../config/world';
 import type { CutsceneMediaType, EncounterAction, EntityId, HotspotVisibility, ItemId } from '../types';
 
-export type EditorHotspotAction = 'examine' | 'collect' | 'use' | 'move' | 'event' | 'cutscene';
+export type EditorHotspotAction = 'examine' | 'collect' | 'use' | 'move' | 'event' | 'cutscene' | 'hideout';
 export type EditorEvent = 'none' | 'jumpscare' | EntityId;
 
 export interface EditorPosition { x: number; y: number }
@@ -50,6 +50,7 @@ export interface EditorHotspot {
   cutscenePath: string;
   cutsceneHoldSeconds: number;
   cutsceneRepeatCount: number;
+  hideoutImage?: string;
 }
 
 export interface EditorRoom {
@@ -90,6 +91,7 @@ export interface EditorEntity {
   solution: EncounterAction;
   timeLimit: number;
   image: string;
+  jumpscareSeconds?: number;
 }
 
 export interface EditorProjectData {
@@ -113,6 +115,21 @@ export const ENTITY_IMAGE_LIBRARY = [
   '/assets/entities/watcher.jpg',
   '/assets/entities/crawler.jpg',
 ] as const;
+
+export const ASSET_FOLDERS = {
+  scenes: 'public/assets/scenes',
+  entities: 'public/assets/entities',
+  items: 'public/assets/items',
+  cutscenes: 'public/assets/cutscenes',
+  icons: 'public/assets/icons',
+} as const;
+
+export const detectMediaType = (path: string): 'image' | 'gif' | 'video' => {
+  const ext = path.split('.').pop()?.toLowerCase() ?? '';
+  if (ext === 'gif') return 'gif';
+  if (['mp4', 'webm', 'ogg', 'mov', 'avi'].includes(ext)) return 'video';
+  return 'image';
+};
 
 export const DEFAULT_ITEMS: EditorItem[] = [
   { id: 'accessCard', name: 'Cartão sem nome', icon: '▣', description: 'Um cartão magnético amarelado. A tarja ainda parece intacta.', useText: 'Ele deve abrir algum leitor próximo.', effect: 'none', effectAmount: 0 },

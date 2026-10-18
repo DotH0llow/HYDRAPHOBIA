@@ -26,6 +26,7 @@ const hotspotToRuntime = (hotspot: EditorHotspot): HotspotDefinition => ({
   cutscenePath: hotspot.cutscenePath || undefined,
   cutsceneHoldSeconds: hotspot.cutsceneHoldSeconds,
   cutsceneRepeatCount: hotspot.cutsceneRepeatCount,
+  hideoutImage: hotspot.hideoutImage,
 });
 
 export const levelToWorld = (level: EditorLevel): WorldDefinition => {
@@ -76,7 +77,7 @@ export const itemsToRuntime = (items: EditorItem[]): Record<ItemId, ItemDefiniti
 export const entitiesToRuntime = (entities: EditorEntity[]): Record<EntityId, EntityDefinition> => {
   const result: Record<EntityId, EntityDefinition> = {};
   entities.forEach((entity) => {
-    result[entity.id] = { name: entity.name, prompt: entity.prompt, hint: entity.hint, solution: entity.solution, timeLimit: entity.timeLimit, image: entity.image };
+    result[entity.id] = { name: entity.name, prompt: entity.prompt, hint: entity.hint, solution: entity.solution, timeLimit: entity.timeLimit, image: entity.image, jumpscareSeconds: entity.jumpscareSeconds };
   });
   return result;
 };

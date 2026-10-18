@@ -5,7 +5,7 @@ import { DEFAULT_PREFERENCES } from '../systems/SaveSystem';
 import type { EncounterAction, ItemId } from '../types';
 import { EditorProject } from './EditorProject';
 import { entitiesToRuntime, itemsToRuntime, levelToWorld } from './mapAdapter';
-import { DEFAULT_SHAPE_POINT_COUNT, ENTITY_IMAGE_LIBRARY, IMAGE_LIBRARY, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorRoom } from './types';
+import { DEFAULT_SHAPE_POINT_COUNT, ENTITY_IMAGE_LIBRARY, IMAGE_LIBRARY, detectMediaType, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorRoom } from './types';
 
 type Panel = 'map' | 'items' | 'entities';
 
@@ -50,6 +50,7 @@ export class EditorApp {
   private testAttackNonce = 0;
   private lastFrame = performance.now();
   private lastTestKey = '';
+  private browseTarget = '';
 
   constructor(private readonly root: HTMLElement) { this.bindEvents(); }
 
@@ -80,6 +81,8 @@ export class EditorApp {
           <button data-action="save">Salvar</button><button data-action="export">Exportar JSON</button><button data-action="import">Importar</button><button class="primary" data-action="test">Testar</button>
         </nav>
         <input class="visually-hidden" type="file" accept="application/json,.json" data-role="import-file" />
+        <input class="visually-hidden" type="file" accept="image/*" data-role="browse-image" />
+        <input class="visually-hidden" type="file" accept="image/*,.gif,video/*" data-role="browse-media" />
       </header>
       ${this.activePanel === 'map' ? `<div class="editor-layout">${this.leftPanelTemplate()}${this.canvasTemplate()}${this.propertiesTemplate()}</div>` : ''}
       ${this.activePanel === 'items' ? this.itemsPanelTemplate() : ''}
@@ -166,7 +169,7 @@ export class EditorApp {
       <label><span>Nome</span><input data-room-field="name" value="${esc(room.name)}" /></label>
       <label><span>Código exibido</span><input data-room-field="code" value="${esc(room.code)}" /></label>
       <label><span>Descrição</span><textarea data-room-field="description" rows="3">${esc(room.description)}</textarea></label>
-      <label><span>Imagem relativa</span><input data-room-field="image" list="scene-assets" value="${esc(room.image)}" /></label>
+      <label><span>Imagem relativa</span><div class="input-with-browse"><input data-room-field="image" list="scene-assets" value="${esc(room.image)}" /><button type="button" data-action="browse-file" data-target-field="room-image" data-accept="image/*">Procurar</button></div></label>
       <datalist id="scene-assets">${IMAGE_LIBRARY.map((image) => `<option value="${esc(image)}"></option>`).join('')}</datalist>
       <div class="image-preview"><img src="${esc(room.image)}" alt="Prévia de ${esc(room.name)}" /><span>${esc(room.image)}</span></div>
       <section class="property-section"><div class="panel-title"><span>Conexões</span><b>${connections.length}</b></div>
@@ -225,7 +228,7 @@ export class EditorApp {
     const x = connection.buttonX ?? fallback.x;
     const y = connection.buttonY ?? fallback.y;
     const rotation = connection.arrowRotation ?? defaultArrowRotation(connection.direction);
-    return `<button class="scene-connection ${connection.id === this.selectedConnectionId ? 'selected' : ''}" data-action="select-scene-connection" data-connection="${esc(connection.id)}" style="left:${x}%;top:${y}%" title="Arraste para posicionar · clique para editar: ${esc(connection.label)}"><i style="transform:rotate(${rotation}deg)">↑</i><span>${esc(connection.label)}</span></button>`;
+    return `<button class="scene-connection ${connection.id === this.selectedConnectionId ? 'selected' : ''}" data-action="select-scene-connection" data-connection="${esc(connection.id)}" style="left:${x}%;top:${y}%" title="Arraste para posicionar · clique para editar: ${esc(connection.label)}"><i style="--rotate:${rotation}deg">↑</i><span>${esc(connection.label)}</span></button>`;
   }
 
   private sceneConnectionFields(connection: EditorConnection): string {
@@ -234,6 +237,7 @@ export class EditorApp {
     return `<div class="properties-heading"><div><small>CAMINHO</small><h3>${esc(connection.label)}</h3></div><button class="danger" data-action="delete-connection" data-connection="${esc(connection.id)}">Excluir</button></div>
       <label><span>Etiqueta no jogo</span><input data-connection-field="label" data-connection="${esc(connection.id)}" value="${esc(connection.label)}" /></label>
       <label><span>Direção / ação</span><select data-connection-field="direction" data-connection="${esc(connection.id)}"><option value="forward" ${connection.direction === 'forward' ? 'selected' : ''}>Frente</option><option value="back" ${connection.direction === 'back' ? 'selected' : ''}>Trás</option><option value="left" ${connection.direction === 'left' ? 'selected' : ''}>Esquerda</option><option value="right" ${connection.direction === 'right' ? 'selected' : ''}>Direita</option><option value="custom" ${!['forward', 'back', 'left', 'right'].includes(connection.direction) ? 'selected' : ''}>Personalizada</option></select></label>
+      ${!['forward', 'back', 'left', 'right'].includes(connection.direction) ? `<label><span>Nome da direção personalizada</span><input data-connection-field="customDirection" data-connection="${esc(connection.id)}" value="${esc(connection.direction)}" placeholder="ex: escada, buraco, túnel" /></label>` : ''}
       <label><span>Destino</span><select data-connection-field="to" data-connection="${esc(connection.id)}">${this.roomOptions(connection.to, connection.from)}</select></label>
       <div class="scene-destination"><img src="${esc(destination?.image ?? '')}" alt="" /><span>${esc(destination?.name ?? connection.to)}</span></div>
       <label class="check"><input type="checkbox" data-connection-field="bidirectional" data-connection="${esc(connection.id)}" ${connection.bidirectional ? 'checked' : ''} /><span>Criar retorno automático</span></label>
@@ -252,13 +256,14 @@ export class EditorApp {
     const level = this.project.activeLevel;
     return `<div class="properties-heading"><div><small>HOTSPOT</small><h3>${esc(hotspot.label)}</h3></div><button class="danger" data-action="delete-hotspot">Excluir</button></div>
       <label><span>Etiqueta</span><input data-hotspot-field="label" value="${esc(hotspot.label)}" /></label>
-      <label><span>Ação</span><select data-hotspot-field="action"><option value="examine" ${hotspot.action === 'examine' ? 'selected' : ''}>Examinar</option><option value="collect" ${hotspot.action === 'collect' ? 'selected' : ''}>Coletar item</option><option value="use" ${hotspot.action === 'use' ? 'selected' : ''}>Abrir / utilizar</option><option value="move" ${hotspot.action === 'move' ? 'selected' : ''}>Mudar de sala</option><option value="event" ${hotspot.action === 'event' ? 'selected' : ''}>Evento / entidade</option><option value="cutscene" ${hotspot.action === 'cutscene' ? 'selected' : ''}>Cutscene</option></select></label>
+      <label><span>Ação</span><select data-hotspot-field="action"><option value="examine" ${hotspot.action === 'examine' ? 'selected' : ''}>Examinar</option><option value="collect" ${hotspot.action === 'collect' ? 'selected' : ''}>Coletar item</option><option value="use" ${hotspot.action === 'use' ? 'selected' : ''}>Abrir / utilizar</option><option value="move" ${hotspot.action === 'move' ? 'selected' : ''}>Mudar de sala</option><option value="event" ${hotspot.action === 'event' ? 'selected' : ''}>Evento / entidade</option><option value="cutscene" ${hotspot.action === 'cutscene' ? 'selected' : ''}>Cutscene</option><option value="hideout" ${hotspot.action === 'hideout' ? 'selected' : ''}>Esconderijo</option></select></label>
       <label><span>Mensagem ao jogador</span><textarea data-hotspot-field="message" rows="4">${esc(hotspot.message)}</textarea></label>
       ${hotspot.action === 'collect' ? `<label><span>Item coletado</span><select data-hotspot-field="item">${this.itemOptions(hotspot.item)}</select></label>` : ''}
       ${hotspot.action === 'use' ? `<label><span>Item necessário</span><select data-hotspot-field="requiresItem"><option value="">Nenhum</option>${this.itemOptions(hotspot.requiresItem)}</select></label>` : ''}
       ${hotspot.action === 'move' ? `<label><span>Sala de destino</span><select data-hotspot-field="targetRoomId">${level.rooms.filter((entry) => entry.id !== room.id).map((entry) => `<option value="${esc(entry.id)}" ${hotspot.targetRoomId === entry.id ? 'selected' : ''}>${esc(entry.name)}</option>`).join('')}</select></label>` : ''}
       ${hotspot.action === 'event' ? `<label><span>Evento</span><select data-hotspot-field="event">${this.eventOptions(hotspot.event)}</select></label>` : ''}
       ${hotspot.action === 'cutscene' ? this.cutsceneFieldsTemplate(hotspot) : ''}
+      ${hotspot.action === 'hideout' ? this.hideoutFieldsTemplate(hotspot) : ''}
       <div class="field-row"><label><span>Cor do highlight</span><input type="color" data-hotspot-field="highlightColor" value="${esc(hotspot.highlightColor)}" /></label><label><span>Opacidade</span><input type="range" min="0.05" max="0.65" step="0.05" data-hotspot-field="highlightOpacity" value="${hotspot.highlightOpacity}" /></label></div>
       <label class="check"><input type="checkbox" data-hotspot-field="once" ${hotspot.once ? 'checked' : ''} /><span>Executar apenas uma vez</span></label>
       <section class="property-section">
@@ -283,13 +288,19 @@ export class EditorApp {
       <p class="panel-hint">Arraste a área para mover. Use o quadrado no canto inferior direito para redimensionar.</p>`;
   }
 
+  private hideoutFieldsTemplate(hotspot: EditorHotspot): string {
+    return `<label><span>Imagem do esconderijo (opcional)</span><div class="input-with-browse"><input data-hotspot-field="hideoutImage" value="${esc(hotspot.hideoutImage ?? '')}" placeholder="/assets/scenes/esconderijo.jpg" /><button type="button" data-action="browse-file" data-target-field="hideoutImage" data-accept="image/*">Procurar</button></div></label>
+      ${hotspot.hideoutImage ? `<div class="image-preview"><img src="${esc(hotspot.hideoutImage)}" alt="Prévia do esconderijo" /><span>${esc(hotspot.hideoutImage)}</span></div>` : ''}
+      <p class="panel-hint">O jogador vê esta imagem enquanto está escondido. Deixe em branco para mostrar apenas texto.</p>`;
+  }
+
   private cutsceneFieldsTemplate(hotspot: EditorHotspot): string {
     return `<label><span>Tipo de mídia</span><select data-hotspot-field="cutsceneMedia">
         <option value="image" ${hotspot.cutsceneMedia === 'image' ? 'selected' : ''}>Imagem estática</option>
         <option value="gif" ${hotspot.cutsceneMedia === 'gif' ? 'selected' : ''}>GIF animado</option>
         <option value="video" ${hotspot.cutsceneMedia === 'video' ? 'selected' : ''}>Vídeo</option>
       </select></label>
-      <label><span>Caminho do arquivo</span><input data-hotspot-field="cutscenePath" value="${esc(hotspot.cutscenePath)}" placeholder="/assets/cutscenes/exemplo.jpg" /></label>
+      <label><span>Caminho do arquivo</span><div class="input-with-browse"><input data-hotspot-field="cutscenePath" value="${esc(hotspot.cutscenePath)}" placeholder="/assets/cutscenes/exemplo.jpg" /><button type="button" data-action="browse-file" data-target-field="cutscenePath" data-accept="image/*,video/*,.gif">Procurar</button></div></label>
       ${hotspot.cutsceneMedia === 'image'
         ? `<label><span>Duração (segundos)</span><input type="number" min="0.2" step="0.1" data-hotspot-field="cutsceneHoldSeconds" value="${hotspot.cutsceneHoldSeconds}" /></label>`
         : `<label><span>Repetições</span><input type="number" min="1" max="100" data-hotspot-field="cutsceneRepeatCount" value="${hotspot.cutsceneRepeatCount}" /></label>
@@ -317,7 +328,7 @@ export class EditorApp {
     return `<div class="properties-heading"><div><small>ITEM</small><h2>${esc(item.name)}</h2></div><button class="danger" data-action="delete-item" data-item="${esc(item.id)}" ${this.project.data.items.length <= 1 ? 'disabled' : ''}>Excluir</button></div>
       <label><span>Nome</span><input data-item-field="name" value="${esc(item.name)}" /></label>
       <label><span>Ícone (texto/emoji)</span><input data-item-field="icon" value="${esc(item.icon)}" maxlength="4" /></label>
-      <label><span>Imagem (opcional, substitui o ícone)</span><input data-item-field="image" value="${esc(item.image ?? '')}" placeholder="/assets/items/exemplo.png" /></label>
+      <label><span>Imagem (opcional, substitui o ícone)</span><div class="input-with-browse"><input data-item-field="image" value="${esc(item.image ?? '')}" placeholder="/assets/items/exemplo.png" /><button type="button" data-action="browse-file" data-target-field="item-image" data-accept="image/*">Procurar</button></div></label>
       ${item.image ? `<div class="image-preview"><img src="${esc(item.image)}" alt="Prévia de ${esc(item.name)}" /><span>${esc(item.image)}</span></div>` : ''}
       <label><span>Descrição</span><textarea data-item-field="description" rows="3">${esc(item.description)}</textarea></label>
       <label><span>Texto ao usar</span><textarea data-item-field="useText" rows="2">${esc(item.useText)}</textarea></label>
@@ -349,9 +360,10 @@ export class EditorApp {
       <label><span>Dica</span><textarea data-entity-field="hint" rows="2">${esc(entity.hint)}</textarea></label>
       <label><span>Decisão correta</span><select data-entity-field="solution"><option value="hide" ${entity.solution === 'hide' ? 'selected' : ''}>Esconder-se</option><option value="run" ${entity.solution === 'run' ? 'selected' : ''}>Correr</option></select></label>
       <label><span>Tempo para decidir (segundos)</span><input type="number" min="1" max="30" step="0.1" data-entity-field="timeLimit" value="${entity.timeLimit}" /></label>
-      <label><span>Imagem relativa</span><input data-entity-field="image" list="entity-assets" value="${esc(entity.image)}" /></label>
+      <label><span>Imagem relativa</span><div class="input-with-browse"><input data-entity-field="image" list="entity-assets" value="${esc(entity.image)}" /><button type="button" data-action="browse-file" data-target-field="entity-image" data-accept="image/*,.gif">Procurar</button></div></label>
       <datalist id="entity-assets">${ENTITY_IMAGE_LIBRARY.map((image) => `<option value="${esc(image)}"></option>`).join('')}</datalist>
       <div class="image-preview"><img src="${esc(entity.image)}" alt="Prévia de ${esc(entity.name)}" /><span>${esc(entity.image)}</span></div>
+      <label><span>Duração do jumpscare (segundos, padrão 1.55)</span><input type="number" min="0.3" max="10" step="0.05" data-entity-field="jumpscareSeconds" value="${entity.jumpscareSeconds ?? ''}" placeholder="1.55" /></label>
       <p class="panel-hint">ID interno: <code>${esc(entity.id)}</code> · use este ID no campo "Evento" de um hotspot para disparar o encontro.</p>`;
   }
 
@@ -397,11 +409,11 @@ export class EditorApp {
       const revealed = Boolean(game.flags[`reveal:${room.id}:${hotspot.id}`]);
       if (hotspot.visibility === 'hidden' && !revealed) return '';
       const clip = hotspot.shape ? `clip-path:polygon(${hotspot.shape.points.map((point) => `${point.x}% ${point.y}%`).join(',')});` : '';
-      const invisible = hotspot.visibility === 'invisible' && !revealed ? ' invisible-hotspot' : '';
+      const invisible = hotspot.visibility === 'invisible' && !revealed;
       const indicator = hotspot.indicator ?? { x: 50, y: 50 };
-      return `<div class="test-hotspot-group" style="left:${hotspot.x}%;top:${hotspot.y}%;width:${hotspot.width}%;height:${hotspot.height}%">
-        <button class="test-hotspot-hitbox" data-test-action="hotspot" data-hotspot="${esc(hotspot.id)}" style="${clip}" aria-label="${esc(hotspot.label)}"></button>
-        <i class="test-hotspot-marker${invisible}" style="left:${indicator.x}%;top:${indicator.y}%;--highlight:${esc(hotspot.highlight?.color ?? '#d7df77')};--highlight-strength:${(hotspot.highlight?.opacity ?? .22) * 100}%"></i>
+      return `<div class="test-hotspot-group${invisible ? ' hotspot-invisible' : ''}" style="left:${hotspot.x}%;top:${hotspot.y}%;width:${hotspot.width}%;height:${hotspot.height}%">
+        <button class="test-hotspot-hitbox${invisible ? ' hotspot-invisible-hitbox' : ''}" data-test-action="hotspot" data-hotspot="${esc(hotspot.id)}" style="${clip}" aria-label="${esc(hotspot.label)}"></button>
+        <i class="test-hotspot-marker${invisible ? ' invisible-hotspot' : ''}" style="left:${indicator.x}%;top:${indicator.y}%;--highlight:${esc(hotspot.highlight?.color ?? '#d7df77')};--highlight-strength:${(hotspot.highlight?.opacity ?? .22) * 100}%"></i>
         <span class="test-hotspot-label" style="left:${indicator.x}%;top:${indicator.y}%">${esc(hotspot.label)}</span>
       </div>`;
     }).join('');
@@ -495,6 +507,14 @@ export class EditorApp {
       case 'zoom-in': this.setZoom(this.zoom + .12); break;
       case 'zoom-out': this.setZoom(this.zoom - .12); break;
       case 'reset-view': this.resetView(); break;
+      case 'browse-file': {
+        this.browseTarget = target.dataset.targetField ?? '';
+        const accept = target.dataset.accept ?? 'image/*';
+        const role = accept.includes('video') ? 'browse-media' : 'browse-image';
+        const input = this.root.querySelector<HTMLInputElement>(`[data-role="${role}"]`);
+        if (input) { input.accept = accept; input.click(); }
+        return;
+      }
       case 'test': this.startTest(); return;
       case 'export': this.exportJSON(); return;
       case 'import': this.root.querySelector<HTMLInputElement>('[data-role="import-file"]')?.click(); return;
@@ -520,6 +540,25 @@ export class EditorApp {
   private async handleChange(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
     if (input.matches('[data-role="import-file"]') && input instanceof HTMLInputElement) { await this.importJSON(input.files?.[0]); return; }
+    if ((input.matches('[data-role="browse-image"]') || input.matches('[data-role="browse-media"]')) && input instanceof HTMLInputElement && input.files?.[0]) {
+      const file = input.files[0];
+      const objectUrl = URL.createObjectURL(file);
+      const target = this.browseTarget;
+      if (target === 'room-image' && this.selectedRoom) { this.selectedRoom.image = objectUrl; this.project.save(); }
+      else if (target === 'item-image' && this.selectedItem) { this.selectedItem.image = objectUrl; this.project.save(); }
+      else if (target === 'entity-image' && this.selectedEntity) { this.selectedEntity.image = objectUrl; this.project.save(); }
+      else if (target === 'cutscenePath') {
+        const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId);
+        if (hotspot) { hotspot.cutscenePath = objectUrl; hotspot.cutsceneMedia = detectMediaType(file.name); this.project.save(); }
+      } else if (target === 'hideoutImage') {
+        const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId);
+        if (hotspot) { hotspot.hideoutImage = objectUrl; this.project.save(); }
+      }
+      input.value = '';
+      this.browseTarget = '';
+      this.render();
+      return;
+    }
     const roomField = input.dataset.roomField as keyof Pick<EditorRoom, 'name' | 'code' | 'description' | 'image'> | undefined;
     if (roomField && this.selectedRoom) { this.selectedRoom[roomField] = input.value; this.project.save(); this.render(); return; }
     const itemField = input.dataset.itemField as keyof EditorItem | undefined;
@@ -536,6 +575,7 @@ export class EditorApp {
     if (entityField && this.selectedEntity) {
       const entity = this.selectedEntity;
       if (entityField === 'timeLimit') entity.timeLimit = Number(input.value);
+      else if (entityField === 'jumpscareSeconds') entity.jumpscareSeconds = input.value ? Number(input.value) : undefined;
       else if (entityField === 'solution') entity.solution = input.value as EncounterAction;
       else if (entityField === 'name' || entityField === 'prompt' || entityField === 'hint' || entityField === 'image') entity[entityField] = input.value;
       this.project.save(); this.render();
@@ -550,7 +590,15 @@ export class EditorApp {
         else if (connectionField === 'requiresItem') connection.requiresItem = input.value ? input.value as ItemId : undefined;
         else if (connectionField === 'buttonX' || connectionField === 'buttonY') connection[connectionField] = clamp(Number(input.value), 0, 100);
         else if (connectionField === 'arrowRotation') connection.arrowRotation = ((Number(input.value) % 360) + 360) % 360;
-        else if (connectionField === 'label' || connectionField === 'direction' || connectionField === 'lockedMessage' || connectionField === 'to') connection[connectionField] = input.value;
+        else if (connectionField === 'direction') {
+          if (['forward', 'back', 'left', 'right'].includes(input.value)) {
+            connection.direction = input.value;
+            connection.arrowRotation = defaultArrowRotation(input.value);
+          } else {
+            connection.direction = 'custom';
+          }
+        } else if ((connectionField as string) === 'customDirection') { connection.direction = input.value; }
+        else if (connectionField === 'label' || connectionField === 'lockedMessage' || connectionField === 'to') connection[connectionField] = input.value;
         this.project.save(); this.render();
       }
       return;
@@ -567,7 +615,9 @@ export class EditorApp {
       else if (hotspotField === 'item' || hotspotField === 'requiresItem') hotspot[hotspotField] = input.value ? input.value as ItemId : undefined;
       else if (hotspotField === 'action') hotspot.action = input.value as EditorHotspot['action'];
       else if (hotspotField === 'event') hotspot.event = input.value as EditorHotspot['event'];
-      else if (hotspotField === 'label' || hotspotField === 'message' || hotspotField === 'targetRoomId' || hotspotField === 'highlightColor' || hotspotField === 'cutscenePath') hotspot[hotspotField] = input.value;
+      else if (hotspotField === 'cutscenePath') { hotspot.cutscenePath = input.value; hotspot.cutsceneMedia = detectMediaType(input.value); }
+      else if (hotspotField === 'hideoutImage') hotspot.hideoutImage = input.value || undefined;
+      else if (hotspotField === 'label' || hotspotField === 'message' || hotspotField === 'targetRoomId' || hotspotField === 'highlightColor') hotspot[hotspotField] = input.value;
       this.project.save(); this.render();
     }
   }
@@ -826,7 +876,7 @@ export class EditorApp {
       case 'encounter': { const result = game.respondToEncounter(data.choice as EncounterAction); this.audio.play(result.attack ? 'jumpscare' : 'step'); break; }
       case 'restart': this.startTest(); return;
     }
-    if (game.attackNonce !== this.testAttackNonce) { this.testAttackNonce = game.attackNonce; this.testJumpscareUntil = performance.now() + 850; }
+    if (game.attackNonce !== this.testAttackNonce) { this.testAttackNonce = game.attackNonce; this.testJumpscareUntil = performance.now() + 1550; }
     this.lastTestKey = '';
     this.render();
   }
@@ -838,7 +888,7 @@ export class EditorApp {
       this.testGame.update(delta);
       if (this.testGame.attackNonce !== this.testAttackNonce) {
         this.testAttackNonce = this.testGame.attackNonce;
-        this.testJumpscareUntil = now + 850;
+        this.testJumpscareUntil = now + 1550;
         this.audio.play('jumpscare');
       }
       const key = JSON.stringify({ position: this.testGame.position, status: this.testGame.status, message: this.testGame.message, inventory: this.testGame.inventory, selected: this.testGame.selectedItem, encounter: this.testGame.encounter?.id, cutscene: this.testGame.cutscene?.hotspotId ?? null, attack: this.testAttackNonce, jump: now < this.testJumpscareUntil, panel: this.testInventoryOpen, flags: this.testGame.flags });
