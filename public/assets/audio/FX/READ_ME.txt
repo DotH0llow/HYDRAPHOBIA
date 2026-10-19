@@ -1,0 +1,1 @@
+Sounds labeled "rare" must truly happen much more rarely, perhaps with a 1% chance odds.
