@@ -29,7 +29,7 @@ export class SaveSystem {
       if (!raw) return structuredClone(DEFAULT_SAVE);
       const parsed = JSON.parse(raw) as PersistedSave;
       const validated = this.validate(parsed);
-      if (validated.game !== null) {
+      if (validated.game !== null && typeof parsed._ic === 'string') {
         const expected = computeIntegrity(validated);
         if (parsed._ic !== expected) {
           validated.game = null;

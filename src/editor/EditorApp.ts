@@ -234,7 +234,7 @@ export class EditorApp {
     const connections = this.project.activeLevel.connections.filter((connection) => connection.from === room.id);
     const connection = connections.find((entry) => entry.id === this.selectedConnectionId) ?? null;
     return `<div class="hotspot-editor-layer"><section class="hotspot-editor-window">
-      <header><div><small>EDITOR DA PERSPECTIVA · SEM MECÂNICAS DE JOGO</small><h2>${esc(room.name)}</h2></div><nav><button data-action="add-hotspot">+ Nova área</button><button data-action="close-hotspots">Concluir</button></nav></header>
+      <header><div><small>EDITOR DA PERSPECTIVA · SEM MECÂNICAS DE JOGO</small><h2>${esc(room.name)}</h2></div><nav><button data-action="scene-lighting" class="${!hotspot && !connection ? 'primary' : ''}">☀ Luz da cena</button><button data-action="add-hotspot">+ Nova área</button><button data-action="close-hotspots">Concluir</button></nav></header>
       <div class="hotspot-editor-layout">
         <div class="hotspot-stage" data-role="hotspot-stage"><img src="${esc(room.image)}" alt="${esc(room.description)}" />${room.hotspots.map((entry) => this.editableHotspotTemplate(entry, connection)).join('')}${connections.map((entry, index) => this.sceneConnectionMarker(entry, index, connections.length)).join('')}${this.lightMarkersTemplate(room)}<canvas class="stage-darkness-canvas" data-role="darkness-canvas" aria-hidden="true"></canvas></div>
         <aside class="hotspot-settings">${connection ? this.sceneConnectionFields(connection) : hotspot ? this.hotspotFieldsTemplate(hotspot, room) : this.sceneLightingTemplate(room)}</aside>
@@ -288,7 +288,7 @@ export class EditorApp {
   private lightMarkersTemplate(room: EditorRoom): string {
     return (room.lights ?? []).map((light) => {
       const selected = light.id === this.selectedLightId;
-      return `<button class="light-marker ${selected ? 'selected' : ''}" data-role="light-spot" data-light="${esc(light.id)}" data-action="select-light" style="left:${light.x}%;top:${light.y}%;--light-r:${light.radius}%;--light-color:${esc(light.color ?? '#fffbe8')}" title="Foco de luz — arraste para mover">☀</button>`;
+      return `<button class="light-marker ${selected ? 'selected' : ''}" data-role="light-spot" data-light="${esc(light.id)}" style="left:${light.x}%;top:${light.y}%;--light-r:${light.radius}%;--light-color:${esc(light.color ?? '#fffbe8')}" title="Foco de luz — arraste para mover">☀</button>`;
     }).join('');
   }
 
@@ -297,7 +297,7 @@ export class EditorApp {
     const lights = room.lights ?? [];
     return `<div class="properties-heading"><div><small>CENA</small><h3>${esc(room.name)}</h3></div></div>
       <label><span>Nível de escuridão</span>
-        <div class="input-with-browse"><input type="range" min="0" max="1" step="0.05" data-scene-field="darknessLevel" value="${darkness}" style="flex:1" /><b style="width:3rem;text-align:right;font:.65rem 'Courier New',monospace">${Math.round(darkness * 100)}%</b></div>
+        <div class="input-with-browse"><input type="range" min="0" max="1" step="0.05" data-scene-field="darknessLevel" value="${darkness}" style="flex:1" /><b data-role="darkness-readout" style="width:3rem;text-align:right;font:.65rem 'Courier New',monospace">${Math.round(darkness * 100)}%</b></div>
       </label>
       <section class="property-section">
         <div class="panel-title"><span>Focos de Luz</span><b>${lights.length}</b></div>
@@ -565,6 +565,7 @@ export class EditorApp {
       case 'choose-image': if (this.selectedRoom) { this.selectedRoom.image = target.dataset.image ?? this.selectedRoom.image; this.project.save(); } break;
       case 'open-hotspots': this.openPerspective(); break;
       case 'open-hotspot': this.hotspotEditorOpen = true; this.selectedHotspotId = target.dataset.hotspot ?? null; this.selectedConnectionId = null; break;
+      case 'scene-lighting': this.selectedHotspotId = null; this.selectedConnectionId = null; this.selectedLightId = null; break;
       case 'select-scene-connection': this.selectedConnectionId = target.dataset.connection ?? null; this.selectedHotspotId = null; break;
       case 'close-hotspots': this.hotspotEditorOpen = false; this.selectedHotspotId = null; this.selectedConnectionId = null; this.selectedLightId = null; this.project.save(); break;
       case 'add-hotspot': if (this.selectedRoom) { const hotspot = this.project.addHotspot(this.selectedRoom.id); this.selectedHotspotId = hotspot?.id ?? null; this.selectedConnectionId = null; } break;
@@ -636,11 +637,13 @@ export class EditorApp {
     if (input.matches('[data-role="import-file"]') && input instanceof HTMLInputElement) { await this.importJSON(input.files?.[0]); return; }
     if ((input.matches('[data-role="browse-image"]') || input.matches('[data-role="browse-media"]')) && input instanceof HTMLInputElement && input.files?.[0]) {
       const file = input.files[0];
-      const objectUrl = await new Promise<string>((resolve) => {
+      const objectUrl = await new Promise<string | null>((resolve) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => resolve(null);
         reader.readAsDataURL(file);
       });
+      if (objectUrl === null) { input.value = ''; this.browseTarget = ''; window.alert('Não foi possível ler este arquivo.'); return; }
       const target = this.browseTarget;
       if (target === 'room-image' && this.selectedRoom) { this.selectedRoom.image = objectUrl; this.project.save(); }
       else if (target === 'item-image' && this.selectedItem) { this.selectedItem.image = objectUrl; this.project.save(); }
@@ -703,7 +706,13 @@ export class EditorApp {
     }
     const sceneField = input.dataset.sceneField as string | undefined;
     if (sceneField && this.selectedRoom) {
-      if (sceneField === 'darknessLevel') { this.selectedRoom.darknessLevel = Number(input.value); this.project.save(); this.updateDarknessCanvas(); }
+      if (sceneField === 'darknessLevel') {
+        this.selectedRoom.darknessLevel = Number(input.value);
+        this.project.save();
+        this.updateDarknessCanvas();
+        const readout = this.root.querySelector<HTMLElement>('[data-role="darkness-readout"]');
+        if (readout) readout.textContent = `${Math.round(this.selectedRoom.darknessLevel * 100)}%`;
+      }
       return;
     }
     const lightField = input.dataset.lightField as string | undefined;
@@ -795,6 +804,13 @@ export class EditorApp {
       this.gesture = { type: 'lightSpot', roomId: this.selectedRoom.id, lightId: light.id, startX: event.clientX, startY: event.clientY, origin: { x: light.x, y: light.y }, rect: stage.getBoundingClientRect() };
       event.preventDefault();
       event.stopPropagation();
+      return;
+    }
+    if (stage && (this.selectedHotspotId || this.selectedConnectionId || this.selectedLightId)) {
+      this.selectedHotspotId = null;
+      this.selectedConnectionId = null;
+      this.selectedLightId = null;
+      this.render();
       return;
     }
     const output = target.closest<HTMLElement>('[data-role="output-port"]');
