@@ -5,7 +5,7 @@ import { entitiesToRuntime, itemsToRuntime, levelToWorld } from '../editor/mapAd
 import { anxietyTier, anxietyTierLabel } from '../core/anxiety';
 import { AudioSystem, type Cue } from '../systems/AudioSystem';
 import {
-  FX_ANXIETY, FX_HUNGER, FX_HUNGER_LOW, FX_HURT, FX_LOW_HEALTH, FX_MEME, FX_PANIC_ATTACK, FX_SAFE_ROOM, FX_SCREAM, FX_THIRST, FX_THIRST_LOW,
+  FX_ANXIETY, FX_HUNGER, FX_HUNGER_LOW, FX_HURT, FX_LOW_HEALTH, FX_PANIC_ATTACK, FX_SAFE_ROOM, FX_SCREAM, FX_THIRST, FX_THIRST_LOW,
   isLevelZero, MUSIC_LOBBY, MUSIC_MENU,
 } from '../systems/audioLibrary';
 import { SaveSystem } from '../systems/SaveSystem';
@@ -21,9 +21,6 @@ const DANGER_CUES: Record<number, Cue[]> = {
 };
 /** Chance de um suspiro de alívio ao entrar em uma sala comum. */
 const SAFE_ROOM_CHANCE = 0.16;
-/** Easter egg: os áudios da pasta "Memes HYDRA" aparecem muito raramente. */
-const MEME_CHANCE = 0.006;
-
 const DANGER_INTERVALS: Record<number, [number, number]> = {
   1: [9000, 16000],
   2: [7000, 13000],
@@ -502,8 +499,7 @@ export class GameApp {
     if (!game) return;
     this.syncMusic();
     if (!game.roomIsOrdinary) return;
-    if (this.audio.maybePlaySample(FX_SAFE_ROOM, { chance: SAFE_ROOM_CHANCE })) return;
-    this.audio.maybePlaySample(FX_MEME, { chance: MEME_CHANCE });
+    this.audio.maybePlaySample(FX_SAFE_ROOM, { chance: SAFE_ROOM_CHANCE });
   }
 
   private useItem(id: ItemId): void {

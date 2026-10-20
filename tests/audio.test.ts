@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ANXIETY_TIERS, anxietyTier, anxietyTierLabel } from '../src/core/anxiety';
 import {
-  buildLibrary, categoryOf, configFor, FX_ANXIETY, FX_HUNGER, FX_HUNGER_LOW, FX_HURT, FX_LOW_HEALTH, FX_MEME, FX_PANIC_ATTACK,
+  buildLibrary, categoryOf, configFor, FX_ANXIETY, FX_HUNGER, FX_HUNGER_LOW, FX_HURT, FX_LOW_HEALTH, FX_PANIC_ATTACK,
   FX_SAFE_ROOM, FX_SCREAM, FX_THIRST, FX_THIRST_LOW, isLevelZero, isRareClip, MUSIC_LOBBY, MUSIC_MENU, selectClip,
 } from '../src/systems/audioLibrary';
 import { collectAudioFiles } from '../scripts/audioManifest.mjs';
@@ -43,7 +43,14 @@ describe('catálogo de áudio', () => {
     expect(categoryOf('/assets/audio/FX/Low Health/heartbeat_1.mp3')).toBe(FX_LOW_HEALTH);
     expect(categoryOf('/assets/audio/FX/Getting Hurt/fast_heartbeat (1).mp3')).toBe(FX_HURT);
     expect(categoryOf('/assets/audio/FX/Screams/scream1.mp3')).toBe(FX_SCREAM);
-    expect(categoryOf('/assets/audio/Memes HYDRA/MAKITA.ogg')).toBe(FX_MEME);
+  });
+
+  it('só toca o que está em FX e Music; o resto fica guardado', () => {
+    expect(categoryOf('/assets/audio/Memes HYDRA/MAKITA.ogg')).toBeNull();
+    expect(categoryOf('/assets/audio/Vozes/qualquer.mp3')).toBeNull();
+    expect(categoryOf('/assets/audio/solto.mp3')).toBeNull();
+    expect(buildLibrary(collectAudioFiles()).size).toBeGreaterThan(0);
+    expect([...buildLibrary(collectAudioFiles()).values()].flat().every((clip) => /^\/assets\/audio\/(FX|Music)\//.test(clip.path))).toBe(true);
   });
 
   it('ignora as antigas pastas de ansiedade por nível e caminhos de fora', () => {
@@ -68,7 +75,7 @@ describe('catálogo de áudio', () => {
   });
 
   it('toda categoria tem fade de saída e variação de afinação', () => {
-    [MUSIC_MENU, MUSIC_LOBBY, FX_SAFE_ROOM, FX_PANIC_ATTACK, FX_HURT, FX_SCREAM, FX_MEME, FX_THIRST, FX_HUNGER, FX_LOW_HEALTH].forEach((category) => {
+    [MUSIC_MENU, MUSIC_LOBBY, FX_SAFE_ROOM, FX_PANIC_ATTACK, FX_HURT, FX_SCREAM, FX_THIRST, FX_HUNGER, FX_LOW_HEALTH].forEach((category) => {
       const config = configFor(category);
       expect(config.fadeOutMs).toBeGreaterThan(0);
       expect(config.pitch).toBeGreaterThan(0);

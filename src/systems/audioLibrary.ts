@@ -45,7 +45,6 @@ export const FX_THIRST_LOW = 'fx:thirst-low';
 export const FX_LOW_HEALTH = 'fx:low-health';
 export const FX_HURT = 'fx:hurt';
 export const FX_SCREAM = 'fx:scream';
-export const FX_MEME = 'fx:meme';
 export const FX_AMBIENT = 'fx:ambient';
 
 const MUSIC_DEFAULT: CategoryConfig = { bus: 'music', gapMs: [14000, 42000], cooldownMs: 6000, pitch: 0.02, volume: 0.78, fadeInMs: 2200, fadeOutMs: 2600, rareChance: 0.01 };
@@ -69,7 +68,6 @@ export const CATEGORY_CONFIG: Record<string, CategoryConfig> = {
   [FX_LOW_HEALTH]: config(FX_DEFAULT, { gapMs: [19000, 44000], cooldownMs: 14000, pitch: 0.035, volume: 0.7 }),
   [FX_HURT]: config(FX_DEFAULT, { gapMs: [9000, 22000], cooldownMs: 7000, pitch: 0.045, volume: 0.88, fadeOutMs: 800 }),
   [FX_SCREAM]: config(FX_DEFAULT, { gapMs: [95000, 260000], cooldownMs: 75000, pitch: 0.06, volume: 0.84, fadeOutMs: 900 }),
-  [FX_MEME]: config(FX_DEFAULT, { gapMs: [240000, 900000], cooldownMs: 240000, pitch: 0.03, volume: 0.6, fadeOutMs: 600 }),
   [FX_AMBIENT]: FX_DEFAULT,
 };
 
@@ -86,13 +84,16 @@ const AUDIO_PREFIX = '/assets/audio/';
 /** Pastas antigas de ansiedade por nível: ignoradas caso os arquivos voltem a aparecer. */
 const RETIRED_ANXIETY_FOLDERS = /^fx\/anxiety\/lv\d/;
 
+/**
+ * Só tocam os arquivos de `FX` e `Music`. Qualquer outra pasta dentro de
+ * `assets/audio` fica guardada para uso futuro e nunca entra no jogo.
+ */
 export const categoryOf = (path: string): string | null => {
   if (!path.startsWith(AUDIO_PREFIX)) return null;
   const relative = path.slice(AUDIO_PREFIX.length);
   const lower = relative.toLowerCase();
   const name = lower.split('/').pop() ?? '';
 
-  if (lower.startsWith('memes hydra/')) return FX_MEME;
   if (lower.startsWith('music/')) {
     if (lower.startsWith('music/menu/')) return MUSIC_MENU;
     if (lower.startsWith('music/high threat/')) return MUSIC_HIGH_THREAT;
