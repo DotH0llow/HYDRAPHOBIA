@@ -1,5 +1,5 @@
 import { ITEMS, type ItemDefinition, type RoomDefinition } from '../config/world';
-import { CLASSES, DEFAULT_CHARACTER, GENDERS, labelOf, MAX_CHARACTER_NAME, PHOBIAS, sanitizeCharacterName, STARTING_ITEMS } from '../config/character';
+import { allIllustrated, CLASSES, DEFAULT_CHARACTER, GENDERS, labelOf, MAX_CHARACTER_NAME, PHOBIAS, sanitizeCharacterName, STARTING_ITEMS } from '../config/character';
 import { Game } from '../core/Game';
 import { EditorProject } from '../editor/EditorProject';
 import { entitiesToRuntime, itemsToRuntime, projectToWorld } from '../editor/mapAdapter';
@@ -339,15 +339,27 @@ export class GameApp {
       case 'class': return this.optionGrid(CLASSES, this.draft.classId, 'classId');
       case 'phobia': return this.optionGrid(PHOBIAS, this.draft.phobia, 'phobia');
       case 'item': return this.startingItemGrid();
-      case 'name': return `<label class="create-name"><span>Nome do personagem</span>
-        <input type="text" maxlength="${MAX_CHARACTER_NAME}" value="${esc(this.draft.name)}" data-draft="name" placeholder="Até ${MAX_CHARACTER_NAME} caracteres" /></label>
-        <p class="setting-help">O nome aparece na lista de registros e nas anotações do jogo.</p>`;
+      case 'name': {
+        // O retrato é a arte do gênero já escolhido: quem está sendo batizado fica à vista.
+        const portrait = GENDERS.find((option) => option.id === this.draft.gender)?.image;
+        return `<div class="create-name-row">
+          <div>
+            <label class="create-name"><span>Nome do personagem</span>
+              <input type="text" maxlength="${MAX_CHARACTER_NAME}" value="${esc(this.draft.name)}" data-draft="name" placeholder="Até ${MAX_CHARACTER_NAME} caracteres" /></label>
+            <p class="setting-help">O nome aparece na lista de registros e nas anotações do jogo.</p>
+          </div>
+          ${portrait ? `<div class="create-portrait"><img src="${esc(portrait)}" alt="" /></div>` : ''}
+        </div>`;
+      }
     }
   }
 
-  private optionGrid<Id extends string>(options: ReadonlyArray<{ id: Id; label: string; description: string; icon: string }>, selected: Id, field: string): string {
-    return `<div class="option-grid">${options.map((option) => `
+  private optionGrid<Id extends string>(options: ReadonlyArray<{ id: Id; label: string; description: string; icon: string; image?: string }>, selected: Id, field: string): string {
+    // Com arte em todas as opções o card vira a própria ilustração, com o texto por cima.
+    const illustrated = allIllustrated(options);
+    return `<div class="option-grid ${illustrated ? 'illustrated' : ''}">${options.map((option) => `
       <button class="option-card ${option.id === selected ? 'selected' : ''}" data-action="draft-set" data-field="${field}" data-value="${esc(option.id)}">
+        ${illustrated ? `<img class="option-art" src="${esc(option.image!)}" alt="" loading="lazy" />` : ''}
         <i>${esc(option.icon)}</i><b>${esc(option.label)}</b><small>${esc(option.description)}</small>
       </button>`).join('')}</div>`;
   }

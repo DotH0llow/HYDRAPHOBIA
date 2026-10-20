@@ -325,6 +325,20 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .option-card i img { display: block; width: 42px; height: 42px; object-fit: contain; }
 .option-card b { font-size: .82rem; font-weight: 500; }
 .option-card small { color: #83837a; font: .64rem/1.45 Georgia, serif; letter-spacing: 0; }
+/* Grade ilustrada: a arte ocupa o card inteiro e o texto fica por cima, no rodapé. */
+.option-grid.illustrated { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.option-grid.illustrated .option-card { position: relative; display: flex; flex-direction: column; justify-content: flex-end; gap: .2rem; min-height: clamp(260px, 38vh, 420px); padding: .9rem; overflow: hidden; background: #050605; }
+.option-card .option-art { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; filter: saturate(.85) contrast(1.05) brightness(.92); transition: transform .3s, filter .3s; }
+.option-grid.illustrated .option-card::after { content: ''; position: absolute; z-index: 1; inset: 0; background: linear-gradient(180deg, #05060500 38%, #050605cc 72%, #050605f2 100%); }
+.option-grid.illustrated .option-card > i, .option-grid.illustrated .option-card > b, .option-grid.illustrated .option-card > small { position: relative; z-index: 2; }
+.option-grid.illustrated .option-card > i { font-size: 1.3rem; line-height: 1; }
+.option-grid.illustrated .option-card:hover .option-art { transform: scale(1.04); filter: saturate(.95) contrast(1.08) brightness(1); }
+.option-grid.illustrated .option-card.selected .option-art { filter: saturate(1) contrast(1.1) brightness(1.04); }
+
+/* Etapa do nome: campo à esquerda, retrato do gênero escolhido à direita. */
+.create-name-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 420px); gap: clamp(1rem, 4vw, 3rem); align-items: start; }
+.create-portrait { overflow: hidden; aspect-ratio: 1; border: 1px solid #40432f; background: #050605; }
+.create-portrait img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center 22%; }
 .create-name { display: block; max-width: 420px; }
 .create-name span { display: block; margin-bottom: .5rem; color: #b3b2a0; font-size: .72rem; }
 .create-name input { width: 100%; min-height: 48px; padding: .6rem .8rem; border: 1px solid #5b5b48; background: #0d100d; color: #e8e6d8; font-size: 1rem; }
@@ -355,6 +369,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
   .slot-grid { grid-template-columns: 1fr; }
   .slot-body { grid-template-columns: 84px 1fr; }
   .option-grid { grid-template-columns: 1fr; }
+  .option-grid.illustrated .option-card { min-height: 220px; }
+  .create-name-row { grid-template-columns: 1fr; }
+  .create-portrait { max-width: 260px; }
   .create-nav { grid-template-columns: 1fr; }
   .dev-meters { width: 124px; }
 }

@@ -5,23 +5,33 @@ export interface CharacterOption<Id extends string> {
   label: string;
   description: string;
   icon: string;
+  /** Arte da opção. A tela só troca para o modo ilustrado quando todas as opções têm uma. */
+  image?: string;
 }
 
+/** Pasta das artes de criação de personagem. */
+const ART = '/assets/characters';
+
+/** A grade ilustrada é tudo ou nada: um card sem arte no meio dos outros fica torto. */
+export const allIllustrated = (options: ReadonlyArray<CharacterOption<string>>): boolean =>
+  options.length > 0 && options.every((option) => Boolean(option.image));
+
 export const GENDERS: ReadonlyArray<CharacterOption<CharacterGender>> = [
-  { id: 'male', label: 'Masculino', description: 'A voz e as reações do personagem são masculinas.', icon: '♂' },
-  { id: 'female', label: 'Feminino', description: 'A voz e as reações do personagem são femininas.', icon: '♀' },
+  { id: 'male', label: 'Masculino', description: 'A voz e as reações do personagem são masculinas.', icon: '♂', image: `${ART}/masculino.webp` },
+  { id: 'female', label: 'Feminino', description: 'A voz e as reações do personagem são femininas.', icon: '♀', image: `${ART}/feminino.webp` },
 ];
 
 export const CLASSES: ReadonlyArray<CharacterOption<CharacterClassId>> = [
-  { id: 'explorador', label: 'Explorador', description: 'Conhece corredores vazios melhor do que ruas cheias.', icon: '◈' },
-  { id: 'tecnico', label: 'Técnico', description: 'Entende painéis, fusíveis e o que não deveria estar ligado.', icon: '⌁' },
-  { id: 'adolescente', label: 'Adolescente', description: 'Chegou aqui sem querer e ainda não aceitou isso.', icon: '✦' },
-  { id: 'cavaleiro', label: 'Cavaleiro', description: 'Veste uma armadura que ninguém sabe explicar.', icon: '✚' },
+  { id: 'explorador', label: 'Explorador', description: 'Conhece corredores vazios melhor do que ruas cheias.', icon: '◈', image: `${ART}/explorador.webp` },
+  { id: 'tecnico', label: 'Técnico', description: 'Entende painéis, fusíveis e o que não deveria estar ligado.', icon: '⌁', image: `${ART}/tecnico.webp` },
+  { id: 'adolescente', label: 'Adolescente', description: 'Chegou aqui sem querer e ainda não aceitou isso.', icon: '✦', image: `${ART}/adolescente.webp` },
+  { id: 'cavaleiro', label: 'Cavaleiro', description: 'Veste uma armadura que ninguém sabe explicar.', icon: '✚', image: `${ART}/cavaleiro.webp` },
 ];
 
 export const PHOBIAS: ReadonlyArray<CharacterOption<PhobiaId>> = [
-  { id: 'nictofobia', label: 'Nictofobia', description: 'Medo do escuro.', icon: '◗' },
-  { id: 'claustrofobia', label: 'Claustrofobia', description: 'Medo de espaços fechados.', icon: '▣' },
+  // As artes das fobias ainda estão incompletas; a grade só fica ilustrada com as doze.
+  { id: 'nictofobia', label: 'Nictofobia', description: 'Medo do escuro.', icon: '◗', image: `${ART}/nictofobia.webp` },
+  { id: 'claustrofobia', label: 'Claustrofobia', description: 'Medo de espaços fechados.', icon: '▣', image: `${ART}/claustrofobia.webp` },
   { id: 'hemofobia', label: 'Hemofobia', description: 'Medo de sangue e ferimentos.', icon: '✛' },
   { id: 'monofobia', label: 'Monofobia', description: 'Medo de ficar sozinho.', icon: '◯' },
   { id: 'talassofobia', label: 'Talassofobia', description: 'Medo de águas profundas.', icon: '≈' },
