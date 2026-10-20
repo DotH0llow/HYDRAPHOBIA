@@ -29,19 +29,18 @@ export const CLASSES: ReadonlyArray<CharacterOption<CharacterClassId>> = [
 ];
 
 export const PHOBIAS: ReadonlyArray<CharacterOption<PhobiaId>> = [
-  // As artes das fobias ainda estão incompletas; a grade só fica ilustrada com as doze.
   { id: 'nictofobia', label: 'Nictofobia', description: 'Medo do escuro.', icon: '◗', image: `${ART}/nictofobia.webp` },
   { id: 'claustrofobia', label: 'Claustrofobia', description: 'Medo de espaços fechados.', icon: '▣', image: `${ART}/claustrofobia.webp` },
-  { id: 'hemofobia', label: 'Hemofobia', description: 'Medo de sangue e ferimentos.', icon: '✛' },
-  { id: 'monofobia', label: 'Monofobia', description: 'Medo de ficar sozinho.', icon: '◯' },
-  { id: 'talassofobia', label: 'Talassofobia', description: 'Medo de águas profundas.', icon: '≈' },
-  { id: 'escopofobia', label: 'Escopofobia', description: 'Medo de ser observado.', icon: '◉' },
-  { id: 'automatonofobia', label: 'Automatonofobia', description: 'Medo de bonecos e figuras humanas.', icon: '⚇' },
-  { id: 'necrofobia', label: 'Necrofobia', description: 'Medo de cadáveres.', icon: '✝' },
-  { id: 'fonofobia', label: 'Fonofobia', description: 'Medo de sons altos e repentinos.', icon: '◁' },
-  { id: 'mecanofobia', label: 'Mecanofobia', description: 'Medo de máquinas em funcionamento.', icon: '⚙' },
-  { id: 'tanatofobia', label: 'Tanatofobia', description: 'Medo da própria morte.', icon: '⌛' },
-  { id: 'apeirofobia', label: 'Apeirofobia', description: 'Medo do infinito e do que não acaba.', icon: '∞' },
+  { id: 'hemofobia', label: 'Hemofobia', description: 'Medo de sangue e ferimentos.', icon: '✛', image: `${ART}/hemofobia.webp` },
+  { id: 'monofobia', label: 'Monofobia', description: 'Medo de ficar sozinho.', icon: '◯', image: `${ART}/monofobia.webp` },
+  { id: 'talassofobia', label: 'Talassofobia', description: 'Medo de águas profundas.', icon: '≈', image: `${ART}/talassofobia.webp` },
+  { id: 'escopofobia', label: 'Escopofobia', description: 'Medo de ser observado.', icon: '◉', image: `${ART}/escopofobia.webp` },
+  { id: 'automatonofobia', label: 'Automatonofobia', description: 'Medo de bonecos e figuras humanas.', icon: '⚇', image: `${ART}/automatonofobia.webp` },
+  { id: 'necrofobia', label: 'Necrofobia', description: 'Medo de cadáveres.', icon: '✝', image: `${ART}/necrofobia.webp` },
+  { id: 'fonofobia', label: 'Fonofobia', description: 'Medo de sons altos e repentinos.', icon: '◁', image: `${ART}/fonofobia.webp` },
+  { id: 'mecanofobia', label: 'Mecanofobia', description: 'Medo de máquinas em funcionamento.', icon: '⚙', image: `${ART}/mecanofobia.webp` },
+  { id: 'tanatofobia', label: 'Tanatofobia', description: 'Medo da própria morte.', icon: '⌛', image: `${ART}/tanatofobia.webp` },
+  { id: 'apeirofobia', label: 'Apeirofobia', description: 'Medo do infinito e do que não acaba.', icon: '∞', image: `${ART}/apeirofobia.webp` },
 ];
 
 /** As quatro opções de item inicial oferecidas na criação do personagem. */

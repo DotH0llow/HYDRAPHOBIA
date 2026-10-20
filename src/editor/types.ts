@@ -174,12 +174,23 @@ export const detectMediaType = (path: string): 'image' | 'gif' | 'video' => {
   return 'image';
 };
 
+/**
+ * Arte dos itens que já vêm com o jogo. Fica separada para que um projeto antigo,
+ * salvo antes de as imagens existirem, também receba a arte ao ser carregado.
+ */
+export const DEFAULT_ITEM_IMAGES: Readonly<Record<string, string>> = {
+  accessCard: '/assets/items/accessCard.webp',
+  almondWater: '/assets/items/almondWater.webp',
+  ration: '/assets/items/ration.webp',
+  medkit: '/assets/items/medkit.webp',
+};
+
 export const DEFAULT_ITEMS: EditorItem[] = [
-  { id: 'accessCard', name: 'Cartão sem nome', icon: '▣', description: 'Um cartão magnético amarelado. A tarja ainda parece intacta.', useText: 'Ele deve abrir algum leitor próximo.', effect: 'none', effectAmount: 0 },
-  { id: 'almondWater', name: 'Água de amêndoas', icon: '◒', description: 'Uma garrafa lacrada. O líquido tem um cheiro doce e vagamente familiar.', useText: 'A sede recua. Por enquanto.', effect: 'hydrate', effectAmount: 58 },
-  { id: 'ration', name: 'Ração selada', icon: '▰', description: 'Uma barra de emergência dura, mas ainda comestível.', useText: 'Sem gosto. Ainda assim, alimento.', effect: 'feed', effectAmount: 48 },
+  { id: 'accessCard', name: 'Cartão sem nome', icon: '▣', description: 'Um cartão magnético amarelado. A tarja ainda parece intacta.', useText: 'Ele deve abrir algum leitor próximo.', effect: 'none', effectAmount: 0, image: DEFAULT_ITEM_IMAGES.accessCard },
+  { id: 'almondWater', name: 'Água de amêndoas', icon: '◒', description: 'Uma garrafa lacrada. O líquido tem um cheiro doce e vagamente familiar.', useText: 'A sede recua. Por enquanto.', effect: 'hydrate', effectAmount: 58, image: DEFAULT_ITEM_IMAGES.almondWater },
+  { id: 'ration', name: 'Ração selada', icon: '▰', description: 'Uma barra de emergência dura, mas ainda comestível.', useText: 'Sem gosto. Ainda assim, alimento.', effect: 'feed', effectAmount: 48, image: DEFAULT_ITEM_IMAGES.ration },
   { id: 'fuse', name: 'Fusível industrial', icon: '⌁', description: 'Pesado demais para o tamanho. Os contatos não estão oxidados.', useText: 'Talvez pertença a um painel elétrico.', effect: 'none', effectAmount: 0 },
-  { id: 'medkit', name: 'Kit de primeiros socorros', icon: '✚', description: 'Gaze, antisséptico e analgésicos dentro do prazo.', useText: 'Os ferimentos foram tratados.', effect: 'heal', effectAmount: 52 },
+  { id: 'medkit', name: 'Kit de primeiros socorros', icon: '✚', description: 'Gaze, antisséptico e analgésicos dentro do prazo.', useText: 'Os ferimentos foram tratados.', effect: 'heal', effectAmount: 52, image: DEFAULT_ITEM_IMAGES.medkit },
 ];
 
 export const DEFAULT_ENTITIES: EditorEntity[] = [

@@ -365,13 +365,13 @@ export class GameApp {
   }
 
   private startingItemGrid(): string {
-    return `<div class="option-grid">${STARTING_ITEMS.map((id) => {
-      const item = this.items[id];
-      if (!item) return '';
-      return `<button class="option-card ${this.draft.startingItem === id ? 'selected' : ''}" data-action="draft-set" data-field="startingItem" data-value="${esc(id)}">
-        <i>${item.image ? `<img src="${esc(item.image)}" alt="" />` : esc(item.icon)}</i><b>${esc(item.name)}</b><small>${esc(item.description)}</small>
-      </button>`;
-    }).join('')}</div>`;
+    const offered = STARTING_ITEMS.map((id) => ({ id, item: this.items[id] })).filter((entry) => entry.item);
+    const illustrated = offered.length > 0 && offered.every((entry) => Boolean(entry.item!.image));
+    return `<div class="option-grid ${illustrated ? 'illustrated' : ''}">${offered.map(({ id, item }) => `
+      <button class="option-card ${this.draft.startingItem === id ? 'selected' : ''}" data-action="draft-set" data-field="startingItem" data-value="${esc(id)}">
+        ${illustrated ? `<img class="option-art" src="${esc(item!.image!)}" alt="" loading="lazy" />` : ''}
+        <i>${!illustrated && item!.image ? `<img src="${esc(item!.image)}" alt="" />` : esc(item!.icon)}</i><b>${esc(item!.name)}</b><small>${esc(item!.description)}</small>
+      </button>`).join('')}</div>`;
   }
 
   private gameTemplate(): string {
@@ -737,7 +737,10 @@ export class GameApp {
 
   private hasAnyProgress(): boolean { return this.save.slots.some((slot) => slot?.game); }
 
-  /** Lê o projeto do editor só para saber a imagem e o nível de cada sala. */
+  /**
+   * Lê o projeto do editor antes de a partida existir: as miniaturas dos registros e
+   * os itens oferecidos na criação precisam vir do mapa que será jogado, não do padrão.
+   */
   private indexProjectRooms(): void {
     if (Object.keys(this.roomImages).length > 0) return;
     try {
@@ -745,7 +748,8 @@ export class GameApp {
       const world = projectToWorld(project.data.levels, project.data.activeLevelId);
       this.roomLevelNames = world.roomLevelName;
       this.roomImages = Object.fromEntries(Object.values(world.rooms).map((room) => [room.id, room.image]));
-    } catch { /* sem projeto salvo as miniaturas usam a imagem padrão */ }
+      this.items = itemsToRuntime(project.data.items);
+    } catch { /* sem projeto salvo as miniaturas e os itens usam o padrão */ }
   }
 
   private openSlots(mode: SlotMode): void {

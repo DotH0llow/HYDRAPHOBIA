@@ -3,7 +3,7 @@ import type { ItemEffect } from '../config/world';
 import type { RoomAudioMode } from '../config/world';
 import type { CutsceneMediaType, EncounterAction, HotspotVisibility } from '../types';
 import { isLightShape } from '../systems/lighting';
-import { DEFAULT_ENTITIES, DEFAULT_ITEMS } from './types';
+import { DEFAULT_ENTITIES, DEFAULT_ITEM_IMAGES, DEFAULT_ITEMS } from './types';
 import type { EditorConnection, EditorEntity, EditorHotspot, EditorHotspotAction, EditorItem, EditorLevel, EditorLight, EditorProjectData, EditorRoom } from './types';
 
 export const EDITOR_STORAGE_KEY = 'limiar:room-editor:v1';
@@ -486,7 +486,8 @@ export class EditorProject {
       useText: String(item.useText ?? 'O item foi usado.'),
       effect,
       effectAmount: effect === 'none' ? 0 : number(item.effectAmount, 20, 1, 100),
-      image: typeof item.image === 'string' && item.image ? item.image : undefined,
+      // Um mapa salvo antes das artes existirem ganha a imagem padrão do item.
+      image: typeof item.image === 'string' && item.image ? item.image : DEFAULT_ITEM_IMAGES[id],
     }];
   }
 
