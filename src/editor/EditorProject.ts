@@ -1,5 +1,6 @@
 import { DEFAULT_WORLD } from '../config/world';
 import type { ItemEffect } from '../config/world';
+import type { RoomAudioMode } from '../config/world';
 import type { CutsceneMediaType, EncounterAction, HotspotVisibility } from '../types';
 import { isLightShape } from '../systems/lighting';
 import { DEFAULT_ENTITIES, DEFAULT_ITEMS } from './types';
@@ -16,6 +17,7 @@ const VISIBILITIES = new Set<HotspotVisibility>(['visible', 'hidden', 'invisible
 const EFFECTS = new Set<ItemEffect>(['none', 'heal', 'hydrate', 'feed']);
 const SOLUTIONS = new Set<EncounterAction>(['run', 'hide']);
 const CUTSCENE_MEDIA_TYPES = new Set<CutsceneMediaType>(['image', 'gif', 'video']);
+const ROOM_AUDIO_MODE_IDS = new Set<RoomAudioMode>(['once', 'loop', 'every-entry']);
 
 export const createId = (prefix: string): string => {
   const random = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10);
@@ -113,13 +115,57 @@ export class EditorProject {
     }
   }
 
+  /** Nome livre para um nível novo: nunca repete um nome já usado no projeto. */
+  private uniqueLevelName(base: string): string {
+    const used = new Set(this.data.levels.map((level) => level.name.trim().toLowerCase()));
+    if (!used.has(base.trim().toLowerCase())) return base;
+    for (let suffix = 2; suffix < 500; suffix += 1) {
+      const candidate = `${base} (${suffix})`;
+      if (!used.has(candidate.toLowerCase())) return candidate;
+    }
+    return `${base} ${Date.now()}`;
+  }
+
+  /** Nível novo e vazio: uma sala própria, nenhuma conexão e nenhuma sala antiga. */
   addLevel(name = `Nível ${this.data.levels.length}`): EditorLevel {
     const room = createRoom();
-    const level: EditorLevel = { id: createId('nivel'), name, startRoomId: room.id, rooms: [room], connections: [] };
+    const level: EditorLevel = { id: createId('nivel'), name: this.uniqueLevelName(name), startRoomId: room.id, rooms: [room], connections: [] };
     this.data.levels.push(level);
     this.data.activeLevelId = level.id;
     this.save();
     return level;
+  }
+
+  findLevel(id: string): EditorLevel | undefined { return this.data.levels.find((level) => level.id === id); }
+
+  renameLevel(id: string, name: string): boolean {
+    const level = this.findLevel(id);
+    const clean = name.trim();
+    if (!level || !clean) return false;
+    level.name = clean.slice(0, 64);
+    this.save();
+    return true;
+  }
+
+  /** Remove um nível inteiro. O projeto nunca fica sem nenhum. */
+  deleteLevel(id: string): boolean {
+    if (this.data.levels.length <= 1) return false;
+    const level = this.findLevel(id);
+    if (!level) return false;
+    this.data.levels = this.data.levels.filter((entry) => entry.id !== id);
+    // Caminhos de outros níveis que apontavam para cá deixam de existir.
+    const gone = new Set(level.rooms.map((room) => room.id));
+    this.data.levels.forEach((entry) => {
+      entry.connections = entry.connections.filter((connection) => !gone.has(connection.to));
+      entry.rooms.forEach((room) => {
+        room.hotspots.forEach((hotspot) => {
+          if (hotspot.targetRoomId && gone.has(hotspot.targetRoomId)) { hotspot.targetRoomId = undefined; hotspot.targetLevelId = undefined; }
+        });
+      });
+    });
+    if (this.data.activeLevelId === id) this.data.activeLevelId = this.data.levels[0]!.id;
+    this.save();
+    return true;
   }
 
   addRoom(): EditorRoom {
@@ -270,24 +316,44 @@ export class EditorProject {
     const finalEntities = entities.length > 0 ? entities : structuredClone(DEFAULT_ENTITIES);
     const eventIds = new Set<string>(['none', 'jumpscare', ...finalEntities.map((entity) => entity.id)]);
 
-    const levels = raw.levels.map((level, levelIndex): EditorLevel => {
+    // Primeiro todas as salas de todos os níveis: um caminho pode levar a outro nível,
+    // então as conexões só podem ser validadas depois que o projeto inteiro é conhecido.
+    const drafts = raw.levels.map((level, levelIndex) => {
       const rawLevel = level as Partial<EditorLevel>;
       const rooms = Array.isArray(rawLevel.rooms) && rawLevel.rooms.length > 0
         ? rawLevel.rooms.map((room, roomIndex) => this.validateRoom(room, roomIndex, itemIds, eventIds))
         : [createRoom()];
-      const roomIds = new Set(rooms.map((room) => room.id));
+      return {
+        rawLevel,
+        rooms,
+        roomIds: new Set(rooms.map((room) => room.id)),
+        id: cleanId(String(rawLevel.id ?? `nivel-${levelIndex + 1}`)) || createId('nivel'),
+        name: String(rawLevel.name ?? `Nível ${levelIndex}`),
+      };
+    });
+    const levelIds = new Set(drafts.map((draft) => draft.id));
+    const allRoomIds = new Set(drafts.flatMap((draft) => [...draft.roomIds]));
+
+    const levels = drafts.map((draft): EditorLevel => {
+      const { rawLevel, rooms, roomIds } = draft;
       const connections = Array.isArray(rawLevel.connections)
         ? rawLevel.connections.flatMap((value, index): EditorConnection[] => {
           if (!value || typeof value !== 'object') return [];
           const connection = value as Partial<EditorConnection>;
-          if (!roomIds.has(String(connection.from)) || !roomIds.has(String(connection.to))) return [];
+          if (!roomIds.has(String(connection.from))) return [];
+          const toLevelId = typeof connection.toLevelId === 'string' && levelIds.has(connection.toLevelId) && connection.toLevelId !== draft.id
+            ? connection.toLevelId
+            : undefined;
+          const reachable = toLevelId ? allRoomIds : roomIds;
+          if (!reachable.has(String(connection.to))) return [];
           const requiresItem = itemIds.has(String(connection.requiresItem)) ? connection.requiresItem : undefined;
           const num = (candidate: unknown): number | undefined => typeof candidate === 'number' && Number.isFinite(candidate) ? candidate : undefined;
           return [{
             id: cleanId(String(connection.id ?? `conexao-${index + 1}`)) || createId('conexao'),
             from: String(connection.from), to: String(connection.to),
+            toLevelId,
             label: String(connection.label ?? 'Caminho'), direction: String(connection.direction ?? `caminho-${index + 1}`),
-            bidirectional: connection.bidirectional === true,
+            bidirectional: connection.bidirectional === true && !toLevelId,
             requiresFlag: typeof connection.requiresFlag === 'string' ? connection.requiresFlag : undefined,
             requiresItem,
             lockedMessage: typeof connection.lockedMessage === 'string' ? connection.lockedMessage : undefined,
@@ -297,9 +363,14 @@ export class EditorProject {
           }];
         })
         : [];
+      // Um hotspot "Mudar de sala" também pode apontar para outro nível.
+      rooms.forEach((room) => room.hotspots.forEach((hotspot) => {
+        if (!hotspot.targetLevelId) return;
+        if (!levelIds.has(hotspot.targetLevelId) || hotspot.targetLevelId === draft.id) hotspot.targetLevelId = undefined;
+      }));
       return {
-        id: cleanId(String(rawLevel.id ?? `nivel-${levelIndex + 1}`)) || createId('nivel'),
-        name: String(rawLevel.name ?? `Nível ${levelIndex}`),
+        id: draft.id,
+        name: draft.name,
         startRoomId: roomIds.has(String(rawLevel.startRoomId)) ? String(rawLevel.startRoomId) : rooms[0]!.id,
         escapeRoomId: roomIds.has(String(rawLevel.escapeRoomId)) ? String(rawLevel.escapeRoomId) : undefined,
         rooms,
@@ -325,7 +396,18 @@ export class EditorProject {
       hotspots: Array.isArray(room.hotspots) ? room.hotspots.flatMap((hotspot, hotspotIndex) => this.validateHotspot(hotspot, hotspotIndex, itemIds, eventIds)) : [],
       darknessLevel: typeof room.darknessLevel === 'number' && Number.isFinite(room.darknessLevel) ? Math.max(0, Math.min(1, room.darknessLevel)) : undefined,
       lights: Array.isArray(room.lights) ? room.lights.flatMap((light, lightIndex) => this.validateLight(light, lightIndex)) : undefined,
+      audio: this.validateRoomAudio(room.audio),
     };
+  }
+
+  /** Trilha presa à sala: sem caminho de arquivo não existe configuração nenhuma. */
+  private validateRoomAudio(value: unknown): EditorRoom['audio'] {
+    if (!value || typeof value !== 'object') return undefined;
+    const raw = value as Partial<NonNullable<EditorRoom['audio']>>;
+    const path = typeof raw.path === 'string' ? raw.path.trim() : '';
+    if (!path) return undefined;
+    const volume = typeof raw.volume === 'number' && Number.isFinite(raw.volume) ? Math.max(0, Math.min(1, raw.volume)) : 1;
+    return { path, mode: ROOM_AUDIO_MODE_IDS.has(raw.mode as RoomAudioMode) ? raw.mode as RoomAudioMode : 'every-entry', volume };
   }
 
   /** Focos de luz da sala: perdiam-se a cada recarregamento antes desta validação existir. */
@@ -344,6 +426,7 @@ export class EditorProject {
       angle: ((number(raw.angle, 0, -3600, 3600) % 360) + 360) % 360,
       shape: isLightShape(raw.shape) ? raw.shape : 'circle',
       flicker: number(raw.flicker, 0, 0, 1),
+      aperture: number(raw.aperture, 360, 1, 360),
     }];
   }
 
@@ -355,11 +438,11 @@ export class EditorProject {
     const item = itemIds.has(String(hotspot.item)) ? hotspot.item : undefined;
     const requiresItem = itemIds.has(String(hotspot.requiresItem)) ? hotspot.requiresItem : undefined;
     const event = eventIds.has(String(hotspot.event)) ? hotspot.event : undefined;
-    const x = number(hotspot.x, 38, 0, 97);
-    const y = number(hotspot.y, 38, 0, 97);
+    const x = number(hotspot.x, 38, -100, 100);
+    const y = number(hotspot.y, 38, -100, 100);
     const visibility = VISIBILITIES.has(hotspot.visibility as HotspotVisibility) ? hotspot.visibility as HotspotVisibility : 'visible';
     const shapePoints = Array.isArray(hotspot.shapePoints) && hotspot.shapePoints.length >= 3
-      ? hotspot.shapePoints.filter((point): point is { x: number; y: number } => Boolean(point) && typeof point === 'object' && typeof (point as { x?: unknown }).x === 'number' && typeof (point as { y?: unknown }).y === 'number').map((point) => ({ x: Math.max(-20, Math.min(120, point.x)), y: Math.max(-20, Math.min(120, point.y)) }))
+      ? hotspot.shapePoints.filter((point): point is { x: number; y: number } => Boolean(point) && typeof point === 'object' && typeof (point as { x?: unknown }).x === 'number' && typeof (point as { y?: unknown }).y === 'number').map((point) => ({ x: Math.max(-300, Math.min(400, point.x)), y: Math.max(-300, Math.min(400, point.y)) }))
       : undefined;
     const indicatorRaw = hotspot.indicator && typeof hotspot.indicator === 'object' ? hotspot.indicator : { x: 50, y: 50 };
     const indicator = { x: number(indicatorRaw.x, 50, -20, 120), y: number(indicatorRaw.y, 50, -20, 120) };
@@ -367,10 +450,11 @@ export class EditorProject {
     return [{
       id: cleanId(String(hotspot.id ?? `hotspot-${index + 1}`)) || createId('hotspot'),
       label: String(hotspot.label ?? 'Objeto'), x, y,
-      width: number(hotspot.width, 18, 3, 100 - x), height: number(hotspot.height, 18, 3, 100 - y),
+      width: number(hotspot.width, 18, 1, 400), height: number(hotspot.height, 18, 1, 400),
       action, message: String(hotspot.message ?? 'Você examina o objeto.'), item, requiresItem,
       grantsFlag: typeof hotspot.grantsFlag === 'string' ? hotspot.grantsFlag : undefined,
       targetRoomId: typeof hotspot.targetRoomId === 'string' ? hotspot.targetRoomId : undefined,
+      targetLevelId: typeof hotspot.targetLevelId === 'string' && hotspot.targetLevelId ? hotspot.targetLevelId : undefined,
       arrowRotation: typeof hotspot.arrowRotation === 'number' && Number.isFinite(hotspot.arrowRotation) ? ((hotspot.arrowRotation % 360) + 360) % 360 : undefined,
       event, once: hotspot.once === true,
       highlightColor: typeof hotspot.highlightColor === 'string' && /^#[0-9a-f]{6}$/i.test(hotspot.highlightColor) ? hotspot.highlightColor : '#d7df77',

@@ -56,6 +56,20 @@ export interface RoomLight {
   shape?: string;
   /** Amplitude do piscar: 0 mantém a luz estável, 1 apaga por completo nos vales. */
   flicker?: number;
+  /** Quanto do foco fica visível, em graus: 360 é inteiro, 180 é meio foco. */
+  aperture?: number;
+}
+
+/** Quando a trilha presa a uma sala toca de novo. */
+export type RoomAudioMode = 'once' | 'loop' | 'every-entry';
+
+/** Música ou efeito preso a uma sala, disparado quando o jogador entra nela. */
+export interface RoomAudio {
+  /** Caminho do arquivo dentro de `public`, ex.: `/assets/audio/Music/...`. */
+  path: string;
+  mode: RoomAudioMode;
+  /** Ganho aplicado sobre o volume de música (0 a 1). */
+  volume?: number;
 }
 
 export interface RoomDefinition {
@@ -68,6 +82,7 @@ export interface RoomDefinition {
   hotspots: HotspotDefinition[];
   darknessLevel?: number;
   lights?: RoomLight[];
+  audio?: RoomAudio;
 }
 
 export interface WorldDefinition {

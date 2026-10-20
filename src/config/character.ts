@@ -24,6 +24,14 @@ export const PHOBIAS: ReadonlyArray<CharacterOption<PhobiaId>> = [
   { id: 'claustrofobia', label: 'Claustrofobia', description: 'Medo de espaços fechados.', icon: '▣' },
   { id: 'hemofobia', label: 'Hemofobia', description: 'Medo de sangue e ferimentos.', icon: '✛' },
   { id: 'monofobia', label: 'Monofobia', description: 'Medo de ficar sozinho.', icon: '◯' },
+  { id: 'talassofobia', label: 'Talassofobia', description: 'Medo de águas profundas.', icon: '≈' },
+  { id: 'escopofobia', label: 'Escopofobia', description: 'Medo de ser observado.', icon: '◉' },
+  { id: 'automatonofobia', label: 'Automatonofobia', description: 'Medo de bonecos e figuras humanas.', icon: '⚇' },
+  { id: 'necrofobia', label: 'Necrofobia', description: 'Medo de cadáveres.', icon: '✝' },
+  { id: 'fonofobia', label: 'Fonofobia', description: 'Medo de sons altos e repentinos.', icon: '◁' },
+  { id: 'mecanofobia', label: 'Mecanofobia', description: 'Medo de máquinas em funcionamento.', icon: '⚙' },
+  { id: 'tanatofobia', label: 'Tanatofobia', description: 'Medo da própria morte.', icon: '⌛' },
+  { id: 'apeirofobia', label: 'Apeirofobia', description: 'Medo do infinito e do que não acaba.', icon: '∞' },
 ];
 
 /** As quatro opções de item inicial oferecidas na criação do personagem. */

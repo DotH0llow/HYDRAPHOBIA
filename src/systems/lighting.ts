@@ -15,6 +15,16 @@ const SHAPE_IDS = new Set<string>(LIGHT_SHAPES.map((shape) => shape.id));
 
 export const isLightShape = (value: unknown): value is LightShape => typeof value === 'string' && SHAPE_IDS.has(value);
 
+/** Abertura padrão: o foco inteiro. */
+export const FULL_APERTURE = 360;
+
+/** Abertura normalizada em graus: quanto do foco fica visível (1 a 360). */
+export const apertureOf = (light: RoomLight): number => {
+  const value = light.aperture;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return FULL_APERTURE;
+  return Math.max(1, Math.min(FULL_APERTURE, value));
+};
+
 /** Vértices de cada formato em coordenadas unitárias, antes da rotação e da escala. */
 const polygonPoints = (shape: LightShape): Array<{ x: number; y: number }> => {
   switch (shape) {
@@ -40,6 +50,17 @@ const star = (points: number, innerRatio: number): Array<{ x: number; y: number 
     return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
   });
 
+/**
+ * Até onde o degradê precisa chegar para que o formato inteiro acenda. Um quadrado,
+ * por exemplo, tem os cantos a √2 do centro: com o degradê terminando no raio, só o
+ * círculo inscrito aparecia e todo formato parecia um círculo.
+ */
+export const shapeReach = (shape: LightShape): number => {
+  const points = polygonPoints(shape);
+  if (points.length === 0) return 1;
+  return points.reduce((reach, point) => Math.max(reach, Math.hypot(point.x, point.y)), 0);
+};
+
 /** Fase própria de cada foco, para que lâmpadas vizinhas não pisquem em uníssono. */
 const phaseOf = (light: RoomLight): number => ((light.x * 12.9898 + light.y * 78.233) % 6.2831);
 
@@ -59,7 +80,7 @@ export const flickerFactor = (light: RoomLight, timeMs: number): number => {
 export const hasFlicker = (lights: readonly RoomLight[] | undefined): boolean =>
   (lights ?? []).some((light) => (light.flicker ?? 0) > 0);
 
-const tracePath = (ctx: CanvasRenderingContext2D, light: RoomLight, cx: number, cy: number, radius: number): void => {
+const traceShape = (ctx: CanvasRenderingContext2D, light: RoomLight, cx: number, cy: number, radius: number): void => {
   const shape: LightShape = isLightShape(light.shape) ? light.shape : 'circle';
   ctx.beginPath();
   if (shape === 'circle') {
@@ -75,6 +96,19 @@ const tracePath = (ctx: CanvasRenderingContext2D, light: RoomLight, cx: number, 
     if (index === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
+  ctx.closePath();
+};
+
+/**
+ * Fatia visível do foco. Com abertura menor que 360° o foco vira uma cunha —
+ * 180° dá exatamente um meio-foco — centrada na rotação escolhida.
+ */
+const traceAperture = (ctx: CanvasRenderingContext2D, light: RoomLight, cx: number, cy: number, radius: number): void => {
+  const aperture = (apertureOf(light) * Math.PI) / 180;
+  const center = (((light.angle ?? 0) - 90) * Math.PI) / 180;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.arc(cx, cy, radius, center - aperture / 2, center + aperture / 2);
   ctx.closePath();
 };
 
@@ -103,12 +137,19 @@ export const drawRoomLighting = (
     const radius = Math.max(1, (light.radius / 100) * width);
     const alpha = Math.max(0, Math.min(1, light.intensity * flickerFactor(light, timeMs)));
     if (alpha <= 0) continue;
-    const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+    const shape: LightShape = isLightShape(light.shape) ? light.shape : 'circle';
+    // O degradê precisa alcançar o vértice mais distante, senão o formato vira um círculo.
+    const reach = radius * shapeReach(shape);
+    const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, reach);
     gradient.addColorStop(0, `rgba(0,0,0,${alpha})`);
     gradient.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.save();
-    tracePath(ctx, light, cx, cy, radius);
+    traceShape(ctx, light, cx, cy, radius);
     ctx.clip();
+    if (apertureOf(light) < FULL_APERTURE) {
+      traceAperture(ctx, light, cx, cy, reach);
+      ctx.clip();
+    }
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
     ctx.restore();

@@ -30,21 +30,20 @@ const hotspotToRuntime = (hotspot: EditorHotspot): HotspotDefinition => ({
   hideoutImage: hotspot.hideoutImage,
 });
 
-export const levelToWorld = (level: EditorLevel): WorldDefinition => {
-  const rooms: Record<string, RoomDefinition> = {};
-  level.rooms.forEach((room) => {
-    rooms[room.id] = {
-      id: room.id,
-      name: room.name,
-      code: room.code,
-      image: room.image,
-      description: room.description,
-      exits: {},
-      hotspots: room.hotspots.map(hotspotToRuntime),
-      darknessLevel: room.darknessLevel,
-      lights: room.lights?.map((l) => ({ x: l.x, y: l.y, radius: l.radius, intensity: l.intensity, color: l.color, angle: l.angle, shape: l.shape, flicker: l.flicker })),
-    };
-  });
+const roomToRuntime = (room: EditorLevel['rooms'][number]): RoomDefinition => ({
+  id: room.id,
+  name: room.name,
+  code: room.code,
+  image: room.image,
+  description: room.description,
+  exits: {},
+  hotspots: room.hotspots.map(hotspotToRuntime),
+  darknessLevel: room.darknessLevel,
+  lights: room.lights?.map((l) => ({ x: l.x, y: l.y, radius: l.radius, intensity: l.intensity, color: l.color, angle: l.angle, shape: l.shape, flicker: l.flicker, aperture: l.aperture })),
+  audio: room.audio ? { path: room.audio.path, mode: room.audio.mode, volume: room.audio.volume } : undefined,
+});
+
+const applyConnections = (level: EditorLevel, rooms: Record<string, RoomDefinition>): void => {
   level.connections.forEach((connection) => {
     const source = rooms[connection.from];
     const destination = rooms[connection.to];
@@ -66,7 +65,41 @@ export const levelToWorld = (level: EditorLevel): WorldDefinition => {
       };
     }
   });
+};
+
+/** O mundo de um nível só — usado pelos testes e pelo modo de teste do editor. */
+export const levelToWorld = (level: EditorLevel): WorldDefinition => {
+  const rooms: Record<string, RoomDefinition> = {};
+  level.rooms.forEach((room) => { rooms[room.id] = roomToRuntime(room); });
+  applyConnections(level, rooms);
   return { rooms, startRoomId: level.startRoomId, escapeRoomId: level.escapeRoomId };
+};
+
+export interface ProjectWorld extends WorldDefinition {
+  /** Nome do nível a que cada sala pertence, para a trilha sonora saber onde está. */
+  roomLevelName: Record<string, string>;
+}
+
+/**
+ * O mundo inteiro do projeto: todas as salas de todos os níveis em um único mapa.
+ * Assim um caminho pode atravessar de um nível para outro sem recarregar nada —
+ * as salas já estão todas aqui, e o nível ativo só decide onde o jogador começa.
+ */
+export const projectToWorld = (levels: readonly EditorLevel[], activeLevelId: string): ProjectWorld => {
+  const rooms: Record<string, RoomDefinition> = {};
+  const roomLevelName: Record<string, string> = {};
+  levels.forEach((level) => {
+    level.rooms.forEach((room) => {
+      // Dois níveis podem carregar uma sala com o mesmo id (mapas importados): o
+      // primeiro fica com o id e o segundo é ignorado, em vez de sobrescrever.
+      if (rooms[room.id]) return;
+      rooms[room.id] = roomToRuntime(room);
+      roomLevelName[room.id] = level.name;
+    });
+  });
+  levels.forEach((level) => applyConnections(level, rooms));
+  const active = levels.find((level) => level.id === activeLevelId) ?? levels[0]!;
+  return { rooms, startRoomId: active.startRoomId, escapeRoomId: active.escapeRoomId, roomLevelName };
 };
 
 export const itemsToRuntime = (items: EditorItem[]): Record<ItemId, ItemDefinition> => {

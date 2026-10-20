@@ -11,7 +11,10 @@ export type HotspotVisibility = 'visible' | 'hidden' | 'invisible';
 
 export type CharacterGender = 'male' | 'female';
 export type CharacterClassId = 'explorador' | 'tecnico' | 'adolescente' | 'cavaleiro';
-export type PhobiaId = 'nictofobia' | 'claustrofobia' | 'hemofobia' | 'monofobia';
+export type PhobiaId =
+  | 'nictofobia' | 'claustrofobia' | 'hemofobia' | 'monofobia'
+  | 'talassofobia' | 'escopofobia' | 'automatonofobia' | 'necrofobia'
+  | 'fonofobia' | 'mecanofobia' | 'tanatofobia' | 'apeirofobia';
 
 /** Quantidade de campanhas paralelas que o jogador pode manter. */
 export const SAVE_SLOT_COUNT = 4;

@@ -119,6 +119,36 @@ export const CATEGORY_CONFIG: Record<string, CategoryConfig> = {
   [FX_AMBIENT]: FX_DEFAULT,
 };
 
+/**
+ * Nome único e legível de cada categoria. É o que aparece no painel DEV quando um
+ * som toca, para que cada efeito seja identificável sem abrir a pasta de áudio.
+ */
+export const CATEGORY_LABELS: Readonly<Record<string, string>> = {
+  [MUSIC_MENU]: 'TRILHA · Menu principal',
+  [MUSIC_LOBBY]: 'TRILHA · Lobby (nível 0)',
+  [MUSIC_HIGH_THREAT]: 'TRILHA · Ameaça alta',
+  [MUSIC_CHASE]: 'TRILHA · Perseguição',
+  [MUSIC_AMBIENT]: 'TRILHA · Ambiente genérico',
+  [FX_SAFE_ROOM]: 'VOZ · Alívio em sala calma',
+  [FX_PANIC_ATTACK]: 'VOZ · Ataque de pânico',
+  [FX_ANXIETY_CALM]: 'VOZ · Respiração calma (ansiedade 1)',
+  [FX_ANXIETY_UNEASY]: 'VOZ · Respiração inquieta (ansiedade 2)',
+  [FX_ANXIETY_TERRIFIED]: 'VOZ · Respiração em terror (ansiedade 3)',
+  [FX_HUNGER]: 'VOZ · Fome moderada',
+  [FX_HUNGER_LOW]: 'VOZ · Fome crítica',
+  [FX_THIRST]: 'VOZ · Sede moderada',
+  [FX_THIRST_LOW]: 'VOZ · Sede crítica',
+  [FX_SCREAM]: 'VOZ · Grito de perigo',
+  [FX_LOW_HEALTH]: 'CORPO · Batimentos de vida baixa',
+  [FX_HURT]: 'CORPO · Batimentos de dano',
+  [FX_AMBIENT]: 'FX · Ambiente solto',
+};
+
+export const categoryLabel = (category: string): string => CATEGORY_LABELS[category] ?? category;
+
+/** Só o nome do arquivo, sem a pasta, para caber no painel DEV. */
+export const clipFileName = (path: string): string => decodeURIComponent(path.split('/').pop() ?? path);
+
 /** Espaço mínimo (ms) entre dois efeitos quaisquer, contado a partir do fim do anterior. */
 export const GLOBAL_FX_SPACING_MS = 2400;
 

@@ -2,18 +2,28 @@ import { ITEMS, type ItemDefinition, type RoomDefinition } from '../config/world
 import { CLASSES, DEFAULT_CHARACTER, GENDERS, labelOf, MAX_CHARACTER_NAME, PHOBIAS, sanitizeCharacterName, STARTING_ITEMS } from '../config/character';
 import { Game } from '../core/Game';
 import { EditorProject } from '../editor/EditorProject';
-import { entitiesToRuntime, itemsToRuntime, levelToWorld } from '../editor/mapAdapter';
+import { entitiesToRuntime, itemsToRuntime, projectToWorld } from '../editor/mapAdapter';
 import { anxietyTier, anxietyTierLabel } from '../core/anxiety';
 import { AudioSystem, type Cue } from '../systems/AudioSystem';
 import {
-  anxietyCategoryFor, FX_HUNGER, FX_HUNGER_LOW, FX_HURT, FX_LOW_HEALTH, FX_PANIC_ATTACK, FX_SAFE_ROOM, FX_SCREAM, FX_THIRST, FX_THIRST_LOW,
+  anxietyCategoryFor, categoryLabel, FX_HUNGER, FX_HUNGER_LOW, FX_HURT, FX_LOW_HEALTH, FX_PANIC_ATTACK, FX_SAFE_ROOM, FX_SCREAM, FX_THIRST, FX_THIRST_LOW,
   isLevelZero, MUSIC_LOBBY, MUSIC_MENU,
 } from '../systems/audioLibrary';
+import { HUNGER_LOW_THRESHOLD, HUNGER_THRESHOLD, THIRST_LOW_THRESHOLD, THIRST_THRESHOLD } from '../config/thresholds';
 import { drawRoomLighting, hasFlicker } from '../systems/lighting';
+import { labelAnchorOf } from '../systems/hotspots';
 import { createSlot, SaveSystem } from '../systems/SaveSystem';
-import { SAVE_SLOT_COUNT, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type Preferences, type SaveData, type SaveSlot, type Screen } from '../types';
+import { SAVE_SLOT_COUNT, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type Preferences, type RoomId, type SaveData, type SaveSlot, type Screen } from '../types';
 
 type NumericPreferenceKey = Exclude<keyof Preferences, 'showHealthBar'>;
+/** Uma pergunta de sim/nao desenhada pelo proprio jogo, com a acao ja escolhida. */
+interface ConfirmRequest {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  danger: boolean;
+  run: () => void;
+}
 type SlotMode = 'new' | 'continue';
 /** Passos da criação do personagem, na ordem em que o jogador os percorre. */
 const CREATE_STEPS = ['gender', 'class', 'name', 'phobia', 'item'] as const;
@@ -61,6 +71,11 @@ export class GameApp {
   private slotMode: SlotMode = 'new';
   private createStep: CreateStep = 'gender';
   private draft: CharacterProfile = { ...DEFAULT_CHARACTER };
+  /** Confirmação dentro do jogo; `window.confirm` não aparece em todos os navegadores. */
+  private confirm: ConfirmRequest | null = null;
+  /** Salas do projeto inteiro, para a miniatura de cada registro na tela de campanhas. */
+  private roomImages: Record<RoomId, string> = {};
+  private roomLevelNames: Record<RoomId, string> = {};
 
   constructor(private readonly root: HTMLElement) {
     this.save = this.saves.load();
@@ -84,8 +99,8 @@ export class GameApp {
         this.triggerJumpscare(this.game.encounter?.jumpscareDuration);
         this.persist();
       }
-      if (this.game.status === 'gameover' && Date.now() >= this.jumpscareUntil) { this.screen = 'gameover'; this.forcePaint = true; }
-      if (this.game.status === 'escaped') { this.screen = 'escaped'; this.audio.play('escape'); this.clearActiveGame(); this.forcePaint = true; }
+      if (this.game.status === 'gameover' && Date.now() >= this.jumpscareUntil) { this.screen = 'gameover'; this.audio.stopRoomTrack(); this.forcePaint = true; }
+      if (this.game.status === 'escaped') { this.screen = 'escaped'; this.audio.stopRoomTrack(); this.audio.play('escape'); this.clearActiveGame(); this.forcePaint = true; }
       this.updateDangerAmbience();
       this.updateSampleAmbience();
     }
@@ -123,9 +138,15 @@ export class GameApp {
   }
 
   private structureKey(): string {
-    if (this.screen === 'slots') return `slots:${this.slotMode}:${JSON.stringify(this.save.slots)}`;
-    if (this.screen === 'create') return `create:${this.createStep}:${JSON.stringify(this.draft)}`;
-    if (this.screen !== 'game' || !this.game) return `${this.screen}:${this.inventoryOpen}:${this.focusedItem ?? ''}:${JSON.stringify(this.save.preferences)}`;
+    const dialog = this.confirm ? `|confirm:${this.confirm.title}` : '';
+    if (this.screen === 'slots') return `slots:${this.slotMode}:${JSON.stringify(this.save.slots)}${dialog}`;
+    // O nome digitado fica de fora de propósito: redesenhar a tela a cada letra tirava
+    // o foco do campo. O botão "Continuar" é atualizado à mão em handleInput.
+    if (this.screen === 'create') {
+      const { name: _name, ...rest } = this.draft;
+      return `create:${this.createStep}:${JSON.stringify(rest)}${dialog}`;
+    }
+    if (this.screen !== 'game' || !this.game) return `${this.screen}:${this.inventoryOpen}:${this.focusedItem ?? ''}:${JSON.stringify(this.save.preferences)}${dialog}`;
     return JSON.stringify({
       screen: this.screen,
       room: this.game.position,
@@ -142,6 +163,7 @@ export class GameApp {
       showHealthBar: this.save.preferences.showHealthBar,
       anxietyTier: this.game.anxietyLevel,
       jumpscare: Date.now() < this.jumpscareUntil,
+      dialog,
     });
   }
 
@@ -169,9 +191,11 @@ export class GameApp {
         <nav class="menu-actions">
           <button class="primary" data-action="new-game"><span>01</span>Novo jogo</button>
           <button data-action="continue" ${this.hasAnyProgress() ? '' : 'disabled'}><span>02</span>Continuar</button>
-          <button data-action="settings"><span>03</span>Configurações</button>
-          <button data-action="editor"><span>04</span>Editor de salas</button>
-          <button data-action="exit"><span>05</span>Sair</button>
+          <button data-action="tutorial"><span>03</span>Tutorial</button>
+          <button data-action="achievements"><span>04</span>Conquistas</button>
+          <button data-action="settings"><span>05</span>Configurações</button>
+          <button data-action="editor"><span>06</span>Editor de salas</button>
+          <button data-action="exit"><span>07</span>Sair</button>
         </nav>
         <p class="menu-foot">Use fones de ouvido · Progresso salvo localmente</p>
       </section>
@@ -193,41 +217,86 @@ export class GameApp {
         <div class="slot-grid">
           ${this.save.slots.map((slot, index) => this.slotCardTemplate(slot, index, continuing)).join('')}
         </div>
-        <button class="primary" data-action="slots-back">Voltar</button>
+        <button class="slots-back" data-action="slots-back"><i aria-hidden="true">&#8592;</i>Voltar</button>
       </section>
+      ${this.confirmTemplate()}
     </main>`;
+  }
+
+  /** Miniatura do registro: a sala onde o personagem parou. */
+  private slotThumb(slot: SaveSlot): string {
+    const position = slot.game?.position;
+    return (position && this.roomImages[position]) || '/assets/scenes/corridor.jpg';
+  }
+
+  /** A caixa de confirmação do próprio jogo, no lugar de `window.confirm`. */
+  private confirmTemplate(): string {
+    const request = this.confirm;
+    if (!request) return '';
+    return `<div class="modal-layer confirm-layer" role="dialog" aria-modal="true" aria-label="${esc(request.title)}">
+      <section class="simple-modal">
+        <small>CONFIRMAÇÃO</small>
+        <h2>${esc(request.title)}</h2>
+        <p>${esc(request.message)}</p>
+        <button class="${request.danger ? 'danger-button' : 'primary'}" data-action="confirm-accept">${esc(request.confirmLabel)}</button>
+        <button data-action="confirm-cancel">Cancelar</button>
+      </section>
+    </div>`;
+  }
+
+  /** Abre a confirmação; a ação só roda se o jogador disser que sim. */
+  private askConfirm(request: ConfirmRequest): void {
+    this.confirm = request;
+    this.audio.play('click');
   }
 
   private slotCardTemplate(slot: SaveSlot | null, index: number, continuing: boolean): string {
     const number = String(index + 1).padStart(2, '0');
     if (!slot) {
       return `<article class="slot-card empty">
-        <header><small>REGISTRO ${number}</small><h2>Vazio</h2></header>
-        <p>Nenhuma campanha gravada aqui.</p>
+        <small class="slot-tag">REGISTRO ${number}</small>
+        <div class="slot-body">
+          <div class="slot-thumb placeholder" aria-hidden="true"><span>+</span></div>
+          <div class="slot-info">
+            <h2>Vazio</h2>
+            <p class="slot-empty-note">Nenhuma campanha gravada aqui.</p>
+          </div>
+        </div>
         <div class="slot-actions">
           ${continuing
-            ? '<button disabled>Sem progresso</button>'
-            : `<button class="primary" data-action="slot-create" data-slot="${index}">Criar personagem</button>`}
+            ? '<button class="wide" disabled>Sem progresso</button>'
+            : `<button class="primary wide" data-action="slot-create" data-slot="${index}">Criar personagem</button>`}
         </div>
       </article>`;
     }
     const { character } = slot;
     const progress = slot.game;
+    const rooms = progress?.discovered.length ?? 0;
     return `<article class="slot-card">
-      <header><small>REGISTRO ${number}</small><h2>${esc(character.name)}</h2></header>
-      <dl class="slot-facts">
-        <div><dt>Classe</dt><dd>${esc(labelOf(CLASSES, character.classId))}</dd></div>
-        <div><dt>Gênero</dt><dd>${esc(labelOf(GENDERS, character.gender))}</dd></div>
-        <div><dt>Fobia</dt><dd>${esc(labelOf(PHOBIAS, character.phobia))}</dd></div>
-        <div><dt>Tempo</dt><dd>${progress ? this.formatTime(progress.elapsed) : '—'}</dd></div>
-      </dl>
-      <p>${progress ? `${progress.discovered.length} sala(s) descoberta(s) · vida ${Math.round(progress.stats.health)}%` : 'Personagem criado, exploração ainda não iniciada.'}</p>
+      <small class="slot-tag">REGISTRO ${number}</small>
+      <div class="slot-body">
+        <div class="slot-thumb"><img src="${esc(this.slotThumb(slot))}" alt="" /></div>
+        <div class="slot-info">
+          <h2>${esc(character.name)}</h2>
+          <dl class="slot-facts">
+            <div><dt>Classe</dt><dd>${esc(labelOf(CLASSES, character.classId))}</dd></div>
+            <div><dt>Gênero</dt><dd>${esc(labelOf(GENDERS, character.gender))}</dd></div>
+            <div><dt>Fobia</dt><dd>${esc(labelOf(PHOBIAS, character.phobia))}</dd></div>
+            <div><dt>Tempo</dt><dd>${progress ? this.formatTime(progress.elapsed) : '00:00'}</dd></div>
+          </dl>
+        </div>
+      </div>
+      <p class="slot-progress">${progress
+        ? `<span><i aria-hidden="true">&#9635;</i>${rooms} ${rooms === 1 ? 'sala descoberta' : 'salas descobertas'}</span><em>·</em><span><i aria-hidden="true">&#9829;</i>vida ${Math.round(progress.stats.health)}%</span>`
+        : '<span>Personagem criado, exploração ainda não iniciada.</span>'}</p>
       <div class="slot-actions">
         ${progress
-          ? `<button class="primary" data-action="slot-continue" data-slot="${index}">Continuar</button>`
-          : `<button class="primary" data-action="slot-create" data-slot="${index}">Criar personagem</button>`}
-        ${continuing ? '' : `<button data-action="slot-overwrite" data-slot="${index}">Novo personagem</button>`}
-        <button class="discard" data-action="slot-delete" data-slot="${index}">Apagar</button>
+          ? `<button class="primary wide" data-action="slot-continue" data-slot="${index}">Continuar</button>`
+          : `<button class="primary wide" data-action="slot-create" data-slot="${index}">Criar personagem</button>`}
+        <div class="slot-actions-row">
+          ${continuing ? '' : `<button data-action="slot-overwrite" data-slot="${index}">Novo personagem</button>`}
+          <button class="discard" data-action="slot-delete" data-slot="${index}">Apagar</button>
+        </div>
       </div>
     </article>`;
   }
@@ -326,6 +395,7 @@ export class GameApp {
       ${this.game.status === 'hidden' ? this.hiddenTemplate() : ''}
       ${this.game.status === 'paused' ? this.pauseTemplate() : ''}
       ${Date.now() < this.jumpscareUntil ? this.jumpscareTemplate() : ''}
+      ${this.confirmTemplate()}
       ${this.devToolsTemplate()}
     </main>`;
   }
@@ -356,6 +426,7 @@ export class GameApp {
       const clip = hotspot.shape ? `clip-path:polygon(${hotspot.shape.points.map((point) => `${point.x}% ${point.y}%`).join(',')});` : '';
       const invisible = hotspot.visibility === 'invisible' && !revealed;
       const indicator = hotspot.indicator ?? { x: 50, y: 50 };
+      const label = labelAnchorOf(hotspot);
       // "Mudar de sala" é um caminho, não um objeto: o jogador vê uma seta.
       const arrow = hotspot.kind === 'move';
       const marker = arrow
@@ -364,7 +435,7 @@ export class GameApp {
       return `<div class="hotspot-group${invisible ? ' hotspot-invisible' : ''}${arrow ? ' hotspot-move' : ''}" style="--x:${hotspot.x}%;--y:${hotspot.y}%;--w:${hotspot.width}%;--h:${hotspot.height}%">
         <button class="hotspot-hitbox" data-action="hotspot" data-hotspot="${hotspot.id}" style="${clip}" aria-label="${hotspot.label}"></button>
         ${marker}
-        <span class="hotspot-label" style="left:${indicator.x}%;top:${indicator.y}%">${hotspot.label}</span>
+        <span class="hotspot-label" style="left:${label.x}%;top:${label.y}%">${hotspot.label}</span>
       </div>`;
     }).join('');
   }
@@ -478,7 +549,7 @@ export class GameApp {
 
   private settingsTemplate(): string {
     const p = this.save.preferences;
-    return `<main class="settings-screen"><img src="/assets/scenes/corridor.jpg" alt="" /><div class="settings-shade"></div><section class="settings-panel"><small>CONFIGURAÇÃO DO REGISTRO</small><h1>Configurações</h1>${this.range('masterVolume', 'Volume geral', p.masterVolume)}${this.range('musicVolume', 'Ambiente / música', p.musicVolume)}${this.range('effectsVolume', 'Efeitos sonoros', p.effectsVolume)}${this.range('voiceVolume', 'Vocalização do personagem', p.voiceVolume)}<p class="setting-help">A vocalização reúne a respiração, os suspiros, a fome, a sede e os gritos do próprio personagem.</p><label class="setting-select"><span>Intensidade dos sustos</span><select data-setting="jumpscareIntensity"><option value="0.25" ${p.jumpscareIntensity < .45 ? 'selected' : ''}>Baixa</option><option value="0.6" ${p.jumpscareIntensity >= .45 && p.jumpscareIntensity < .8 ? 'selected' : ''}>Média</option><option value="1" ${p.jumpscareIntensity >= .8 ? 'selected' : ''}>Alta</option></select></label><p class="setting-help">Controla o tremor, o flash, a duração e parte da força sonora do susto. Os controles de volume continuam valendo separadamente.</p><button data-action="fullscreen">${document.fullscreenElement ? 'Sair da tela cheia' : 'Ativar tela cheia'}</button><button class="danger-button" data-action="clear-save">Apagar save local</button><button class="primary" data-action="settings-back">Voltar</button></section></main>`;
+    return `<main class="settings-screen"><img src="/assets/scenes/corridor.jpg" alt="" /><div class="settings-shade"></div><section class="settings-panel"><small>CONFIGURAÇÃO DO REGISTRO</small><h1>Configurações</h1>${this.range('masterVolume', 'Volume geral', p.masterVolume)}${this.range('musicVolume', 'Ambiente / música', p.musicVolume)}${this.range('effectsVolume', 'Efeitos sonoros', p.effectsVolume)}${this.range('voiceVolume', 'Vocalização do personagem', p.voiceVolume)}<p class="setting-help">A vocalização reúne a respiração, os suspiros, a fome, a sede e os gritos do próprio personagem.</p><label class="setting-select"><span>Intensidade dos sustos</span><select data-setting="jumpscareIntensity"><option value="0.25" ${p.jumpscareIntensity < .45 ? 'selected' : ''}>Baixa</option><option value="0.6" ${p.jumpscareIntensity >= .45 && p.jumpscareIntensity < .8 ? 'selected' : ''}>Média</option><option value="1" ${p.jumpscareIntensity >= .8 ? 'selected' : ''}>Alta</option></select></label><p class="setting-help">Controla o tremor, o flash, a duração e parte da força sonora do susto. Os controles de volume continuam valendo separadamente.</p><button data-action="fullscreen">${document.fullscreenElement ? 'Sair da tela cheia' : 'Ativar tela cheia'}</button><button class="danger-button" data-action="clear-save">Apagar save local</button><button class="primary" data-action="settings-back">Voltar</button></section>${this.confirmTemplate()}</main>`;
   }
 
   private devToolsTemplate(): string {
@@ -494,6 +565,7 @@ export class GameApp {
       <label class="dev-check"><input type="checkbox" data-dev-health-bar ${this.save.preferences.showHealthBar ? 'checked' : ''} /><span>Mostrar barra de vida</span></label>
       <div class="dev-add"><select data-dev-item>${itemOptions}</select><button data-action="dev-add-item">Adicionar item</button></div>
       ${this.devVoicesTemplate()}
+      ${this.devNowPlayingTemplate()}
     </aside>`;
   }
 
@@ -510,6 +582,38 @@ export class GameApp {
       <div>${metrics.map(([metric, label]) => `<button data-action="dev-voice" data-metric="${metric}">${label}</button>`).join('')}</div>
       <small data-role="dev-voice-status">Toca o som que a métrica dispararia agora.</small>
     </div>`;
+  }
+
+  /** DEV: o que está soando agora, com o nome único de cada categoria e o arquivo. */
+  private devNowPlayingTemplate(): string {
+    const { music, effect } = this.nowPlayingText();
+    return `<div class="dev-now">
+      <span>Tocando agora</span>
+      <div class="dev-now-row"><small>Música</small><b data-role="dev-now-music">${esc(music)}</b></div>
+      <div class="dev-now-row"><small>Último FX</small><b data-role="dev-now-fx">${esc(effect)}</b></div>
+    </div>`;
+  }
+
+  /** Texto das duas linhas do "tocando agora", igual no desenho e na atualização. */
+  private nowPlayingText(): { music: string; effect: string } {
+    const playing = this.audio.nowPlaying();
+    const room = playing.roomTrack;
+    const last = playing.lastEffect;
+    return {
+      music: room ? `TRILHA DA SALA · ${room.file}` : playing.music ? `${playing.music.label} · ${playing.music.file}` : '—',
+      // Depois de doze segundos o som já terminou: o painel volta ao traço.
+      effect: last && Date.now() - last.at < 12000 ? `${last.label} · ${last.file}` : '—',
+    };
+  }
+
+  /** Atualiza a seção "tocando agora" sem redesenhar o painel inteiro. */
+  private updateNowPlaying(): void {
+    const music = this.root.querySelector<HTMLElement>('[data-role="dev-now-music"]');
+    const fx = this.root.querySelector<HTMLElement>('[data-role="dev-now-fx"]');
+    if (!music && !fx) return;
+    const text = this.nowPlayingText();
+    if (music) music.textContent = text.music;
+    if (fx) fx.textContent = text.effect;
   }
 
   /** Medidores sempre visíveis, para acompanhar o personagem sem abrir o painel. */
@@ -554,8 +658,13 @@ export class GameApp {
     this.root.addEventListener('change', (event) => this.handleInput(event.target as HTMLInputElement));
     window.addEventListener('keydown', (event) => this.handleKey(event));
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && this.game?.status === 'exploring') this.game.pause(true);
-      else if (!document.hidden && this.game?.status === 'paused') this.game.pause(false);
+      if (document.hidden && this.game?.status === 'exploring') {
+        this.game.pause(true);
+        void this.audio.pauseGameplay().catch(() => undefined);
+      } else if (!document.hidden && this.game?.status === 'paused') {
+        this.game.pause(false);
+        void this.audio.resumeGameplay().catch(() => undefined);
+      }
       this.forcePaint = true;
     });
   }
@@ -571,7 +680,10 @@ export class GameApp {
     switch (action) {
       case 'new-game': this.openSlots('new'); break;
       case 'continue': this.openSlots('continue'); break;
-      case 'slots-back': this.screen = 'menu'; this.audio.play('click'); break;
+      case 'slots-back': this.screen = 'menu'; this.confirm = null; this.audio.play('click'); break;
+      case 'tutorial': case 'achievements': this.audio.play('click'); break;
+      case 'confirm-accept': { const request = this.confirm; this.confirm = null; this.audio.play('click'); request?.run(); break; }
+      case 'confirm-cancel': this.confirm = null; this.audio.play('click'); break;
       case 'slot-create': this.startCharacterCreation(Number(data.slot)); break;
       case 'slot-overwrite': this.overwriteSlot(Number(data.slot)); break;
       case 'slot-continue': this.continueGame(Number(data.slot)); break;
@@ -579,7 +691,7 @@ export class GameApp {
       case 'draft-set': this.applyDraft(data.field ?? '', data.value ?? ''); break;
       case 'create-back': this.createPreviousStep(); break;
       case 'create-next': this.createNextStep(); break;
-      case 'menu': this.screen = 'menu'; this.game = null; this.activeSlot = null; this.inventoryOpen = false; this.audio.play('click'); break;
+      case 'menu': this.returnToMenu(); break;
       case 'settings': this.screen = 'settings'; this.audio.play('click'); break;
       case 'settings-back': this.screen = this.game ? 'game' : 'menu'; this.audio.play('click'); break;
       case 'editor': window.location.href = '/editor.html'; break;
@@ -595,7 +707,7 @@ export class GameApp {
       case 'discard-item': this.game?.discardItem(data.item as ItemId); this.focusedItem = null; this.persist(); break;
       case 'encounter': this.respond(data.choice as EncounterAction); break;
       case 'exit-hideout': this.game?.exitHideout(); this.audio.play('step'); break;
-      case 'resume': this.game?.pause(false); this.audio.play('click'); break;
+      case 'resume': this.resumeFromPause(); break;
       case 'dev-toggle': this.devPanelOpen = !this.devPanelOpen; break;
       case 'dev-voice': this.forceVocalization(data.metric ?? ''); return;
       case 'dev-add-item': {
@@ -613,7 +725,19 @@ export class GameApp {
 
   private hasAnyProgress(): boolean { return this.save.slots.some((slot) => slot?.game); }
 
+  /** Lê o projeto do editor só para saber a imagem e o nível de cada sala. */
+  private indexProjectRooms(): void {
+    if (Object.keys(this.roomImages).length > 0) return;
+    try {
+      const project = new EditorProject();
+      const world = projectToWorld(project.data.levels, project.data.activeLevelId);
+      this.roomLevelNames = world.roomLevelName;
+      this.roomImages = Object.fromEntries(Object.values(world.rooms).map((room) => [room.id, room.image]));
+    } catch { /* sem projeto salvo as miniaturas usam a imagem padrão */ }
+  }
+
   private openSlots(mode: SlotMode): void {
+    this.indexProjectRooms();
     this.slotMode = mode;
     this.screen = 'slots';
     this.game = null;
@@ -633,18 +757,49 @@ export class GameApp {
 
   private overwriteSlot(index: number): void {
     const slot = this.save.slots[index];
-    if (slot && !window.confirm(`Substituir o registro ${index + 1} ("${slot.character.name}") por um personagem novo?`)) return;
-    this.startCharacterCreation(index);
+    if (!slot) { this.startCharacterCreation(index); return; }
+    this.askConfirm({
+      title: `Substituir o registro ${String(index + 1).padStart(2, '0')}`,
+      message: `O personagem "${slot.character.name}" e todo o progresso dele serão trocados por um personagem novo.`,
+      confirmLabel: 'Criar personagem novo',
+      danger: false,
+      run: () => { this.startCharacterCreation(index); this.forcePaint = true; this.render(true); },
+    });
   }
 
   private deleteSlot(index: number): void {
     const slot = this.save.slots[index];
     if (!slot) return;
-    if (!window.confirm(`Apagar o registro ${index + 1} ("${slot.character.name}")? Isso não pode ser desfeito.`)) return;
-    this.save.slots[index] = null;
-    if (this.save.activeSlot === index) this.save.activeSlot = null;
-    this.persistSave();
+    this.askConfirm({
+      title: `Apagar o registro ${String(index + 1).padStart(2, '0')}`,
+      message: `"${slot.character.name}" será removido deste navegador. Isso não pode ser desfeito.`,
+      confirmLabel: 'Apagar registro',
+      danger: true,
+      run: () => {
+        this.save.slots[index] = null;
+        if (this.save.activeSlot === index) this.save.activeSlot = null;
+        this.persistSave();
+        this.forcePaint = true;
+        this.render(true);
+      },
+    });
+  }
+
+  /** Volta ao menu principal: o áudio do jogo para por completo. */
+  private returnToMenu(): void {
+    this.screen = 'menu';
+    this.game = null;
+    this.activeSlot = null;
+    this.inventoryOpen = false;
+    this.confirm = null;
+    this.audio.stopAll();
     this.audio.play('click');
+  }
+
+  /** Sai da pausa: o áudio congelado volta de onde parou. */
+  private resumeFromPause(): void {
+    this.game?.pause(false);
+    void this.audio.resumeGameplay().then(() => this.audio.play('click')).catch(() => undefined);
   }
 
   private applyDraft(field: string, value: string): void {
@@ -691,6 +846,7 @@ export class GameApp {
     this.persist();
     this.audio.play('step');
     this.syncMusic();
+    this.syncRoomAudio();
   }
 
   private continueGame(index: number): void {
@@ -710,6 +866,7 @@ export class GameApp {
     this.audio.setVoiceGender(slot.character.gender);
     this.audio.play('step');
     this.syncMusic();
+    this.syncRoomAudio();
   }
 
   private move(direction: Direction): void {
@@ -736,6 +893,7 @@ export class GameApp {
     const game = this.game;
     if (!game) return;
     this.syncMusic();
+    this.syncRoomAudio();
     if (!game.roomIsOrdinary) return;
     this.audio.maybePlaySample(FX_SAFE_ROOM, { chance: SAFE_ROOM_CHANCE });
   }
@@ -794,13 +952,14 @@ export class GameApp {
     if (!game) return;
     if (game.status !== 'exploring' && game.status !== 'hidden') return;
     const { health, hunger, thirst } = game.stats;
-    if (thirst <= 25) this.audio.maybePlaySample(FX_THIRST_LOW);
-    else if (thirst <= 50) this.audio.maybePlaySample(FX_THIRST);
-    if (hunger <= 25) this.audio.maybePlaySample(FX_HUNGER_LOW);
-    else if (hunger <= 50) this.audio.maybePlaySample(FX_HUNGER);
+    if (thirst <= THIRST_LOW_THRESHOLD) this.audio.maybePlaySample(FX_THIRST_LOW);
+    else if (thirst <= THIRST_THRESHOLD) this.audio.maybePlaySample(FX_THIRST);
+    if (hunger <= HUNGER_LOW_THRESHOLD) this.audio.maybePlaySample(FX_HUNGER_LOW);
+    else if (hunger <= HUNGER_THRESHOLD) this.audio.maybePlaySample(FX_HUNGER);
     if (health <= 30) this.audio.maybePlaySample(FX_LOW_HEALTH);
-    this.audio.maybePlaySample(anxietyCategoryFor(game.anxietyLevel), { pan: Math.random() * 1.2 - 0.6 });
-    if (game.danger >= 40) this.audio.maybePlaySample(FX_SCREAM, { pan: Math.random() * 1.6 - 0.8 });
+    // A voz do personagem sai dele mesmo: sem panorâmica, nos dois ouvidos.
+    this.audio.maybePlaySample(anxietyCategoryFor(game.anxietyLevel));
+    if (game.danger >= 40) this.audio.maybePlaySample(FX_SCREAM);
   }
 
   /** Categoria que cada métrica toca no estado atual do personagem. */
@@ -809,8 +968,8 @@ export class GameApp {
     if (!game) return null;
     switch (metric) {
       case 'health': return FX_LOW_HEALTH;
-      case 'hunger': return game.stats.hunger <= 25 ? FX_HUNGER_LOW : FX_HUNGER;
-      case 'thirst': return game.stats.thirst <= 25 ? FX_THIRST_LOW : FX_THIRST;
+      case 'hunger': return game.stats.hunger <= HUNGER_LOW_THRESHOLD ? FX_HUNGER_LOW : FX_HUNGER;
+      case 'thirst': return game.stats.thirst <= THIRST_LOW_THRESHOLD ? FX_THIRST_LOW : FX_THIRST;
       case 'anxiety': return anxietyCategoryFor(game.anxietyLevel);
       case 'danger': return FX_SCREAM;
       default: return null;
@@ -822,8 +981,9 @@ export class GameApp {
     const category = this.vocalCategoryFor(metric);
     const status = this.root.querySelector<HTMLElement>('[data-role="dev-voice-status"]');
     if (!category) return;
-    const played = this.audio.forceSample(category, { pan: Math.random() * 1.2 - 0.6 });
-    if (status) status.textContent = played ? `tocando ${category}` : `sem arquivo em ${category}`;
+    const played = this.audio.forceSample(category);
+    const name = categoryLabel(category);
+    if (status) status.textContent = played ? `tocando ${name}` : `sem arquivo em ${name}`;
   }
 
   /** Menu tem a música do menu; o nível 0 tem lobby_lights em todas as salas. */
@@ -838,7 +998,9 @@ export class GameApp {
 
   private levelZeroActive(): boolean {
     const room = this.game?.room;
-    return isLevelZero(this.levelName, room?.code, room?.image);
+    // Com caminhos entre níveis a sala manda: o nome do nível vem da sala, não do início.
+    const levelName = (room && this.roomLevelNames[room.id]) ?? this.levelName;
+    return isLevelZero(levelName, room?.code, room?.image);
   }
 
   private handleInput(input: HTMLInputElement): void {
@@ -901,8 +1063,13 @@ export class GameApp {
       if (this.screen === 'create') { this.createPreviousStep(); this.forcePaint = true; this.render(true); return; }
       if (this.screen === 'slots') { this.screen = 'menu'; this.forcePaint = true; this.render(true); return; }
       if (this.screen === 'game' && this.game && (this.game.status === 'exploring' || this.game.status === 'paused')) {
-        this.game.pause();
-        this.audio.play('click');
+        if (this.game.status === 'paused') { this.resumeFromPause(); }
+        else {
+          this.game.pause(true);
+          this.audio.play('click');
+          // O som do jogo congela junto com ele e volta exatamente daqui.
+          void this.audio.pauseGameplay().catch(() => undefined);
+        }
         this.forcePaint = true;
         this.render(true);
       }
@@ -933,6 +1100,7 @@ export class GameApp {
       stat?.classList.toggle('warning', value > 25 && value <= 50);
     });
     this.updateDevMeters();
+    this.updateNowPlaying();
     const screen = this.root.querySelector<HTMLElement>('.game-screen');
     if (screen) screen.className = `game-screen ${this.conditionClasses()}`;
     const blood = this.root.querySelector<HTMLElement>('.blood-overlay');
@@ -999,7 +1167,17 @@ export class GameApp {
   private persistSave(): void { this.saves.save(this.save); }
 
   private clearSave(): void {
-    if (!window.confirm('Apagar todos os registros e as configurações salvas neste navegador?')) return;
+    this.askConfirm({
+      title: 'Apagar o save local',
+      message: 'Todos os registros e as configurações guardadas neste navegador serão removidos.',
+      confirmLabel: 'Apagar tudo',
+      danger: true,
+      run: () => { this.wipeSave(); this.forcePaint = true; this.render(true); },
+    });
+  }
+
+  private wipeSave(): void {
+    this.audio.stopAll();
     this.saves.clear();
     this.save = this.saves.load();
     this.audio.updatePreferences(this.save.preferences);
@@ -1011,12 +1189,33 @@ export class GameApp {
 
   private currentGameData() {
     const project = new EditorProject();
+    const world = projectToWorld(project.data.levels, project.data.activeLevelId);
+    this.roomLevelNames = world.roomLevelName;
+    this.roomImages = Object.fromEntries(Object.values(world.rooms).map((room) => [room.id, room.image]));
     return {
       levelName: project.activeLevel.name,
-      world: levelToWorld(project.activeLevel),
+      world,
       items: itemsToRuntime(project.data.items),
       entities: entitiesToRuntime(project.data.entities),
     };
+  }
+
+  /**
+   * Trilha presa à sala, configurada no editor. "Uma vez" marca uma bandeira no save
+   * e nunca mais volta; "a cada entrada" recomeça; "contínua" fica em laço.
+   */
+  private syncRoomAudio(): void {
+    const game = this.game;
+    if (!game) return;
+    const room = game.room as RoomDefinition;
+    const audio = room.audio;
+    if (!audio?.path) { this.audio.stopRoomTrack(); return; }
+    const flag = `audio:${room.id}`;
+    if (audio.mode === 'once') {
+      if (game.flags[flag]) { this.audio.stopRoomTrack(); return; }
+      game.flags[flag] = true;
+    }
+    void this.audio.playRoomTrack(audio.path, { loop: audio.mode === 'loop', volume: audio.volume }).catch(() => undefined);
   }
 
   private bloodLevel(): number {

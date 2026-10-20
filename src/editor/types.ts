@@ -1,4 +1,4 @@
-import type { ItemEffect } from '../config/world';
+import type { ItemEffect, RoomAudioMode } from '../config/world';
 import type { LightShape } from '../systems/lighting';
 import type { CutsceneMediaType, EncounterAction, EntityId, HotspotVisibility, ItemId } from '../types';
 
@@ -18,6 +18,8 @@ export interface EditorConnection {
   label: string;
   direction: string;
   bidirectional: boolean;
+  /** Nível do destino. Ausente (ou igual ao nível da conexão) significa o mesmo nível. */
+  toLevelId?: string;
   requiresFlag?: string;
   requiresItem?: ItemId;
   lockedMessage?: string;
@@ -39,6 +41,8 @@ export interface EditorHotspot {
   requiresItem?: ItemId;
   grantsFlag?: string;
   targetRoomId?: string;
+  /** Nível da sala de destino, para caminhos que levam a outro nível. */
+  targetLevelId?: string;
   /** Para a ação "Mudar de sala": rotação da seta mostrada ao jogador, em graus. */
   arrowRotation?: number;
   event?: EditorEvent;
@@ -68,11 +72,26 @@ export interface EditorLight {
   shape: LightShape;
   /** Intensidade do piscar: 0 deixa a luz estável. */
   flicker: number;
+  /** Quanto do foco fica visível, em graus: 360 é inteiro, 180 é meio foco. */
+  aperture: number;
 }
 
 export const createLight = (id: string): EditorLight => ({
-  id, x: 50, y: 50, radius: 20, intensity: 0.9, color: '#fffbe8', angle: 0, shape: 'circle', flicker: 0,
+  id, x: 50, y: 50, radius: 20, intensity: 0.9, color: '#fffbe8', angle: 0, shape: 'circle', flicker: 0, aperture: 360,
 });
+
+/** Trilha presa a uma sala, configurada no editor. */
+export interface EditorRoomAudio {
+  path: string;
+  mode: RoomAudioMode;
+  volume: number;
+}
+
+export const ROOM_AUDIO_MODES: ReadonlyArray<{ id: RoomAudioMode; label: string; hint: string }> = [
+  { id: 'once', label: 'Tocar apenas uma vez', hint: 'Toca na primeira vez que o jogador entra e nunca mais nesta campanha.' },
+  { id: 'loop', label: 'Repetir continuamente', hint: 'Fica em laço enquanto o jogador estiver na sala.' },
+  { id: 'every-entry', label: 'Repetir a cada entrada', hint: 'Toca uma vez do começo sempre que o jogador entra na sala.' },
+];
 
 export interface EditorRoom {
   id: string;
@@ -84,6 +103,7 @@ export interface EditorRoom {
   hotspots: EditorHotspot[];
   darknessLevel?: number;
   lights?: EditorLight[];
+  audio?: EditorRoomAudio;
 }
 
 export interface EditorLevel {

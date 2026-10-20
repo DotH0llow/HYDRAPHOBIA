@@ -1,7 +1,7 @@
 import type { Preferences } from '../types';
 import {
-  buildLibrary, clipGain, clipsForGender, configFor, ESTIMATED_CLIP_MS, GLOBAL_FX_SPACING_MS, selectClip,
-  type AudioClip, type CategoryConfig, type VoiceGender,
+  buildLibrary, categoryLabel, clipFileName, clipGain, clipsForGender, configFor, ESTIMATED_CLIP_MS, GLOBAL_FX_SPACING_MS, selectClip,
+  type AudioBus, type AudioClip, type CategoryConfig, type VoiceGender,
 } from './audioLibrary';
 
 export type Cue = 'click' | 'step' | 'pickup' | 'use' | 'locked' | 'entity' | 'jumpscare' | 'escape'
@@ -38,6 +38,26 @@ interface MusicState {
   nextTrackAt: number;
 }
 
+/** Um som de arquivo que ainda está soando, para poder ser interrompido. */
+interface ActiveClip {
+  source: AudioBufferSourceNode;
+  gain: GainNode;
+  bus: AudioBus;
+}
+
+/** O que o painel DEV mostra sobre o que está tocando agora. */
+export interface NowPlaying {
+  music: { label: string; file: string } | null;
+  roomTrack: { file: string; mode: string } | null;
+  lastEffect: { label: string; file: string; at: number } | null;
+}
+
+/** Trilha presa a uma sala pelo editor. */
+export interface RoomTrackOptions {
+  loop: boolean;
+  volume?: number;
+}
+
 export class AudioSystem {
   private context: AudioContext | null = null;
   private ambience: { source: AudioBufferSourceNode; gain: GainNode } | null = null;
@@ -61,15 +81,29 @@ export class AudioSystem {
   private music: MusicState | null = null;
   private requestedMusic: string | null = null;
   private scheduler: ReturnType<typeof setInterval> | null = null;
+  /** Tudo que está soando de arquivo agora: permite parar o áudio de uma vez. */
+  private readonly active = new Set<ActiveClip>();
+  /** Enquanto verdadeiro nenhum som de jogo entra e o contexto fica suspenso. */
+  private gameplayPaused = false;
+  /** Trilha presa à sala atual, quando o editor configurou uma. */
+  private roomTrack: { path: string; mode: string; source: AudioBufferSourceNode; gain: GainNode } | null = null;
+  /** Trilha de sala pedida antes de o navegador liberar o áudio; toca ao liberar. */
+  private pendingRoomTrack: { path: string; options: RoomTrackOptions } | null = null;
+  private nowMusic: { label: string; file: string } | null = null;
+  private lastEffect: { label: string; file: string; at: number } | null = null;
   constructor(private preferences: Preferences) {}
 
   async unlock(): Promise<void> {
     if (!this.context) this.context = new AudioContext();
+    // Durante a pausa o contexto fica suspenso de propósito: nenhum clique o reacorda.
+    if (this.gameplayPaused) return;
     if (this.context.state === 'suspended') await this.context.resume();
     if (!this.musicBus || !this.effectsBus || !this.voiceBus) this.createBuses();
     if (!this.ambience) this.startAmbience();
     if (!this.scheduler) this.scheduler = setInterval(() => this.updateMusicScheduling(), SCHEDULER_INTERVAL_MS);
     void this.loadLibrary();
+    const pending = this.pendingRoomTrack;
+    if (pending) { this.pendingRoomTrack = null; void this.playRoomTrack(pending.path, pending.options); }
   }
 
   updatePreferences(preferences: Preferences): void {
@@ -158,7 +192,118 @@ export class AudioSystem {
   forceSample(category: string, options: SampleOptions = {}): boolean {
     const ready = this.categoryReady(category, true);
     if (!ready) return false;
+    // O painel DEV sempre corta o som atual: o novo entra limpo, sem sobreposição.
+    this.stopEffects();
     return this.playCategory(category, ready.config, ready.clips, { ...options, immediate: true });
+  }
+
+  /** Corta agora todo efeito e vocalização de arquivo que ainda esteja soando. */
+  stopEffects(): void {
+    [...this.active].forEach((clip) => { if (clip.bus !== 'music') this.stopClip(clip); });
+    this.effectBusyUntil = 0;
+    this.groupBusyUntil.clear();
+  }
+
+  private stopClip(clip: ActiveClip): void {
+    this.active.delete(clip);
+    const context = this.context;
+    if (!context) return;
+    const now = context.currentTime;
+    try {
+      clip.gain.gain.cancelScheduledValues(now);
+      clip.gain.gain.setValueAtTime(Math.max(0.0001, clip.gain.gain.value), now);
+      clip.gain.gain.linearRampToValueAtTime(0.0001, now + 0.04);
+      clip.source.stop(now + 0.06);
+    } catch { /* a fonte já havia terminado */ }
+  }
+
+  /**
+   * ESC: o jogo inteiro emudece e o tempo do áudio congela, para que a faixa continue
+   * exatamente de onde parou quando o menu fechar.
+   */
+  async pauseGameplay(): Promise<void> {
+    if (this.gameplayPaused) return;
+    this.gameplayPaused = true;
+    if (this.scheduler) { clearInterval(this.scheduler); this.scheduler = null; }
+    const context = this.context;
+    if (context && context.state === 'running') { try { await context.suspend(); } catch { /* sem contexto ativo */ } }
+  }
+
+  async resumeGameplay(): Promise<void> {
+    if (!this.gameplayPaused) return;
+    this.gameplayPaused = false;
+    const context = this.context;
+    if (!context) return;
+    if (context.state === 'suspended') { try { await context.resume(); } catch { /* ignorado */ } }
+    if (!this.scheduler) this.scheduler = setInterval(() => this.updateMusicScheduling(), SCHEDULER_INTERVAL_MS);
+  }
+
+  get paused(): boolean { return this.gameplayPaused; }
+
+  /** Volta ao menu: nada do jogo continua soando. */
+  stopAll(): void {
+    [...this.active].forEach((clip) => this.stopClip(clip));
+    this.stopRoomTrack();
+    this.setMusic(null);
+    this.nowMusic = null;
+    this.lastEffect = null;
+    this.resetScheduling();
+    void this.resumeGameplay();
+  }
+
+  // --- trilha presa a uma sala (item configurado no editor) ---
+
+  /** Toca o arquivo que a sala exige. Enquanto ele soa, a trilha do nível fica fora. */
+  async playRoomTrack(path: string, options: RoomTrackOptions): Promise<boolean> {
+    const context = this.context;
+    // Sem contexto o navegador ainda não liberou o áudio: a sala espera a liberação.
+    if (!context) { this.pendingRoomTrack = { path, options }; return false; }
+    if (this.gameplayPaused || this.preferences.masterVolume === 0 || this.preferences.musicVolume === 0) return false;
+    if (this.roomTrack?.path === path && options.loop) return true;
+    this.stopRoomTrack();
+    this.fadeOutMusic();
+    const buffer = await this.ensureBuffer(path);
+    if (!buffer || !this.musicBus) return false;
+    const source = context.createBufferSource();
+    const gain = context.createGain();
+    source.buffer = buffer;
+    source.loop = options.loop;
+    const level = Math.max(0, Math.min(1, options.volume ?? 1));
+    const now = context.currentTime;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(Math.max(0.0001, level), now + 0.8);
+    source.connect(gain).connect(this.musicBus);
+    source.start(now);
+    this.roomTrack = { path, mode: options.loop ? 'loop' : 'single', source, gain };
+    source.onended = () => { if (this.roomTrack?.source === source) this.roomTrack = null; };
+    return true;
+  }
+
+  stopRoomTrack(): void {
+    this.pendingRoomTrack = null;
+    const track = this.roomTrack;
+    this.roomTrack = null;
+    const context = this.context;
+    if (!track || !context) return;
+    const now = context.currentTime;
+    try {
+      track.gain.gain.cancelScheduledValues(now);
+      track.gain.gain.setValueAtTime(Math.max(0.0001, track.gain.gain.value), now);
+      track.gain.gain.linearRampToValueAtTime(0.0001, now + 0.5);
+      track.source.onended = null;
+      track.source.stop(now + 0.55);
+    } catch { /* já parou */ }
+  }
+
+  get roomTrackPath(): string | null { return this.roomTrack?.path ?? null; }
+
+  /** O que o painel DEV mostra: trilha atual, trilha da sala e último efeito ouvido. */
+  nowPlaying(): NowPlaying {
+    return {
+      music: this.roomTrack ? null : this.nowMusic,
+      roomTrack: this.roomTrack ? { file: clipFileName(this.roomTrack.path), mode: this.roomTrack.mode } : null,
+      lastEffect: this.lastEffect,
+    };
   }
 
   /** Esquece a programação de todas as categorias (troca de tela, novo jogo). */
@@ -176,7 +321,7 @@ export class AudioSystem {
 
   play(cue: Cue, pan = 0): void {
     const context = this.context;
-    if (!context || this.preferences.masterVolume === 0 || this.preferences.effectsVolume === 0) return;
+    if (!context || this.gameplayPaused || this.preferences.masterVolume === 0 || this.preferences.effectsVolume === 0) return;
     const now = context.currentTime;
     if (cue === 'danger-silence') { this.duckAmbience(2 + Math.random() * 1.2); return; }
     const master = context.createGain();
@@ -193,6 +338,7 @@ export class AudioSystem {
   stop(): void {
     this.ambience?.source.stop();
     this.ambience = null;
+    this.stopRoomTrack();
     this.setMusic(null);
     if (this.scheduler) { clearInterval(this.scheduler); this.scheduler = null; }
   }
@@ -241,7 +387,7 @@ export class AudioSystem {
   }
 
   private categoryReady(category: string, ignoreCooldown = false): { config: CategoryConfig; clips: AudioClip[] } | null {
-    if (!this.context || this.preferences.masterVolume === 0) return null;
+    if (!this.context || this.gameplayPaused || this.preferences.masterVolume === 0) return null;
     const config = configFor(category);
     if (config.bus === 'fx' && this.preferences.effectsVolume === 0) return null;
     if (config.bus === 'voice' && this.preferences.voiceVolume === 0) return null;
@@ -325,22 +471,32 @@ export class AudioSystem {
     gain.gain.linearRampToValueAtTime(level, now + Math.max(0.01, fadeIn));
     gain.gain.setValueAtTime(level, now + Math.max(0.01, duration - fadeOut));
     gain.gain.linearRampToValueAtTime(0.0001, now + duration);
-    if (pan !== 0) {
+    // A voz do personagem sai do próprio corpo: sempre centrada, nos dois ouvidos.
+    const effectivePan = config.bus === 'voice' ? 0 : pan;
+    if (effectivePan !== 0) {
       const panner = context.createStereoPanner();
-      panner.pan.value = Math.max(-1, Math.min(1, pan));
+      panner.pan.value = Math.max(-1, Math.min(1, effectivePan));
       source.connect(gain).connect(panner).connect(bus);
     } else source.connect(gain).connect(bus);
     source.start(now);
     source.stop(now + duration + 0.05);
+    const entry: ActiveClip = { source, gain, bus: config.bus };
+    this.active.add(entry);
+    source.onended = () => this.active.delete(entry);
     if (config.bus === 'music') {
       this.music = { category: clip.category, source, gain, nextTrackAt: Date.now() + duration * 1000 + this.randomGap(config) };
+      this.nowMusic = { label: categoryLabel(clip.category), file: clipFileName(clip.path) };
       this.applyBusLevels();
+    } else {
+      this.lastEffect = { label: categoryLabel(clip.category), file: clipFileName(clip.path), at: Date.now() };
     }
   }
 
   private updateMusicScheduling(): void {
     const category = this.requestedMusic;
-    if (!this.context) return;
+    if (!this.context || this.gameplayPaused) return;
+    // A trilha presa à sala tem prioridade: enquanto ela toca, o nível fica calado.
+    if (this.roomTrack) return;
     if (!category) return;
     if (this.music && this.music.category === category && Date.now() < this.music.nextTrackAt) return;
     if (this.music && this.music.category === category) this.music = null;
@@ -362,6 +518,7 @@ export class AudioSystem {
     const context = this.context;
     const playing = this.music;
     this.music = null;
+    this.nowMusic = null;
     this.applyBusLevels();
     if (!context || !playing?.source || !playing.gain) return;
     const now = context.currentTime;

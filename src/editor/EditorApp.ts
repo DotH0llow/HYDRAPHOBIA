@@ -4,10 +4,24 @@ import { AudioSystem } from '../systems/AudioSystem';
 import { isLevelZero, MUSIC_LOBBY } from '../systems/audioLibrary';
 import { drawRoomLighting, hasFlicker, isLightShape, LIGHT_SHAPES } from '../systems/lighting';
 import { DEFAULT_PREFERENCES } from '../systems/SaveSystem';
+import { labelAnchorOf } from '../systems/hotspots';
 import type { EncounterAction, ItemId } from '../types';
 import { EditorProject } from './EditorProject';
-import { entitiesToRuntime, itemsToRuntime, levelToWorld } from './mapAdapter';
-import { createLight, DEFAULT_SHAPE_POINT_COUNT, ENTITY_IMAGE_LIBRARY, IMAGE_LIBRARY, detectMediaType, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorLight, type EditorRoom } from './types';
+import { entitiesToRuntime, itemsToRuntime, projectToWorld } from './mapAdapter';
+import { createLight, DEFAULT_SHAPE_POINT_COUNT, ENTITY_IMAGE_LIBRARY, IMAGE_LIBRARY, ROOM_AUDIO_MODES, detectMediaType, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorLight, type EditorRoom } from './types';
+import type { RoomAudioMode } from '../config/world';
+
+/** O que a área de transferência do editor está guardando. */
+type ClipboardEntry =
+  | { kind: 'hotspot'; data: EditorHotspot }
+  | { kind: 'light'; data: EditorLight }
+  | { kind: 'room'; data: EditorRoom }
+  | { kind: 'item'; data: EditorItem }
+  | { kind: 'entity'; data: EditorEntity };
+
+const CLIPBOARD_LABELS: Record<ClipboardEntry['kind'], string> = {
+  hotspot: 'interagível', light: 'foco de luz', room: 'sala', item: 'item', entity: 'entidade',
+};
 
 type Panel = 'map' | 'items' | 'entities';
 
@@ -55,8 +69,28 @@ export class EditorApp {
   private lastFrame = performance.now();
   private lastTestKey = '';
   private browseTarget = '';
+  /** Ctrl+C / Ctrl+V do editor: um só item por vez, sempre uma cópia independente. */
+  private clipboard: ClipboardEntry | null = null;
+  private clipboardNote = '';
+  /** Arquivos de áudio encontrados em `public/assets/audio`, para a trilha das salas. */
+  private audioFiles: string[] = [];
 
-  constructor(private readonly root: HTMLElement) { this.bindEvents(); }
+  constructor(private readonly root: HTMLElement) {
+    this.bindEvents();
+    void this.loadAudioFiles();
+  }
+
+  /** Lê o manifesto de áudio para oferecer os arquivos existentes na trilha da sala. */
+  private async loadAudioFiles(): Promise<void> {
+    try {
+      const response = await fetch('/assets/audio/manifest.json', { cache: 'no-cache' });
+      if (!response.ok) return;
+      const payload = (await response.json()) as { files?: unknown };
+      if (!Array.isArray(payload.files)) return;
+      this.audioFiles = payload.files.filter((file): file is string => typeof file === 'string').sort();
+      if (!this.testMode) this.render();
+    } catch { /* sem manifesto a trilha da sala continua aceitando um caminho digitado */ }
+  }
 
   start(): void {
     this.render();
@@ -113,7 +147,17 @@ export class EditorApp {
     const active = this.project.activeLevel;
     return `<aside class="editor-sidebar editor-left">
       <section><div class="panel-title"><span>Níveis</span><b>${this.project.data.levels.length}</b></div>
-        <div class="level-list">${this.project.data.levels.map((level) => `<button class="${level.id === active.id ? 'active' : ''}" data-action="select-level" data-level="${esc(level.id)}"><i></i><span>${esc(level.name)}</span><small>${level.rooms.length} salas</small></button>`).join('')}</div>
+        <div class="level-list">${this.project.data.levels.map((level) => `<div class="level-row ${level.id === active.id ? 'active' : ''}">
+          <button data-action="select-level" data-level="${esc(level.id)}"><i></i><span>${esc(level.name)}</span><small>${level.rooms.length} ${level.rooms.length === 1 ? 'sala' : 'salas'}</small></button>
+          <button class="level-rename" data-action="rename-level" data-level="${esc(level.id)}" title="Renomear nível" aria-label="Renomear ${esc(level.name)}">&#9998;</button>
+        </div>`).join('')}</div>
+        <div class="level-tools">
+          <label><span>Nome do nível aberto</span><input data-level-field="name" data-level="${esc(active.id)}" value="${esc(active.name)}" maxlength="64" /></label>
+          <div class="level-tool-row">
+            <button data-action="new-level">+ Novo nível</button>
+            <button class="danger" data-action="delete-level" data-level="${esc(active.id)}" ${this.project.data.levels.length <= 1 ? 'disabled' : ''}>Excluir nível</button>
+          </div>
+        </div>
       </section>
       <section class="room-browser"><div class="panel-title"><span>Perspectivas</span><b>${active.rooms.length}</b></div>
         <div class="room-list">${active.rooms.map((room) => `<button class="${room.id === this.selectedRoomId ? 'active' : ''}" data-action="select-room" data-room="${esc(room.id)}"><img src="${esc(room.image)}" alt="" /><span><b>${esc(room.name)}</b><small>${esc(room.id)}</small></span>${active.startRoomId === room.id ? '<em>INÍCIO</em>' : ''}</button>`).join('')}</div>
@@ -137,7 +181,8 @@ export class EditorApp {
           <svg class="connection-layer" viewBox="0 0 2400 1600" aria-label="Conexões entre salas"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker></defs>${lines}${preview}</svg>
           ${level.rooms.map((room) => this.roomNodeTemplate(room)).join('')}
         </div>
-        <div class="canvas-help"><span>Arraste os blocos para organizar</span><span>Arraste ◉ até outra sala para conectar</span><span>Arraste o fundo para mover o mapa</span></div>
+        <div class="canvas-help"><span>Arraste os blocos para organizar</span><span>Arraste ◉ até outra sala para conectar</span><span>Ctrl+C / Ctrl+V duplicam o que estiver selecionado</span></div>
+        ${this.clipboardNote ? `<div class="clipboard-toast" role="status">${esc(this.clipboardNote)}</div>` : ''}
       </div>
     </section>`;
   }
@@ -206,7 +251,7 @@ export class EditorApp {
     return `<div class="connection-editor" data-connection="${esc(connection.id)}"><header><span>${outgoing ? 'SAÍDA' : 'ENTRADA'} · ${esc(other?.name ?? 'sala')}</span><button data-action="delete-connection" data-connection="${esc(connection.id)}" aria-label="Excluir conexão">×</button></header>
       <label><span>Nome no jogo</span><input data-connection-field="label" data-connection="${esc(connection.id)}" value="${esc(connection.label)}" /></label>
       ${outgoing ? `<label><span>Ação / direção</span><input data-connection-field="direction" data-connection="${esc(connection.id)}" value="${esc(connection.direction)}" placeholder="Frente, Esquerda..." /></label>` : ''}
-      ${outgoing ? `<label><span>Sala de destino</span><select data-connection-field="to" data-connection="${esc(connection.id)}">${this.roomOptions(connection.to, connection.from)}</select></label>` : ''}
+      ${outgoing ? this.destinationFields('connection', connection.toLevelId ?? this.project.activeLevel.id, connection.to, connection.from, connection.id) : ''}
       <label class="check"><input type="checkbox" data-connection-field="bidirectional" data-connection="${esc(connection.id)}" ${connection.bidirectional ? 'checked' : ''} /><span>Bidirecional</span></label>
       ${outgoing ? `<label><span>Exigir item</span><select data-connection-field="requiresItem" data-connection="${esc(connection.id)}"><option value="">Nenhum</option>${this.itemOptions(connection.requiresItem)}</select></label><label><span>Mensagem bloqueada</span><input data-connection-field="lockedMessage" data-connection="${esc(connection.id)}" value="${esc(connection.lockedMessage ?? '')}" /></label>` : ''}
     </div>`;
@@ -219,7 +264,8 @@ export class EditorApp {
     const connections = this.project.activeLevel.connections.filter((connection) => connection.from === room.id);
     const connection = connections.find((entry) => entry.id === this.selectedConnectionId) ?? null;
     return `<div class="hotspot-editor-layer"><section class="hotspot-editor-window">
-      <header><div><small>EDITOR DA PERSPECTIVA · SEM MECÂNICAS DE JOGO</small><h2>${esc(room.name)}</h2></div><nav><button data-action="scene-lighting" class="${!hotspot && !connection ? 'primary' : ''}">☀ Luz da cena</button><button data-action="add-hotspot">+ Nova área</button><button data-action="close-hotspots">Concluir</button></nav></header>
+      <header><div><small>EDITOR DA PERSPECTIVA · SEM MECÂNICAS DE JOGO</small><h2>${esc(room.name)}</h2></div><nav><button data-action="scene-lighting" class="${!hotspot && !connection ? 'primary' : ''}">☀ Luz da cena</button><button data-action="add-hotspot">+ Novo interagível</button><button data-action="close-hotspots">Concluir</button></nav></header>
+      ${this.clipboardNote ? `<div class="clipboard-toast inside" role="status">${esc(this.clipboardNote)}</div>` : ''}
       <div class="hotspot-editor-layout">
         <div class="hotspot-stage" data-role="hotspot-stage"><img src="${esc(room.image)}" alt="${esc(room.description)}" />${room.hotspots.map((entry) => this.editableHotspotTemplate(entry, connection)).join('')}${connections.map((entry, index) => this.sceneConnectionMarker(entry, index, connections.length)).join('')}${this.lightMarkersTemplate(room)}<canvas class="stage-darkness-canvas" data-role="darkness-canvas" aria-hidden="true"></canvas></div>
         <aside class="hotspot-settings">${connection ? this.sceneConnectionFields(connection) : hotspot ? this.hotspotFieldsTemplate(hotspot, room) : this.sceneLightingTemplate(room)}</aside>
@@ -232,14 +278,20 @@ export class EditorApp {
     const clip = entry.shapePoints ? `clip-path:polygon(${entry.shapePoints.map((point) => `${point.x}% ${point.y}%`).join(',')});` : '';
     const shapePointHandles = selected && entry.shapePoints ? entry.shapePoints.map((point, index) => `<i class="shape-point" data-role="shape-point" data-point="${index}" style="left:${point.x}%;top:${point.y}%"></i>`).join('') : '';
     const indicatorHandle = selected ? `<i class="indicator-point" data-role="indicator-point" title="Círculo visível ao jogador" style="left:${entry.indicator.x}%;top:${entry.indicator.y}%"></i>` : '';
+    // Um interagível de "Mudar de sala" vira uma seta para o jogador: o editor mostra
+    // a mesma seta, no mesmo lugar e com a mesma rotação.
+    const movePreview = entry.action === 'move'
+      ? `<i class="hotspot-move-preview" aria-hidden="true" style="left:${entry.indicator.x}%;top:${entry.indicator.y}%;--rotate:${entry.arrowRotation ?? 0}deg">&#8593;</i>`
+      : `<i class="hotspot-indicator-preview" aria-hidden="true" style="left:${entry.indicator.x}%;top:${entry.indicator.y}%"></i>`;
     // O `clip-path` corta qualquer borda CSS do contorno irregular, então a delimitação
     // pontilhada dos interagíveis circulares é desenhada em SVG sobre a área.
     const outline = entry.shapePoints
       ? `<svg class="hotspot-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polygon points="${entry.shapePoints.map((point) => `${point.x},${point.y}`).join(' ')}"></polygon></svg>`
       : '';
-    return `<button class="editable-hotspot ${selected ? 'selected' : ''} ${entry.visibility !== 'visible' ? 'muted-visibility' : ''} ${entry.shapePoints ? 'shape-mode' : ''}" data-hotspot="${esc(entry.id)}" style="left:${entry.x}%;top:${entry.y}%;width:${entry.width}%;height:${entry.height}%;--hotspot-color:${esc(entry.highlightColor)};--hotspot-strength:${entry.highlightOpacity * 100}%">
+    return `<button class="editable-hotspot ${selected ? 'selected' : ''} ${entry.visibility !== 'visible' ? 'muted-visibility' : ''} ${entry.shapePoints ? 'shape-mode' : ''} ${entry.action === 'move' ? 'move-mode' : ''}" data-hotspot="${esc(entry.id)}" style="left:${entry.x}%;top:${entry.y}%;width:${entry.width}%;height:${entry.height}%;--hotspot-color:${esc(entry.highlightColor)};--hotspot-strength:${entry.highlightOpacity * 100}%">
       <i class="hotspot-fill" style="${clip}"></i>
       ${outline}
+      ${movePreview}
       <span>${esc(entry.label)}</span>
       ${entry.shapePoints ? '' : '<i data-role="hotspot-resize"></i>'}
       ${shapePointHandles}
@@ -262,7 +314,7 @@ export class EditorApp {
       <label><span>Etiqueta no jogo</span><input data-connection-field="label" data-connection="${esc(connection.id)}" value="${esc(connection.label)}" /></label>
       <label><span>Direção / ação</span><select data-connection-field="direction" data-connection="${esc(connection.id)}"><option value="forward" ${connection.direction === 'forward' ? 'selected' : ''}>Frente</option><option value="back" ${connection.direction === 'back' ? 'selected' : ''}>Trás</option><option value="left" ${connection.direction === 'left' ? 'selected' : ''}>Esquerda</option><option value="right" ${connection.direction === 'right' ? 'selected' : ''}>Direita</option><option value="custom" ${!['forward', 'back', 'left', 'right'].includes(connection.direction) ? 'selected' : ''}>Personalizada</option></select></label>
       ${!['forward', 'back', 'left', 'right'].includes(connection.direction) ? `<label><span>Nome da direção personalizada</span><input data-connection-field="customDirection" data-connection="${esc(connection.id)}" value="${esc(connection.direction)}" placeholder="ex: escada, buraco, túnel" /></label>` : ''}
-      <label><span>Destino</span><select data-connection-field="to" data-connection="${esc(connection.id)}">${this.roomOptions(connection.to, connection.from)}</select></label>
+      ${this.destinationFields('connection', connection.toLevelId ?? this.project.activeLevel.id, connection.to, connection.from, connection.id)}
       <div class="scene-destination"><img src="${esc(destination?.image ?? '')}" alt="" /><span>${esc(destination?.name ?? connection.to)}</span></div>
       <label class="check"><input type="checkbox" data-connection-field="bidirectional" data-connection="${esc(connection.id)}" ${connection.bidirectional ? 'checked' : ''} /><span>Criar retorno automático</span></label>
       <label><span>Exigir item</span><select data-connection-field="requiresItem" data-connection="${esc(connection.id)}"><option value="">Nenhum</option>${this.itemOptions(connection.requiresItem)}</select></label>
@@ -295,7 +347,27 @@ export class EditorApp {
         <p class="panel-hint">Arraste os círculos sobre a imagem para posicionar cada foco. As opções de um foco abrem e fecham <b>somente</b> pelo nome dele, no canto superior do bloco. Os focos precisam de escuridão para aparecer.</p>
         ${lights.map((light, index) => this.lightEntryTemplate(light, index)).join('')}
         <button class="wide-button" data-action="add-light">+ Adicionar foco de luz</button>
-      </section>`;
+      </section>
+      ${this.roomAudioTemplate(room)}`;
+  }
+
+  /**
+   * Música ou efeito que a sala força quando o jogador entra. Enquanto a trilha da
+   * sala toca, a trilha do nível fica fora do ar.
+   */
+  private roomAudioTemplate(room: EditorRoom): string {
+    const audio = room.audio;
+    const path = audio?.path ?? '';
+    const mode: RoomAudioMode = audio?.mode ?? 'every-entry';
+    return `<section class="property-section">
+      <div class="panel-title"><span>Áudio da sala</span>${path ? '<b>ativo</b>' : ''}</div>
+      <label><span>Arquivo</span><input data-room-audio-field="path" list="room-audio-files" value="${esc(path)}" placeholder="/assets/audio/Music/..." /></label>
+      <datalist id="room-audio-files">${this.audioFiles.map((file) => `<option value="${esc(file)}"></option>`).join('')}</datalist>
+      <p class="panel-hint">${this.audioFiles.length ? `${this.audioFiles.length} arquivos encontrados em public/assets/audio — comece a digitar para filtrar.` : 'Rode <code>npm run audio:manifest</code> para listar os arquivos de public/assets/audio aqui.'}</p>
+      ${path ? `<div class="room-audio-modes">${ROOM_AUDIO_MODES.map((entry) => `<label class="check"><input type="checkbox" data-room-audio-field="mode" value="${entry.id}" ${mode === entry.id ? 'checked' : ''} /><span>${esc(entry.label)}<small>${esc(entry.hint)}</small></span></label>`).join('')}</div>
+      <label><span>Volume</span><div class="slider-row"><input type="range" min="0" max="1" step="0.05" data-room-audio-field="volume" value="${audio?.volume ?? 1}" /><b data-role="room-audio-volume">${Math.round((audio?.volume ?? 1) * 100)}%</b></div></label>
+      <button class="wide-button danger" data-action="clear-room-audio">Remover áudio da sala</button>` : ''}
+    </section>`;
   }
 
   /**
@@ -316,8 +388,10 @@ export class EditorApp {
       </header>
       ${open ? `<div class="light-fields">
         <label><span>Formato</span><select data-light-field="shape" data-light="${id}">${LIGHT_SHAPES.map((shape) => `<option value="${shape.id}" ${light.shape === shape.id ? 'selected' : ''}>${esc(shape.label)}</option>`).join('')}</select></label>
-        <label><span>Ângulo da luz</span><div class="slider-row"><input type="range" min="0" max="359" step="1" data-light-field="angle" data-light="${id}" value="${light.angle}" /><b data-role="light-readout" data-readout="angle:${id}">${Math.round(light.angle)}°</b></div></label>
-        ${light.shape === 'circle' ? '<p class="panel-hint">Um círculo é igual em qualquer ângulo: escolha outro formato para ver a rotação.</p>' : ''}
+        <label><span>Ângulo visível (abertura)</span><div class="slider-row"><input type="range" min="10" max="360" step="5" data-light-field="aperture" data-light="${id}" value="${light.aperture}" /><b data-role="light-readout" data-readout="aperture:${id}">${Math.round(light.aperture)}°</b></div></label>
+        <p class="panel-hint">360° acende o foco inteiro. 180° deixa exatamente meio foco aceso, 90° um quarto, e assim por diante.</p>
+        <label><span>Rotação</span><div class="slider-row"><input type="range" min="0" max="359" step="1" data-light-field="angle" data-light="${id}" value="${light.angle}" /><b data-role="light-readout" data-readout="angle:${id}">${Math.round(light.angle)}°</b></div></label>
+        ${light.shape === 'circle' && light.aperture >= 360 ? '<p class="panel-hint">Um círculo inteiro é igual em qualquer rotação: reduza a abertura para escolher o lado aceso.</p>' : ''}
         <label><span>Raio (%)</span><input type="number" min="2" max="60" step="1" data-light-field="radius" data-light="${id}" value="${light.radius}" /></label>
         <label><span>Intensidade</span><div class="slider-row"><input type="range" min="0.1" max="1" step="0.05" data-light-field="intensity" data-light="${id}" value="${light.intensity}" /><b data-role="light-readout" data-readout="intensity:${id}">${Math.round(light.intensity * 100)}%</b></div></label>
         <label><span>Flickering</span><div class="slider-row"><input type="range" min="0" max="1" step="0.05" data-light-field="flicker" data-light="${id}" value="${light.flicker}" /><b data-role="light-readout" data-readout="flicker:${id}">${Math.round(light.flicker * 100)}%</b></div></label>
@@ -335,7 +409,7 @@ export class EditorApp {
       <label><span>Mensagem ao jogador</span><textarea data-hotspot-field="message" rows="4">${esc(hotspot.message)}</textarea></label>
       ${hotspot.action === 'collect' ? `<label><span>Item coletado</span><select data-hotspot-field="item">${this.itemOptions(hotspot.item)}</select></label>` : ''}
       ${hotspot.action === 'use' ? `<label><span>Item necessário</span><select data-hotspot-field="requiresItem"><option value="">Nenhum</option>${this.itemOptions(hotspot.requiresItem)}</select></label>` : ''}
-      ${hotspot.action === 'move' ? `<label><span>Sala de destino</span><select data-hotspot-field="targetRoomId">${level.rooms.filter((entry) => entry.id !== room.id).map((entry) => `<option value="${esc(entry.id)}" ${hotspot.targetRoomId === entry.id ? 'selected' : ''}>${esc(entry.name)}</option>`).join('')}</select></label>
+      ${hotspot.action === 'move' ? `${this.destinationFields('hotspot', hotspot.targetLevelId ?? level.id, hotspot.targetRoomId, room.id)}
       <label><span>Rotação da seta (graus)</span><input type="number" min="0" max="359" step="15" data-hotspot-field="arrowRotation" value="${hotspot.arrowRotation ?? 0}" /></label>
       <p class="panel-hint">Interagíveis de "Mudar de sala" aparecem ao jogador como uma seta, não como o círculo dos objetos. Use a rotação para apontar a seta na direção do caminho.</p>` : ''}
       ${hotspot.action === 'event' ? `<label><span>Evento</span><select data-hotspot-field="event">${this.eventOptions(hotspot.event)}</select></label>` : ''}
@@ -451,8 +525,24 @@ export class EditorApp {
     return `${entities}<option value="jumpscare" ${selected === 'jumpscare' ? 'selected' : ''}>Jumpscare direto</option>`;
   }
 
-  private roomOptions(selected: string, exclude?: string): string {
-    return this.project.activeLevel.rooms.filter((room) => room.id !== exclude).map((room) => `<option value="${esc(room.id)}" ${room.id === selected ? 'selected' : ''}>${esc(room.name)}</option>`).join('');
+  /**
+   * Para onde um caminho leva: primeiro o nível, depois a sala. Escolher outro nível
+   * troca a lista de salas para as daquele nível, e o destino pode atravessar níveis.
+   */
+  private destinationFields(owner: 'hotspot' | 'connection', levelId: string, roomId: string | undefined, excludeRoomId: string, connectionId?: string): string {
+    const levels = this.project.data.levels;
+    const target = levels.find((entry) => entry.id === levelId) ?? this.project.activeLevel;
+    const sameLevel = target.id === this.project.activeLevel.id;
+    const rooms = target.rooms.filter((room) => !sameLevel || room.id !== excludeRoomId);
+    const attr = owner === 'hotspot'
+      ? (field: string) => `data-hotspot-field="${field}"`
+      : (field: string) => `data-connection-field="${field}" data-connection="${esc(connectionId ?? '')}"`;
+    const levelOptions = levels.map((entry) => `<option value="${esc(entry.id)}" ${entry.id === target.id ? 'selected' : ''}>${esc(entry.name)}${entry.id === this.project.activeLevel.id ? ' (aberto)' : ''}</option>`).join('');
+    const roomOptions = rooms.map((room) => `<option value="${esc(room.id)}" ${room.id === roomId ? 'selected' : ''}>${esc(room.name)}</option>`).join('')
+      || '<option value="">Este nível não tem outra sala</option>';
+    return `<label><span>Nível de destino</span><select ${attr(owner === 'hotspot' ? 'targetLevelId' : 'toLevelId')}>${levelOptions}</select></label>
+      <label><span>Sala de destino</span><select ${attr(owner === 'hotspot' ? 'targetRoomId' : 'to')}>${roomOptions}</select></label>
+      ${sameLevel ? '' : '<p class="panel-hint">Este caminho atravessa para outro nível. O jogo carrega todos os níveis juntos, então a passagem funciona direto.</p>'}`;
   }
 
   private playtestTemplate(): string {
@@ -488,6 +578,7 @@ export class EditorApp {
       const clip = hotspot.shape ? `clip-path:polygon(${hotspot.shape.points.map((point) => `${point.x}% ${point.y}%`).join(',')});` : '';
       const invisible = hotspot.visibility === 'invisible' && !revealed;
       const indicator = hotspot.indicator ?? { x: 50, y: 50 };
+      const label = labelAnchorOf(hotspot);
       // Igual ao jogo: "Mudar de sala" vira uma seta em vez do círculo dos objetos.
       const arrow = hotspot.kind === 'move';
       const markerStyle = `left:${indicator.x}%;top:${indicator.y}%;--highlight:${esc(hotspot.highlight?.color ?? '#d7df77')};--highlight-strength:${(hotspot.highlight?.opacity ?? .22) * 100}%`;
@@ -497,7 +588,7 @@ export class EditorApp {
       return `<div class="test-hotspot-group${invisible ? ' hotspot-invisible' : ''}" style="left:${hotspot.x}%;top:${hotspot.y}%;width:${hotspot.width}%;height:${hotspot.height}%">
         <button class="test-hotspot-hitbox${invisible ? ' hotspot-invisible-hitbox' : ''}" data-test-action="hotspot" data-hotspot="${esc(hotspot.id)}" style="${clip}" aria-label="${esc(hotspot.label)}"></button>
         ${marker}
-        <span class="test-hotspot-label" style="left:${indicator.x}%;top:${indicator.y}%">${esc(hotspot.label)}</span>
+        <span class="test-hotspot-label" style="left:${label.x}%;top:${label.y}%">${esc(hotspot.label)}</span>
       </div>`;
     }).join('');
   }
@@ -550,11 +641,112 @@ export class EditorApp {
       const input = event.target as HTMLInputElement;
       if (input.dataset?.lightField) this.applyLightField(input, false);
       else if (input.dataset?.sceneField) this.applySceneField(input);
+      else if (input.dataset?.roomAudioField === 'volume') {
+        const readout = this.root.querySelector<HTMLElement>('[data-role="room-audio-volume"]');
+        if (readout) readout.textContent = `${Math.round(Number(input.value) * 100)}%`;
+      }
     });
     this.root.addEventListener('pointerdown', (event) => this.handlePointerDown(event));
     this.root.addEventListener('wheel', (event) => this.handleWheel(event), { passive: false });
     window.addEventListener('pointermove', (event) => this.handlePointerMove(event));
     window.addEventListener('pointerup', (event) => this.handlePointerUp(event));
+    window.addEventListener('keydown', (event) => this.handleKey(event));
+  }
+
+  /** Ctrl+C e Ctrl+V sobre o que estiver selecionado, exceto dentro de um campo. */
+  private handleKey(event: KeyboardEvent): void {
+    if (this.testMode || !(event.ctrlKey || event.metaKey)) return;
+    // O alvo pode não ser um elemento (teclado sem foco): só então vale o atalho.
+    const target = event.target as Element | null;
+    if (target && typeof target.closest === 'function' && target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    const key = event.key.toLowerCase();
+    if (key !== 'c' && key !== 'v') return;
+    event.preventDefault();
+    if (key === 'c') this.copySelection();
+    else void this.pasteClipboard();
+  }
+
+  /** O que o Ctrl+C leva, na ordem do que está em foco agora. */
+  private copySelection(): void {
+    const room = this.selectedRoom;
+    if (this.hotspotEditorOpen && room) {
+      const hotspot = room.hotspots.find((entry) => entry.id === this.selectedHotspotId);
+      if (hotspot) return this.remember({ kind: 'hotspot', data: structuredClone(hotspot) });
+      const light = room.lights?.find((entry) => entry.id === this.selectedLightId);
+      if (light) return this.remember({ kind: 'light', data: structuredClone(light) });
+    }
+    if (this.activePanel === 'items' && this.selectedItem) return this.remember({ kind: 'item', data: structuredClone(this.selectedItem) });
+    if (this.activePanel === 'entities' && this.selectedEntity) return this.remember({ kind: 'entity', data: structuredClone(this.selectedEntity) });
+    if (room) return this.remember({ kind: 'room', data: structuredClone(room) });
+    this.flashClipboard('Nada selecionado para copiar.');
+  }
+
+  private remember(entry: ClipboardEntry): void {
+    this.clipboard = entry;
+    this.flashClipboard(`${CLIPBOARD_LABELS[entry.kind]} copiado — Ctrl+V para colar`);
+  }
+
+  /** Cola uma cópia independente, com id próprio, no lugar que faz sentido para ela. */
+  private async pasteClipboard(): Promise<void> {
+    const entry = this.clipboard;
+    if (!entry) { this.flashClipboard('A área de transferência do editor está vazia.'); return; }
+    const { createId } = await import('./EditorProject');
+    const room = this.selectedRoom;
+    if (entry.kind === 'hotspot') {
+      if (!room) return;
+      const hotspot: EditorHotspot = { ...structuredClone(entry.data), id: createId('hotspot') };
+      hotspot.label = `${hotspot.label} (cópia)`;
+      hotspot.x = clamp(hotspot.x + 4, -100, 100);
+      hotspot.y = clamp(hotspot.y + 4, -100, 100);
+      // Uma cópia num nível diferente não pode levar a uma sala que não existe aqui.
+      if (hotspot.action === 'move' && !hotspot.targetLevelId && !this.project.findRoom(hotspot.targetRoomId ?? '')) hotspot.targetRoomId = undefined;
+      room.hotspots.push(hotspot);
+      this.selectedHotspotId = hotspot.id;
+      this.selectedConnectionId = null;
+      this.hotspotEditorOpen = true;
+    } else if (entry.kind === 'light') {
+      if (!room) return;
+      const light: EditorLight = { ...structuredClone(entry.data), id: createId('luz') };
+      light.x = clamp(light.x + 4, 0, 100);
+      light.y = clamp(light.y + 4, 0, 100);
+      room.lights = [...(room.lights ?? []), light];
+      this.selectedLightId = light.id;
+      this.selectedHotspotId = null;
+      this.hotspotEditorOpen = true;
+    } else if (entry.kind === 'room') {
+      const copy: EditorRoom = structuredClone(entry.data);
+      copy.id = createId('sala');
+      copy.name = `${copy.name} — cópia`;
+      copy.position = { x: copy.position.x + 48, y: copy.position.y + 48 };
+      copy.hotspots = copy.hotspots.map((hotspot) => ({ ...hotspot, id: createId('hotspot') }));
+      copy.lights = copy.lights?.map((light) => ({ ...light, id: createId('luz') }));
+      this.project.activeLevel.rooms.push(copy);
+      this.selectedRoomId = copy.id;
+    } else if (entry.kind === 'item') {
+      const item: EditorItem = { ...structuredClone(entry.data), id: createId('item') };
+      item.name = `${item.name} (cópia)`;
+      this.project.data.items.push(item);
+      this.selectedItemId = item.id;
+      this.activePanel = 'items';
+    } else {
+      const entity: EditorEntity = { ...structuredClone(entry.data), id: createId('entidade') };
+      entity.name = `${entity.name} (cópia)`;
+      this.project.data.entities.push(entity);
+      this.selectedEntityId = entity.id;
+      this.activePanel = 'entities';
+    }
+    this.project.save();
+    this.flashClipboard(`${CLIPBOARD_LABELS[entry.kind]} colado`);
+  }
+
+  private flashClipboard(note: string): void {
+    this.clipboardNote = note;
+    this.render();
+    window.setTimeout(() => {
+      if (this.clipboardNote !== note) return;
+      this.clipboardNote = '';
+      if (!this.testMode) this.render();
+    }, 2600);
   }
 
   private async handleClick(event: MouseEvent): Promise<void> {
@@ -576,7 +768,34 @@ export class EditorApp {
       case 'select-level': this.selectLevel(target.dataset.level ?? ''); break;
       case 'select-room': this.selectedRoomId = target.dataset.room ?? this.selectedRoomId; this.selectedHotspotId = null; this.selectedConnectionId = null; if (event.detail >= 2) this.openPerspective(); break;
       case 'new-room': { const room = this.project.addRoom(); this.selectedRoomId = room.id; break; }
-      case 'new-level': { const name = window.prompt('Nome do novo nível:', `Nível ${this.project.data.levels.length}`); if (name) { const level = this.project.addLevel(name); this.selectedRoomId = level.startRoomId; this.resetView(); } break; }
+      case 'new-level': {
+        // Um nível novo nasce vazio, com uma sala só e nenhuma conexão antiga.
+        const level = this.project.addLevel();
+        this.activePanel = 'map';
+        this.selectedRoomId = level.startRoomId;
+        this.selectedHotspotId = null;
+        this.selectedConnectionId = null;
+        this.selectedLightId = null;
+        this.hotspotEditorOpen = false;
+        this.resetView();
+        break;
+      }
+      case 'rename-level': {
+        const id = target.dataset.level ?? '';
+        const current = this.project.findLevel(id);
+        if (!current) break;
+        const name = window.prompt('Novo nome do nível:', current.name);
+        if (name) this.project.renameLevel(id, name);
+        break;
+      }
+      case 'delete-level': {
+        const id = target.dataset.level ?? '';
+        const current = this.project.findLevel(id);
+        if (!current || !window.confirm(`Excluir o nível "${current.name}" e todas as salas dele?`)) break;
+        if (this.project.deleteLevel(id)) this.selectLevel(this.project.activeLevel.id);
+        break;
+      }
+      case 'clear-room-audio': { const room = this.selectedRoom; if (room) { room.audio = undefined; this.project.save(); } break; }
       case 'duplicate-room': { const room = this.project.duplicateRoom(this.selectedRoomId); if (room) this.selectedRoomId = room.id; break; }
       case 'delete-room': if (window.confirm('Excluir esta sala e suas conexões?') && this.project.deleteRoom(this.selectedRoomId)) this.selectedRoomId = this.project.activeLevel.startRoomId; break;
       case 'set-start': this.project.activeLevel.startRoomId = this.selectedRoomId; this.project.save(); break;
@@ -591,7 +810,7 @@ export class EditorApp {
       case 'select-scene-connection': this.selectedConnectionId = target.dataset.connection ?? null; this.selectedHotspotId = null; break;
       case 'close-hotspots': this.hotspotEditorOpen = false; this.selectedHotspotId = null; this.selectedConnectionId = null; this.selectedLightId = null; this.project.save(); break;
       case 'add-hotspot': if (this.selectedRoom) { const hotspot = this.project.addHotspot(this.selectedRoom.id); this.selectedHotspotId = hotspot?.id ?? null; this.selectedConnectionId = null; } break;
-      case 'delete-hotspot': if (this.selectedRoom && this.selectedHotspotId && window.confirm('Excluir esta área interativa?')) { this.project.deleteHotspot(this.selectedRoom.id, this.selectedHotspotId); this.selectedHotspotId = this.selectedRoom.hotspots[0]?.id ?? null; } break;
+      case 'delete-hotspot': if (this.selectedRoom && this.selectedHotspotId && window.confirm('Excluir este interagível?')) { this.project.deleteHotspot(this.selectedRoom.id, this.selectedHotspotId); this.selectedHotspotId = this.selectedRoom.hotspots[0]?.id ?? null; } break;
       case 'make-shape': { const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId); if (hotspot) { hotspot.shapePoints = circlePoints(); this.project.save(); } break; }
       case 'reset-shape': { const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId); if (hotspot) { hotspot.shapePoints = undefined; this.project.save(); } break; }
       case 'add-light': {
@@ -682,6 +901,12 @@ export class EditorApp {
       this.render();
       return;
     }
+    if (input.dataset.levelField === 'name') {
+      this.project.renameLevel(input.dataset.level ?? this.project.activeLevel.id, input.value);
+      this.render();
+      return;
+    }
+    if (input.dataset.roomAudioField) { this.applyRoomAudioField(input); return; }
     const roomField = input.dataset.roomField as keyof Pick<EditorRoom, 'name' | 'code' | 'description' | 'image'> | undefined;
     if (roomField && this.selectedRoom) { this.selectedRoom[roomField] = input.value; this.project.save(); this.render(); return; }
     const itemField = input.dataset.itemField as keyof EditorItem | undefined;
@@ -721,6 +946,14 @@ export class EditorApp {
             connection.direction = 'custom';
           }
         } else if ((connectionField as string) === 'customDirection') { connection.direction = input.value; }
+        else if ((connectionField as string) === 'toLevelId') {
+          // Trocar o nível de destino também troca a sala: a antiga pode nem existir lá.
+          const level = this.project.findLevel(input.value);
+          connection.toLevelId = level && level.id !== this.project.activeLevel.id ? level.id : undefined;
+          const rooms = (level ?? this.project.activeLevel).rooms.filter((room) => room.id !== connection.from);
+          if (rooms[0]) connection.to = rooms[0].id;
+          if (connection.toLevelId) connection.bidirectional = false;
+        }
         else if (connectionField === 'label' || connectionField === 'lockedMessage' || connectionField === 'to') connection[connectionField] = input.value;
         this.project.save(); this.render();
       }
@@ -743,9 +976,36 @@ export class EditorApp {
       else if (hotspotField === 'event') hotspot.event = input.value as EditorHotspot['event'];
       else if (hotspotField === 'cutscenePath') { hotspot.cutscenePath = input.value; hotspot.cutsceneMedia = detectMediaType(input.value); }
       else if (hotspotField === 'hideoutImage') hotspot.hideoutImage = input.value || undefined;
+      else if ((hotspotField as string) === 'targetLevelId') {
+        const level = this.project.findLevel(input.value);
+        hotspot.targetLevelId = level && level.id !== this.project.activeLevel.id ? level.id : undefined;
+        const rooms = (level ?? this.project.activeLevel).rooms.filter((entry) => entry.id !== this.selectedRoomId);
+        hotspot.targetRoomId = rooms[0]?.id;
+      }
       else if (hotspotField === 'label' || hotspotField === 'message' || hotspotField === 'targetRoomId' || hotspotField === 'highlightColor') hotspot[hotspotField] = input.value;
       this.project.save(); this.render();
     }
+  }
+
+  /** Arquivo, modo e volume da trilha presa à sala. */
+  private applyRoomAudioField(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): void {
+    const room = this.selectedRoom;
+    const field = input.dataset.roomAudioField;
+    if (!room || !field) return;
+    const current = room.audio ?? { path: '', mode: 'every-entry' as RoomAudioMode, volume: 1 };
+    if (field === 'path') {
+      const path = input.value.trim();
+      room.audio = path ? { ...current, path } : undefined;
+    } else if (field === 'mode') {
+      // As três opções são exclusivas: marcar uma desmarca as outras.
+      const mode = (input as HTMLInputElement).value as RoomAudioMode;
+      if (!(input as HTMLInputElement).checked) return;
+      room.audio = { ...current, mode };
+    } else if (field === 'volume') {
+      room.audio = { ...current, volume: clamp(Number(input.value), 0, 1) };
+    }
+    this.project.save();
+    this.render();
   }
 
   private applySceneField(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): void {
@@ -772,6 +1032,7 @@ export class EditorApp {
     else if (field === 'intensity') light.intensity = clamp(Number(input.value), 0, 1);
     else if (field === 'flicker') light.flicker = clamp(Number(input.value), 0, 1);
     else if (field === 'angle') light.angle = ((Math.round(Number(input.value)) % 360) + 360) % 360;
+    else if (field === 'aperture') { light.aperture = clamp(Math.round(Number(input.value)), 1, 360); rerender = light.shape === 'circle'; }
     else if (field === 'color') light.color = input.value;
     else if (field === 'shape' && isLightShape(input.value)) { light.shape = input.value; rerender = true; }
     if (committed) this.project.save();
@@ -784,6 +1045,7 @@ export class EditorApp {
     const readout = this.root.querySelector<HTMLElement>(`[data-readout="${field}:${CSS.escape(light.id)}"]`);
     if (!readout) return;
     if (field === 'angle') readout.textContent = `${Math.round(light.angle)}°`;
+    else if (field === 'aperture') readout.textContent = `${Math.round(light.aperture)}°`;
     else if (field === 'intensity') readout.textContent = `${Math.round(light.intensity * 100)}%`;
     else if (field === 'flicker') readout.textContent = `${Math.round(light.flicker * 100)}%`;
   }
@@ -908,8 +1170,8 @@ export class EditorApp {
       if (!point) return;
       const dx = ((event.clientX - gesture.startX) / gesture.rect.width) * 100;
       const dy = ((event.clientY - gesture.startY) / gesture.rect.height) * 100;
-      point.x = clamp(gesture.origin.x + dx, -20, 120);
-      point.y = clamp(gesture.origin.y + dy, -20, 120);
+      point.x = clamp(gesture.origin.x + dx, -300, 400);
+      point.y = clamp(gesture.origin.y + dy, -300, 400);
       const handle = this.root.querySelector<HTMLElement>(`.editable-hotspot[data-hotspot="${CSS.escape(hotspot!.id)}"] [data-point="${gesture.pointIndex}"]`);
       if (handle) { handle.style.left = `${point.x}%`; handle.style.top = `${point.y}%`; }
       const fill = this.root.querySelector<HTMLElement>(`.editable-hotspot[data-hotspot="${CSS.escape(hotspot!.id)}"] .hotspot-fill`);
@@ -923,7 +1185,7 @@ export class EditorApp {
       if (!hotspot) return;
       const dx = ((event.clientX - gesture.startX) / gesture.rect.width) * 100;
       const dy = ((event.clientY - gesture.startY) / gesture.rect.height) * 100;
-      hotspot.indicator = { x: clamp(gesture.origin.x + dx, -10, 110), y: clamp(gesture.origin.y + dy, -10, 110) };
+      hotspot.indicator = { x: clamp(gesture.origin.x + dx, -300, 400), y: clamp(gesture.origin.y + dy, -300, 400) };
       const handle = this.root.querySelector<HTMLElement>(`.editable-hotspot[data-hotspot="${CSS.escape(hotspot.id)}"] [data-role="indicator-point"]`);
       if (handle) { handle.style.left = `${hotspot.indicator.x}%`; handle.style.top = `${hotspot.indicator.y}%`; }
     } else if (this.gesture.type === 'connectionButton') {
@@ -957,11 +1219,12 @@ export class EditorApp {
       const dx = ((event.clientX - gesture.startX) / gesture.rect.width) * 100;
       const dy = ((event.clientY - gesture.startY) / gesture.rect.height) * 100;
       if (gesture.resize) {
-        hotspot.width = clamp(gesture.origin.width + dx, 3, 100 - hotspot.x);
-        hotspot.height = clamp(gesture.origin.height + dy, 3, 100 - hotspot.y);
+        // Sem teto preso à borda da imagem: um interagível pode ser maior que a cena.
+        hotspot.width = clamp(gesture.origin.width + dx, 1, 400);
+        hotspot.height = clamp(gesture.origin.height + dy, 1, 400);
       } else {
-        hotspot.x = clamp(gesture.origin.x + dx, 0, 100 - hotspot.width);
-        hotspot.y = clamp(gesture.origin.y + dy, 0, 100 - hotspot.height);
+        hotspot.x = clamp(gesture.origin.x + dx, -100, 100);
+        hotspot.y = clamp(gesture.origin.y + dy, -100, 100);
       }
       const box = this.root.querySelector<HTMLElement>(`.editable-hotspot[data-hotspot="${CSS.escape(hotspot.id)}"]`);
       if (box) { box.style.left = `${hotspot.x}%`; box.style.top = `${hotspot.y}%`; box.style.width = `${hotspot.width}%`; box.style.height = `${hotspot.height}%`; }
@@ -1055,15 +1318,34 @@ export class EditorApp {
     const start = this.selectedRoomId || level.startRoomId;
     const items = itemsToRuntime(this.project.data.items);
     const entities = entitiesToRuntime(this.project.data.entities);
-    this.testGame = new Game(undefined, () => 1, levelToWorld(level), start, items, entities);
+    // O teste carrega o projeto inteiro: assim um caminho para outro nível funciona aqui também.
+    const world = projectToWorld(this.project.data.levels, this.project.data.activeLevelId);
+    this.testGame = new Game(undefined, () => 1, world, start, items, entities);
     this.testMode = true;
     this.testInventoryOpen = false;
     this.testAttackNonce = 0;
     this.testJumpscareUntil = 0;
     this.lastTestKey = '';
     // O teste também ouve a trilha do nível 0.
-    void this.audio.unlock().then(() => this.audio.setMusic(isLevelZero(level.name, this.testGame?.room.code, this.testGame?.room.image) ? MUSIC_LOBBY : null)).catch(() => undefined);
+    void this.audio.unlock().then(() => {
+      this.audio.setMusic(isLevelZero(level.name, this.testGame?.room.code, this.testGame?.room.image) ? MUSIC_LOBBY : null);
+      this.syncTestRoomAudio();
+    }).catch(() => undefined);
     this.render();
+  }
+
+  /** No teste, a trilha presa à sala toca igual ao jogo. */
+  private syncTestRoomAudio(): void {
+    const game = this.testGame;
+    if (!game) return;
+    const audio = (game.room as RoomDefinition).audio;
+    if (!audio?.path) { this.audio.stopRoomTrack(); return; }
+    const flag = `audio:${game.position}`;
+    if (audio.mode === 'once') {
+      if (game.flags[flag]) { this.audio.stopRoomTrack(); return; }
+      game.flags[flag] = true;
+    }
+    void this.audio.playRoomTrack(audio.path, { loop: audio.mode === 'loop', volume: audio.volume }).catch(() => undefined);
   }
 
   private async handleTestAction(action: string, data: DOMStringMap): Promise<void> {
@@ -1071,9 +1353,9 @@ export class EditorApp {
     if (!game) return;
     void this.audio.unlock().catch(() => undefined);
     switch (action) {
-      case 'exit': this.testMode = false; this.testGame = null; this.testInventoryOpen = false; this.audio.setMusic(null); this.render(); return;
-      case 'move': { const result = game.navigate(data.direction ?? ''); this.audio.play(result.changed ? 'step' : 'locked'); break; }
-      case 'hotspot': { const result = game.interact(data.hotspot ?? ''); this.audio.play(result.pickup ? 'pickup' : result.changed ? 'use' : 'click'); break; }
+      case 'exit': this.testMode = false; this.testGame = null; this.testInventoryOpen = false; this.audio.stopAll(); this.render(); return;
+      case 'move': { const result = game.navigate(data.direction ?? ''); this.audio.play(result.changed ? 'step' : 'locked'); if (result.changed) this.syncTestRoomAudio(); break; }
+      case 'hotspot': { const previous = game.position; const result = game.interact(data.hotspot ?? ''); this.audio.play(result.pickup ? 'pickup' : result.changed ? 'use' : 'click'); if (game.position !== previous) this.syncTestRoomAudio(); break; }
       case 'inventory': this.testInventoryOpen = !this.testInventoryOpen; this.audio.play('click'); break;
       case 'use-item': game.useItem(data.item as ItemId); this.audio.play('use'); this.testInventoryOpen = false; break;
       case 'encounter': { const result = game.respondToEncounter(data.choice as EncounterAction); this.audio.play(result.attack ? 'jumpscare' : 'step'); break; }

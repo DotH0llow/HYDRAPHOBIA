@@ -34,6 +34,29 @@ Abra `http://localhost:5173/editor.html` durante o desenvolvimento ou use **Edit
 
 O editor permite criar níveis e perspectivas, arrastar os blocos no canvas, conectar salas, escolher imagens locais, desenhar hotspots sobre a cena e testar o mapa imediatamente. O projeto é salvo automaticamente no navegador em JSON. Os botões **Exportar JSON** e **Importar** permitem manter cópias externas e continuar a edição em outro navegador.
 
+**Níveis.** *Novo nível* cria na hora um nível vazio, com uma sala própria e sem nenhuma
+conexão herdada. O nome do nível aberto é editável no painel lateral (ou pelo ✎ de cada
+nível na lista), e *Excluir nível* remove o nível inteiro junto com os caminhos que
+apontavam para ele.
+
+**Caminhos entre níveis.** Todo destino — tanto de um caminho quanto de um interagível de
+"Mudar de sala" — tem primeiro um seletor de **nível** e depois a lista de salas daquele
+nível. O jogo carrega todos os níveis em um mundo só, então a passagem funciona direto,
+inclusive no modo de teste.
+
+**Copiar e colar.** `Ctrl+C` copia o que estiver selecionado — interagível, foco de luz,
+sala, item ou entidade — e `Ctrl+V` cola uma cópia independente, com id próprio e
+deslocada alguns por cento. Um aviso no canto confirma cada operação.
+
+**Luz.** Cada foco tem formato, raio, intensidade, cor, flickering, uma **abertura** em
+graus (360° acende o foco inteiro, 180° deixa meio foco) e uma **rotação** que gira o
+formato e escolhe o lado aceso quando a abertura é menor que 360°.
+
+**Áudio da sala.** Cada sala pode forçar um arquivo de `public/assets/audio` quando o
+jogador entra, com três modos exclusivos: tocar apenas uma vez por campanha, repetir
+continuamente em laço, ou recomeçar a cada entrada. Enquanto a trilha da sala toca, a
+trilha do nível fica fora do ar.
+
 Para disponibilizar novas imagens no seletor, coloque os arquivos em `public/assets/scenes` e informe o caminho relativo, por exemplo `/assets/scenes/minha-sala.jpg`.
 
 ## Campanhas e personagem
@@ -45,7 +68,9 @@ existente) começa a criação do personagem, em cinco etapas com botão de volt
 1. **Gênero** — masculino ou feminino. Define quais arquivos de voz tocam no jogo.
 2. **Classe** — explorador, técnico, adolescente ou cavaleiro.
 3. **Nome** — até 18 caracteres.
-4. **Fobia** — nictofobia, claustrofobia, hemofobia ou monofobia.
+4. **Fobia** — doze opções: nictofobia, claustrofobia, hemofobia, monofobia,
+   talassofobia, escopofobia, automatonofobia, necrofobia, fonofobia, mecanofobia,
+   tanatofobia e apeirofobia.
 5. **Item inicial** — uma entre quatro opções, entregue no inventário ao começar.
 
 Classe e fobia ficam gravadas no registro e aparecem na lista de campanhas; por enquanto
@@ -63,7 +88,9 @@ não alteram as mecânicas. Gênero e item inicial já têm efeito no jogo.
 - Quatro registros de save com criação de personagem, persistidos em `localStorage`.
 - Áudio procedural após a primeira interação do jogador.
 - Trilha e efeitos por arquivo, com volume separado para a vocalização do personagem.
-- Escuridão por sala com focos de luz de formato, ângulo e flickering configuráveis.
+- Escuridão por sala com focos de luz de formato, abertura, rotação e flickering configuráveis.
+- Trilha presa a uma sala, com repetição única, contínua ou a cada entrada.
+- Caminhos que atravessam de um nível para outro.
 - Layout responsivo e tela cheia.
 
 ## Áudio
@@ -74,8 +101,16 @@ duas coisas: `rare` no nome faz o som tocar raramente, e `male` / `female` (ou `
 restringem o som ao personagem daquele gênero — sem marcação, serve aos dois.
 
 Os sons do próprio personagem (respiração, fome, sede, suspiros, gritos) formam um grupo
-exclusivo: nunca tocam dois ao mesmo tempo e têm o próprio controle de volume nas
-configurações.
+exclusivo: nunca tocam dois ao mesmo tempo, sempre soam centrados nos dois ouvidos e têm
+o próprio controle de volume nas configurações. A fome e a sede só aparecem abaixo de 40,
+e as versões críticas abaixo de 15.
+
+`Esc` congela todo o áudio do jogo junto com o jogo e o retoma exatamente de onde parou;
+voltar ao menu principal interrompe por completo o que estava soando.
+
+O painel DEV mostra, em "Tocando agora", o nome único da trilha atual e do último efeito
+ouvido, com o arquivo correspondente. Os botões de "Forçar vocalização" sempre cortam o
+som atual antes de tocar o novo.
 
 A respiração do personagem tem arquivos próprios por nível de ansiedade, em
 `FX/Anxiety/LV1_CALM`, `LV2_UNEASY` e `LV3_TERRIFIED`. O jogo toca a pasta correspondente
