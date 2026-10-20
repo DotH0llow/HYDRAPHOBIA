@@ -1,1 +1,2 @@
 Surprised gasps and such whenever entering a new room
+Deixar tocando a musica locona do lobby naquela cena inicial, e ela ir diminuindo conforme o jogador se afasta daquela primeira cena.

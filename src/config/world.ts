@@ -28,6 +28,8 @@ export interface HotspotDefinition {
   requiresItem?: ItemId;
   grantsFlag?: string;
   targetRoom?: RoomId;
+  /** Para `kind: 'move'`: rotação da seta mostrada ao jogador, em graus. */
+  arrowRotation?: number;
   event?: EntityId | 'jumpscare';
   highlight?: { color: string; opacity: number };
   once?: boolean;
@@ -48,6 +50,12 @@ export interface RoomLight {
   radius: number;
   intensity: number;
   color?: string;
+  /** Rotação do formato em graus. Não afeta o círculo. */
+  angle?: number;
+  /** Formato do foco: círculo, quadrado, retângulo, estrela, pentágono ou triângulo. */
+  shape?: string;
+  /** Amplitude do piscar: 0 mantém a luz estável, 1 apaga por completo nos vales. */
+  flicker?: number;
 }
 
 export interface RoomDefinition {

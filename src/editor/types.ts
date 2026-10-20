@@ -1,4 +1,5 @@
 import type { ItemEffect } from '../config/world';
+import type { LightShape } from '../systems/lighting';
 import type { CutsceneMediaType, EncounterAction, EntityId, HotspotVisibility, ItemId } from '../types';
 
 export type EditorHotspotAction = 'examine' | 'collect' | 'use' | 'move' | 'event' | 'cutscene' | 'hideout';
@@ -38,6 +39,8 @@ export interface EditorHotspot {
   requiresItem?: ItemId;
   grantsFlag?: string;
   targetRoomId?: string;
+  /** Para a ação "Mudar de sala": rotação da seta mostrada ao jogador, em graus. */
+  arrowRotation?: number;
   event?: EditorEvent;
   once: boolean;
   highlightColor: string;
@@ -60,7 +63,16 @@ export interface EditorLight {
   radius: number;
   intensity: number;
   color: string;
+  /** Rotação do formato em graus (0-359). Não tem efeito no círculo. */
+  angle: number;
+  shape: LightShape;
+  /** Intensidade do piscar: 0 deixa a luz estável. */
+  flicker: number;
 }
+
+export const createLight = (id: string): EditorLight => ({
+  id, x: 50, y: 50, radius: 20, intensity: 0.9, color: '#fffbe8', angle: 0, shape: 'circle', flicker: 0,
+});
 
 export interface EditorRoom {
   id: string;

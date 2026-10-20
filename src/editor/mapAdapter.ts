@@ -14,6 +14,7 @@ const hotspotToRuntime = (hotspot: EditorHotspot): HotspotDefinition => ({
   item: hotspot.item,
   requiresItem: hotspot.requiresItem,
   targetRoom: hotspot.targetRoomId,
+  arrowRotation: hotspot.arrowRotation,
   event: hotspot.event === 'none' ? undefined : hotspot.event,
   grantsFlag: hotspot.grantsFlag,
   once: hotspot.once,
@@ -41,7 +42,7 @@ export const levelToWorld = (level: EditorLevel): WorldDefinition => {
       exits: {},
       hotspots: room.hotspots.map(hotspotToRuntime),
       darknessLevel: room.darknessLevel,
-      lights: room.lights?.map((l) => ({ x: l.x, y: l.y, radius: l.radius, intensity: l.intensity, color: l.color })),
+      lights: room.lights?.map((l) => ({ x: l.x, y: l.y, radius: l.radius, intensity: l.intensity, color: l.color, angle: l.angle, shape: l.shape, flicker: l.flicker })),
     };
   });
   level.connections.forEach((connection) => {

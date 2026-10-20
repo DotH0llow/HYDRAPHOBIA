@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ANXIETY_TIERS, anxietyTier, anxietyTierLabel } from '../src/core/anxiety';
 import {
-  buildLibrary, categoryOf, configFor, FX_ANXIETY, FX_HUNGER, FX_HUNGER_LOW, FX_HURT, FX_LOW_HEALTH, FX_PANIC_ATTACK,
-  FX_SAFE_ROOM, FX_SCREAM, FX_THIRST, FX_THIRST_LOW, isLevelZero, isRareClip, MUSIC_LOBBY, MUSIC_MENU, selectClip,
+  buildLibrary, categoryOf, clipGain, clipGenderOf, clipsForGender, configFor, FX_ANXIETY, FX_HUNGER, FX_HUNGER_LOW,
+  FX_HURT, FX_LOW_HEALTH, FX_PANIC_ATTACK, FX_SAFE_ROOM, FX_SCREAM, FX_THIRST, FX_THIRST_LOW, isLevelZero, isRareClip,
+  isVoiceCategory, MUSIC_LOBBY, MUSIC_MENU, selectClip, VOICE_GROUP, VOICE_SPACING_FACTOR,
 } from '../src/systems/audioLibrary';
 import { collectAudioFiles } from '../scripts/audioManifest.mjs';
 
@@ -130,5 +131,92 @@ describe('sorteio dos arquivos', () => {
     const single = [{ path: 'unico.mp3', category: FX_PANIC_ATTACK, rare: false }];
     expect(selectClip(single, ['unico.mp3', 'unico.mp3'], configFor(FX_PANIC_ATTACK))!.path).toBe('unico.mp3');
     expect(selectClip([], [], configFor(FX_PANIC_ATTACK))).toBeNull();
+  });
+});
+
+describe('vocalizações do personagem', () => {
+  const VOCAL = [FX_SAFE_ROOM, FX_PANIC_ATTACK, FX_ANXIETY, FX_HUNGER, FX_HUNGER_LOW, FX_THIRST, FX_THIRST_LOW, FX_SCREAM];
+
+  it('roteia toda a voz do personagem para o próprio barramento e grupo exclusivo', () => {
+    VOCAL.forEach((category) => {
+      const config = configFor(category);
+      expect(isVoiceCategory(category)).toBe(true);
+      expect(config.bus).toBe('voice');
+      expect(config.group).toBe(VOICE_GROUP);
+    });
+    // Batimentos não são vocalização: ficam nos efeitos, em grupo próprio.
+    [FX_LOW_HEALTH, FX_HURT].forEach((category) => {
+      expect(configFor(category).bus).toBe('fx');
+      expect(isVoiceCategory(category)).toBe(false);
+    });
+    expect(configFor(FX_LOW_HEALTH).group).toBe(configFor(FX_HURT).group);
+  });
+
+  it('triplica o espaçamento entre vocalizações', () => {
+    expect(VOICE_SPACING_FACTOR).toBe(3);
+    // Fome: o ajuste original era 52s-115s com piso de 24s.
+    expect(configFor(FX_HUNGER).gapMs).toEqual([52000 * 3, 115000 * 3]);
+    expect(configFor(FX_HUNGER).cooldownMs).toBe(24000 * 3);
+    expect(configFor(FX_THIRST_LOW).gapMs).toEqual([24000 * 3, 58000 * 3]);
+    expect(configFor(FX_SCREAM).cooldownMs).toBe(75000 * 3);
+  });
+
+  it('aplica as reduções de volume pedidas para fome e batimentos', () => {
+    // Fome: 20% abaixo de 0.66 / 0.76.
+    expect(configFor(FX_HUNGER).volume).toBeCloseTo(0.528, 5);
+    expect(configFor(FX_HUNGER_LOW).volume).toBeCloseTo(0.608, 5);
+    // Batimentos: 15% abaixo de 0.7 / 0.88.
+    expect(configFor(FX_LOW_HEALTH).volume).toBeCloseTo(0.595, 5);
+    expect(configFor(FX_HURT).volume).toBeCloseTo(0.748, 5);
+  });
+
+  it('lê o gênero do personagem no nome do arquivo', () => {
+    expect(clipGenderOf('/assets/audio/FX/Anxiety/female_gasp_entering_safe_room1.mp3')).toBe('female');
+    expect(clipGenderOf('/assets/audio/FX/Thirst/THIRST_LOW_woman clearing throat1.mp3')).toBe('female');
+    expect(clipGenderOf('/assets/audio/FX/Thirst/THIRST_male Clearing Throat1.mp3')).toBe('male');
+    expect(clipGenderOf('/assets/audio/FX/Anxiety/male_gasp_entering_safe_room (1).mp3')).toBe('male');
+    expect(clipGenderOf('/assets/audio/FX/Hunger/HUNGER_growl1.mp3')).toBe('any');
+  });
+
+  it('separa os arquivos de voz por personagem, mantendo os neutros', () => {
+    const clips = buildLibrary(collectAudioFiles()).get(FX_THIRST) ?? [];
+    expect(clips.length).toBeGreaterThan(0);
+    const male = clipsForGender(clips, 'male');
+    const female = clipsForGender(clips, 'female');
+    expect(male.every((clip) => clip.gender !== 'female')).toBe(true);
+    expect(female.every((clip) => clip.gender !== 'male')).toBe(true);
+    expect(male.some((clip) => clip.gender === 'male')).toBe(true);
+    expect(female.some((clip) => clip.gender === 'female')).toBe(true);
+  });
+
+  it('cai na lista inteira quando não há arquivo do gênero escolhido', () => {
+    const onlyMale = [{ path: 'male_a.mp3', category: FX_THIRST, rare: false, gender: 'male' as const }];
+    expect(clipsForGender(onlyMale, 'female')).toHaveLength(1);
+  });
+});
+
+describe('ganho por arquivo', () => {
+  it('sobe 20% nas lâmpadas do lobby e desce 5% na música do lobby', () => {
+    expect(clipGain('/assets/audio/Music/Ambient/LV0_lobby/lobby_lights (1).mp3')).toBeCloseTo(1.2, 5);
+    expect(clipGain('/assets/audio/Music/Ambient/LV0_lobby/lobby_song.mp3')).toBeCloseTo(0.95, 5);
+    expect(clipGain('/assets/audio/FX/Hunger/HUNGER_growl1.mp3')).toBe(1);
+  });
+});
+
+describe('biblioteca sem duplicatas', () => {
+  it('conta uma vez o mesmo som exportado em mp3 e ogg', () => {
+    const library = buildLibrary([
+      '/assets/audio/FX/Anxiety/male_gasp_entering_safe_room (1).mp3',
+      '/assets/audio/FX/Anxiety/male_gasp_entering_safe_room (1).ogg',
+      '/assets/audio/FX/Anxiety/male_gasp_entering_safe_room (2).ogg',
+    ]);
+    expect(library.get(FX_SAFE_ROOM)).toHaveLength(2);
+  });
+
+  it('nenhuma categoria do manifesto real tem o mesmo som duas vezes', () => {
+    for (const clips of buildLibrary(collectAudioFiles()).values()) {
+      const names = clips.map((clip) => clip.path.replace(/\.[a-z0-9]+$/i, ''));
+      expect(new Set(names).size).toBe(names.length);
+    }
   });
 });

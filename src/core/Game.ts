@@ -9,6 +9,22 @@ export interface ActionResult {
   attack?: boolean;
 }
 
+/** Fome e sede caem três vezes mais devagar do que na versão original do jogo. */
+const SURVIVAL_SLOWDOWN = 3;
+const HUNGER_DRAIN = 0.096 / SURVIVAL_SLOWDOWN;
+const THIRST_DRAIN = 0.144 / SURVIVAL_SLOWDOWN;
+const HIDDEN_HUNGER_DRAIN = 0.048 / SURVIVAL_SLOWDOWN;
+const HIDDEN_THIRST_DRAIN = 0.072 / SURVIVAL_SLOWDOWN;
+const MOVE_HUNGER_COST = 0.65 / SURVIVAL_SLOWDOWN;
+const MOVE_THIRST_COST = 0.9 / SURVIVAL_SLOWDOWN;
+
+/** Segundos para a ansiedade subir 1 ponto sozinha (o dobro do ritmo anterior). */
+const ANXIETY_RISE_SECONDS = 20;
+/** Segundos parado na mesma sala para a ansiedade cair 1 ponto. */
+const ANXIETY_CALM_SECONDS = 10;
+/** Ansiedade somada a cada travessia de sala. */
+const ANXIETY_PER_ROOM_CHANGE = 1;
+
 export class Game {
   status: GameStatus = 'exploring';
   position: RoomId;
@@ -31,6 +47,7 @@ export class Game {
   private roomDwellTimer = 0;
   private dangerTickTimer = 0;
   private anxietyTimer = 0;
+  private calmTimer = 0;
   private criticalTimer = 0;
   private wasStarving = false;
   private lastThreatElapsed = Number.NEGATIVE_INFINITY;
@@ -101,8 +118,8 @@ export class Game {
       return;
     }
 
-    this.stats.hunger = this.clamp(this.stats.hunger - capped * 0.096);
-    this.stats.thirst = this.clamp(this.stats.thirst - capped * 0.144);
+    this.stats.hunger = this.clamp(this.stats.hunger - capped * HUNGER_DRAIN);
+    this.stats.thirst = this.clamp(this.stats.thirst - capped * THIRST_DRAIN);
     const starving = this.stats.hunger === 0 || this.stats.thirst === 0;
     if (starving) {
       if (!this.invincible) {
@@ -118,8 +135,8 @@ export class Game {
   }
 
   private updateHidden(delta: number): void {
-    this.stats.hunger = this.clamp(this.stats.hunger - delta * 0.048);
-    this.stats.thirst = this.clamp(this.stats.thirst - delta * 0.072);
+    this.stats.hunger = this.clamp(this.stats.hunger - delta * HIDDEN_HUNGER_DRAIN);
+    this.stats.thirst = this.clamp(this.stats.thirst - delta * HIDDEN_THIRST_DRAIN);
     this.stats.anxiety = this.clamp(this.stats.anxiety - delta * 2);
     if (this.stats.hunger === 0 || this.stats.thirst === 0) {
       if (!this.invincible) this.stats.health = this.clamp(this.stats.health - delta * 0.4);
@@ -173,15 +190,15 @@ export class Game {
     }
 
     if (this.roomDwellTimer < 5) this.addDanger(4);
-    this.roomDwellTimer = 0;
     this.dangerTickTimer = 0;
 
     this.position = exit.to;
     this.discovered.add(exit.to);
     this.moveCount += 1;
     this.selectedItem = null;
-    this.stats.hunger = this.clamp(this.stats.hunger - 0.65);
-    this.stats.thirst = this.clamp(this.stats.thirst - 0.9);
+    this.stats.hunger = this.clamp(this.stats.hunger - MOVE_HUNGER_COST);
+    this.stats.thirst = this.clamp(this.stats.thirst - MOVE_THIRST_COST);
+    this.onRoomChanged();
     this.message = this.room.description;
 
     if (this.world.escapeRoomId && this.position === this.world.escapeRoomId) {
@@ -243,6 +260,7 @@ export class Game {
       this.position = hotspot.targetRoom;
       this.discovered.add(hotspot.targetRoom);
       this.selectedItem = null;
+      this.onRoomChanged();
       if (hotspot.once) this.flags[usedFlag] = true;
       this.message = hotspot.message || this.room.description;
       return { changed: true, message: this.message };
@@ -336,6 +354,12 @@ export class Game {
     };
   }
 
+  /** Item escolhido na tela de criação do personagem. */
+  grantStartingItem(id: ItemId): void {
+    if (!this.items[id]) return;
+    this.addItem(id);
+  }
+
   debugStartEncounter(id: EntityId): void { this.startEncounter(id); }
 
   debugSetStat(stat: keyof Stats, value: number): void {
@@ -371,11 +395,27 @@ export class Game {
     }
   }
 
+  /**
+   * Travessia de sala: a ansiedade sobe 1 ponto e a contagem de calma recomeça,
+   * porque ela só desce enquanto o jogador fica parado na mesma sala.
+   */
+  private onRoomChanged(): void {
+    this.roomDwellTimer = 0;
+    this.calmTimer = 0;
+    this.stats.anxiety = this.clamp(this.stats.anxiety + ANXIETY_PER_ROOM_CHANGE);
+  }
+
   private updateAnxiety(delta: number): void {
     this.anxietyTimer += delta;
-    if (this.anxietyTimer >= 10) {
-      this.anxietyTimer -= 10;
+    if (this.anxietyTimer >= ANXIETY_RISE_SECONDS) {
+      this.anxietyTimer -= ANXIETY_RISE_SECONDS;
       this.stats.anxiety = this.clamp(this.stats.anxiety + 1);
+    }
+    // Ficar parado na mesma sala acalma: 1 ponto a menos a cada 10s de permanência.
+    this.calmTimer += delta;
+    if (this.calmTimer >= ANXIETY_CALM_SECONDS) {
+      this.calmTimer -= ANXIETY_CALM_SECONDS;
+      this.stats.anxiety = this.clamp(this.stats.anxiety - 1);
     }
     const critical = this.stats.health <= 25 || this.stats.hunger <= 25 || this.stats.thirst <= 25;
     if (critical) {

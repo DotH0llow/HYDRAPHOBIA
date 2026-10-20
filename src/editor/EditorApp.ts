@@ -2,11 +2,12 @@ import { Game } from '../core/Game';
 import type { RoomDefinition } from '../config/world';
 import { AudioSystem } from '../systems/AudioSystem';
 import { isLevelZero, MUSIC_LOBBY } from '../systems/audioLibrary';
+import { drawRoomLighting, hasFlicker, isLightShape, LIGHT_SHAPES } from '../systems/lighting';
 import { DEFAULT_PREFERENCES } from '../systems/SaveSystem';
 import type { EncounterAction, ItemId } from '../types';
 import { EditorProject } from './EditorProject';
 import { entitiesToRuntime, itemsToRuntime, levelToWorld } from './mapAdapter';
-import { DEFAULT_SHAPE_POINT_COUNT, ENTITY_IMAGE_LIBRARY, IMAGE_LIBRARY, detectMediaType, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorLight, type EditorRoom } from './types';
+import { createLight, DEFAULT_SHAPE_POINT_COUNT, ENTITY_IMAGE_LIBRARY, IMAGE_LIBRARY, detectMediaType, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorLight, type EditorRoom } from './types';
 
 type Panel = 'map' | 'items' | 'entities';
 
@@ -76,36 +77,19 @@ export class EditorApp {
     const canvas = this.root.querySelector<HTMLCanvasElement>('[data-role="darkness-canvas"]');
     if (!canvas) return;
     const room = this.selectedRoom;
-    const darkness = room?.darknessLevel ?? 0;
-    const lights = room?.lights ?? [];
-    canvas.width = canvas.offsetWidth || 640;
-    canvas.height = canvas.offsetHeight || 360;
+    const width = canvas.offsetWidth || 640;
+    const height = canvas.offsetHeight || 360;
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (darkness <= 0 && lights.length === 0) return;
-    ctx.fillStyle = `rgba(0,0,0,${darkness})`;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    if (lights.length > 0) {
-      ctx.globalCompositeOperation = 'destination-out';
-      for (const light of lights) {
-        const cx = (light.x / 100) * canvas.width;
-        const cy = (light.y / 100) * canvas.height;
-        const r = (light.radius / 100) * canvas.width;
-        const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-        grd.addColorStop(0, `rgba(0,0,0,${light.intensity})`);
-        grd.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = grd;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
-      ctx.globalCompositeOperation = 'source-over';
-    }
+    drawRoomLighting(ctx, canvas.width, canvas.height, room?.darknessLevel ?? 0, room?.lights ?? [], performance.now());
   }
 
   private editorTemplate(): string {
     return `<main class="editor-shell">
       <header class="editor-topbar">
-        <div class="editor-brand"><a href="/" aria-label="Voltar ao jogo">MIMOSFERATU</a><span>Editor visual de salas</span></div>
+        <div class="editor-brand"><a href="/" aria-label="Voltar ao jogo">HYDRAPHOBIA</a><span>Editor visual de salas</span></div>
         <div class="editor-status"><i></i><span>Salvamento local automático</span><small>${this.project.data.updatedAt ? new Date(this.project.data.updatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'novo mapa'}</small></div>
         <nav>
           <button data-action="panel-map" class="${this.activePanel === 'map' ? 'primary' : ''}">Mapa</button>
@@ -248,8 +232,14 @@ export class EditorApp {
     const clip = entry.shapePoints ? `clip-path:polygon(${entry.shapePoints.map((point) => `${point.x}% ${point.y}%`).join(',')});` : '';
     const shapePointHandles = selected && entry.shapePoints ? entry.shapePoints.map((point, index) => `<i class="shape-point" data-role="shape-point" data-point="${index}" style="left:${point.x}%;top:${point.y}%"></i>`).join('') : '';
     const indicatorHandle = selected ? `<i class="indicator-point" data-role="indicator-point" title="Círculo visível ao jogador" style="left:${entry.indicator.x}%;top:${entry.indicator.y}%"></i>` : '';
+    // O `clip-path` corta qualquer borda CSS do contorno irregular, então a delimitação
+    // pontilhada dos interagíveis circulares é desenhada em SVG sobre a área.
+    const outline = entry.shapePoints
+      ? `<svg class="hotspot-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polygon points="${entry.shapePoints.map((point) => `${point.x},${point.y}`).join(' ')}"></polygon></svg>`
+      : '';
     return `<button class="editable-hotspot ${selected ? 'selected' : ''} ${entry.visibility !== 'visible' ? 'muted-visibility' : ''} ${entry.shapePoints ? 'shape-mode' : ''}" data-hotspot="${esc(entry.id)}" style="left:${entry.x}%;top:${entry.y}%;width:${entry.width}%;height:${entry.height}%;--hotspot-color:${esc(entry.highlightColor)};--hotspot-strength:${entry.highlightOpacity * 100}%">
       <i class="hotspot-fill" style="${clip}"></i>
+      ${outline}
       <span>${esc(entry.label)}</span>
       ${entry.shapePoints ? '' : '<i data-role="hotspot-resize"></i>'}
       ${shapePointHandles}
@@ -298,26 +288,43 @@ export class EditorApp {
     const lights = room.lights ?? [];
     return `<div class="properties-heading"><div><small>CENA</small><h3>${esc(room.name)}</h3></div></div>
       <label><span>Nível de escuridão</span>
-        <div class="input-with-browse"><input type="range" min="0" max="1" step="0.05" data-scene-field="darknessLevel" value="${darkness}" style="flex:1" /><b data-role="darkness-readout" style="width:3rem;text-align:right;font:.65rem 'Courier New',monospace">${Math.round(darkness * 100)}%</b></div>
+        <div class="slider-row"><input type="range" min="0" max="1" step="0.05" data-scene-field="darknessLevel" value="${darkness}" /><b data-role="darkness-readout">${Math.round(darkness * 100)}%</b></div>
       </label>
       <section class="property-section">
         <div class="panel-title"><span>Focos de Luz</span><b>${lights.length}</b></div>
-        <p class="panel-hint">Clique em "Adicionar foco" e arraste os círculos sobre a imagem para posicioná-los. Precisam de escuridão para aparecer.</p>
-        ${lights.map((light) => `
-          <div class="light-entry ${this.selectedLightId === light.id ? 'active' : ''}" data-action="select-light" data-light="${esc(light.id)}" style="cursor:pointer;padding:.4rem .55rem;border:1px solid #${this.selectedLightId === light.id ? '8c9164' : '34382f'};background:#0b0d0b;margin-bottom:.3rem">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <span style="font:.62rem 'Courier New',monospace">Foco · ${light.x.toFixed(0)}% ${light.y.toFixed(0)}%</span>
-              <button class="danger" data-action="delete-light" data-light="${esc(light.id)}" style="padding:.2rem .35rem;font-size:.6rem;background:#1a1215;border:1px solid #5a2d29">×</button>
-            </div>
-            ${this.selectedLightId === light.id ? `
-              <label style="display:grid;gap:.25rem;margin:.5rem 0 0"><span style="color:#8e9284;font:.6rem 'Courier New',monospace;text-transform:uppercase">Raio (%)</span><input type="number" min="2" max="60" step="1" data-light-field="radius" data-light="${esc(light.id)}" value="${light.radius}" /></label>
-              <label style="display:grid;gap:.25rem;margin:.4rem 0 0"><span style="color:#8e9284;font:.6rem 'Courier New',monospace;text-transform:uppercase">Intensidade</span><input type="range" min="0.1" max="1" step="0.05" data-light-field="intensity" data-light="${esc(light.id)}" value="${light.intensity}" /></label>
-              <label style="display:grid;gap:.25rem;margin:.4rem 0 0"><span style="color:#8e9284;font:.6rem 'Courier New',monospace;text-transform:uppercase">Cor da luz</span><input type="color" data-light-field="color" data-light="${esc(light.id)}" value="${esc(light.color ?? '#fffbe8')}" /></label>
-            ` : ''}
-          </div>
-        `).join('')}
+        <p class="panel-hint">Arraste os círculos sobre a imagem para posicionar cada foco. As opções de um foco abrem e fecham <b>somente</b> pelo nome dele, no canto superior do bloco. Os focos precisam de escuridão para aparecer.</p>
+        ${lights.map((light, index) => this.lightEntryTemplate(light, index)).join('')}
         <button class="wide-button" data-action="add-light">+ Adicionar foco de luz</button>
       </section>`;
+  }
+
+  /**
+   * Bloco de um foco de luz. Só o botão do nome tem `select-light`: clicar em qualquer
+   * campo de configuração não fecha mais o bloco.
+   */
+  private lightEntryTemplate(light: EditorLight, index: number): string {
+    const open = this.selectedLightId === light.id;
+    const id = esc(light.id);
+    return `<div class="light-entry ${open ? 'active' : ''}">
+      <header>
+        <button class="light-entry-name" data-action="select-light" data-light="${id}" aria-expanded="${open}" title="Abrir ou fechar as opções deste foco">
+          <i style="background:${esc(light.color)}"></i>
+          <span>Foco ${String(index + 1).padStart(2, '0')} · ${light.x.toFixed(0)}% ${light.y.toFixed(0)}%</span>
+          <em>${open ? '▴' : '▾'}</em>
+        </button>
+        <button class="danger light-entry-delete" data-action="delete-light" data-light="${id}" aria-label="Excluir foco de luz">×</button>
+      </header>
+      ${open ? `<div class="light-fields">
+        <label><span>Formato</span><select data-light-field="shape" data-light="${id}">${LIGHT_SHAPES.map((shape) => `<option value="${shape.id}" ${light.shape === shape.id ? 'selected' : ''}>${esc(shape.label)}</option>`).join('')}</select></label>
+        <label><span>Ângulo da luz</span><div class="slider-row"><input type="range" min="0" max="359" step="1" data-light-field="angle" data-light="${id}" value="${light.angle}" /><b data-role="light-readout" data-readout="angle:${id}">${Math.round(light.angle)}°</b></div></label>
+        ${light.shape === 'circle' ? '<p class="panel-hint">Um círculo é igual em qualquer ângulo: escolha outro formato para ver a rotação.</p>' : ''}
+        <label><span>Raio (%)</span><input type="number" min="2" max="60" step="1" data-light-field="radius" data-light="${id}" value="${light.radius}" /></label>
+        <label><span>Intensidade</span><div class="slider-row"><input type="range" min="0.1" max="1" step="0.05" data-light-field="intensity" data-light="${id}" value="${light.intensity}" /><b data-role="light-readout" data-readout="intensity:${id}">${Math.round(light.intensity * 100)}%</b></div></label>
+        <label><span>Flickering</span><div class="slider-row"><input type="range" min="0" max="1" step="0.05" data-light-field="flicker" data-light="${id}" value="${light.flicker}" /><b data-role="light-readout" data-readout="flicker:${id}">${Math.round(light.flicker * 100)}%</b></div></label>
+        <p class="panel-hint">Flickering em 0% deixa a luz estável; quanto maior, mais ela tremula como uma lâmpada com defeito.</p>
+        <label><span>Cor da luz</span><input type="color" data-light-field="color" data-light="${id}" value="${esc(light.color)}" /></label>
+      </div>` : ''}
+    </div>`;
   }
 
   private hotspotFieldsTemplate(hotspot: EditorHotspot, room: EditorRoom): string {
@@ -328,7 +335,9 @@ export class EditorApp {
       <label><span>Mensagem ao jogador</span><textarea data-hotspot-field="message" rows="4">${esc(hotspot.message)}</textarea></label>
       ${hotspot.action === 'collect' ? `<label><span>Item coletado</span><select data-hotspot-field="item">${this.itemOptions(hotspot.item)}</select></label>` : ''}
       ${hotspot.action === 'use' ? `<label><span>Item necessário</span><select data-hotspot-field="requiresItem"><option value="">Nenhum</option>${this.itemOptions(hotspot.requiresItem)}</select></label>` : ''}
-      ${hotspot.action === 'move' ? `<label><span>Sala de destino</span><select data-hotspot-field="targetRoomId">${level.rooms.filter((entry) => entry.id !== room.id).map((entry) => `<option value="${esc(entry.id)}" ${hotspot.targetRoomId === entry.id ? 'selected' : ''}>${esc(entry.name)}</option>`).join('')}</select></label>` : ''}
+      ${hotspot.action === 'move' ? `<label><span>Sala de destino</span><select data-hotspot-field="targetRoomId">${level.rooms.filter((entry) => entry.id !== room.id).map((entry) => `<option value="${esc(entry.id)}" ${hotspot.targetRoomId === entry.id ? 'selected' : ''}>${esc(entry.name)}</option>`).join('')}</select></label>
+      <label><span>Rotação da seta (graus)</span><input type="number" min="0" max="359" step="15" data-hotspot-field="arrowRotation" value="${hotspot.arrowRotation ?? 0}" /></label>
+      <p class="panel-hint">Interagíveis de "Mudar de sala" aparecem ao jogador como uma seta, não como o círculo dos objetos. Use a rotação para apontar a seta na direção do caminho.</p>` : ''}
       ${hotspot.action === 'event' ? `<label><span>Evento</span><select data-hotspot-field="event">${this.eventOptions(hotspot.event)}</select></label>` : ''}
       ${hotspot.action === 'cutscene' ? this.cutsceneFieldsTemplate(hotspot) : ''}
       ${hotspot.action === 'hideout' ? this.hideoutFieldsTemplate(hotspot) : ''}
@@ -479,9 +488,15 @@ export class EditorApp {
       const clip = hotspot.shape ? `clip-path:polygon(${hotspot.shape.points.map((point) => `${point.x}% ${point.y}%`).join(',')});` : '';
       const invisible = hotspot.visibility === 'invisible' && !revealed;
       const indicator = hotspot.indicator ?? { x: 50, y: 50 };
+      // Igual ao jogo: "Mudar de sala" vira uma seta em vez do círculo dos objetos.
+      const arrow = hotspot.kind === 'move';
+      const markerStyle = `left:${indicator.x}%;top:${indicator.y}%;--highlight:${esc(hotspot.highlight?.color ?? '#d7df77')};--highlight-strength:${(hotspot.highlight?.opacity ?? .22) * 100}%`;
+      const marker = arrow
+        ? `<i class="test-hotspot-marker test-hotspot-arrow${invisible ? ' invisible-hotspot' : ''}" style="${markerStyle};--rotate:${hotspot.arrowRotation ?? 0}deg">↑</i>`
+        : `<i class="test-hotspot-marker${invisible ? ' invisible-hotspot' : ''}" style="${markerStyle}"></i>`;
       return `<div class="test-hotspot-group${invisible ? ' hotspot-invisible' : ''}" style="left:${hotspot.x}%;top:${hotspot.y}%;width:${hotspot.width}%;height:${hotspot.height}%">
         <button class="test-hotspot-hitbox${invisible ? ' hotspot-invisible-hitbox' : ''}" data-test-action="hotspot" data-hotspot="${esc(hotspot.id)}" style="${clip}" aria-label="${esc(hotspot.label)}"></button>
-        <i class="test-hotspot-marker${invisible ? ' invisible-hotspot' : ''}" style="left:${indicator.x}%;top:${indicator.y}%;--highlight:${esc(hotspot.highlight?.color ?? '#d7df77')};--highlight-strength:${(hotspot.highlight?.opacity ?? .22) * 100}%"></i>
+        ${marker}
         <span class="test-hotspot-label" style="left:${indicator.x}%;top:${indicator.y}%">${esc(hotspot.label)}</span>
       </div>`;
     }).join('');
@@ -530,6 +545,12 @@ export class EditorApp {
     this.root.addEventListener('click', (event) => void this.handleClick(event));
     this.root.addEventListener('dblclick', (event) => this.handleDoubleClick(event));
     this.root.addEventListener('change', (event) => void this.handleChange(event));
+    // Luz e escuridão têm prévia ao vivo enquanto o controle é arrastado.
+    this.root.addEventListener('input', (event) => {
+      const input = event.target as HTMLInputElement;
+      if (input.dataset?.lightField) this.applyLightField(input, false);
+      else if (input.dataset?.sceneField) this.applySceneField(input);
+    });
     this.root.addEventListener('pointerdown', (event) => this.handlePointerDown(event));
     this.root.addEventListener('wheel', (event) => this.handleWheel(event), { passive: false });
     window.addEventListener('pointermove', (event) => this.handlePointerMove(event));
@@ -578,7 +599,7 @@ export class EditorApp {
         if (room) {
           if (!room.lights) room.lights = [];
           const { createId } = await import('./EditorProject');
-          const light: EditorLight = { id: createId('luz'), x: 50, y: 50, radius: 20, intensity: 0.9, color: '#fffbe8' };
+          const light = createLight(createId('luz'));
           room.lights.push(light);
           this.selectedLightId = light.id;
           this.project.save();
@@ -705,35 +726,15 @@ export class EditorApp {
       }
       return;
     }
-    const sceneField = input.dataset.sceneField as string | undefined;
-    if (sceneField && this.selectedRoom) {
-      if (sceneField === 'darknessLevel') {
-        this.selectedRoom.darknessLevel = Number(input.value);
-        this.project.save();
-        this.updateDarknessCanvas();
-        const readout = this.root.querySelector<HTMLElement>('[data-role="darkness-readout"]');
-        if (readout) readout.textContent = `${Math.round(this.selectedRoom.darknessLevel * 100)}%`;
-      }
-      return;
-    }
-    const lightField = input.dataset.lightField as string | undefined;
-    const lightId = input.dataset.light;
-    if (lightField && lightId && this.selectedRoom) {
-      const light = this.selectedRoom.lights?.find((l) => l.id === lightId);
-      if (light) {
-        if (lightField === 'radius') light.radius = clamp(Number(input.value), 2, 60);
-        else if (lightField === 'intensity') light.intensity = clamp(Number(input.value), 0, 1);
-        else if (lightField === 'color') light.color = input.value;
-        this.project.save(); this.updateDarknessCanvas(); this.render();
-      }
-      return;
-    }
+    if (input.dataset.sceneField) { this.applySceneField(input); return; }
+    if (input.dataset.lightField) { this.applyLightField(input, true); return; }
     const hotspotField = input.dataset.hotspotField as keyof EditorHotspot | 'vertexCount' | undefined;
     const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId);
     if (hotspotField && hotspot) {
       if (hotspotField === 'once') hotspot.once = (input as HTMLInputElement).checked;
       else if (hotspotField === 'highlightOpacity') hotspot.highlightOpacity = Number(input.value);
       else if (hotspotField === 'revealSeconds' || hotspotField === 'cutsceneHoldSeconds' || hotspotField === 'cutsceneRepeatCount') hotspot[hotspotField] = Number(input.value);
+      else if (hotspotField === 'arrowRotation') hotspot.arrowRotation = ((Math.round(Number(input.value)) % 360) + 360) % 360;
       else if (hotspotField === 'visibility') hotspot.visibility = input.value as EditorHotspot['visibility'];
       else if (hotspotField === 'cutsceneMedia') hotspot.cutsceneMedia = input.value as EditorHotspot['cutsceneMedia'];
       else if (hotspotField === 'vertexCount') hotspot.shapePoints = circlePoints(Math.max(3, Math.min(24, Math.round(Number(input.value)))));
@@ -745,6 +746,46 @@ export class EditorApp {
       else if (hotspotField === 'label' || hotspotField === 'message' || hotspotField === 'targetRoomId' || hotspotField === 'highlightColor') hotspot[hotspotField] = input.value;
       this.project.save(); this.render();
     }
+  }
+
+  private applySceneField(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): void {
+    const room = this.selectedRoom;
+    if (!room || input.dataset.sceneField !== 'darknessLevel') return;
+    room.darknessLevel = clamp(Number(input.value), 0, 1);
+    this.project.save();
+    this.updateDarknessCanvas();
+    const readout = this.root.querySelector<HTMLElement>('[data-role="darkness-readout"]');
+    if (readout) readout.textContent = `${Math.round(room.darknessLevel * 100)}%`;
+  }
+
+  /**
+   * Campos de um foco de luz. Nada aqui recria o painel enquanto o jogador arrasta um
+   * controle — só o formato, que muda as dicas mostradas, pede um redesenho.
+   */
+  private applyLightField(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, committed: boolean): void {
+    const field = input.dataset.lightField;
+    const lightId = input.dataset.light;
+    const light = this.selectedRoom?.lights?.find((entry) => entry.id === lightId);
+    if (!field || !light) return;
+    let rerender = false;
+    if (field === 'radius') light.radius = clamp(Number(input.value), 2, 60);
+    else if (field === 'intensity') light.intensity = clamp(Number(input.value), 0, 1);
+    else if (field === 'flicker') light.flicker = clamp(Number(input.value), 0, 1);
+    else if (field === 'angle') light.angle = ((Math.round(Number(input.value)) % 360) + 360) % 360;
+    else if (field === 'color') light.color = input.value;
+    else if (field === 'shape' && isLightShape(input.value)) { light.shape = input.value; rerender = true; }
+    if (committed) this.project.save();
+    this.updateLightReadout(field, light);
+    this.updateDarknessCanvas();
+    if (rerender) this.render();
+  }
+
+  private updateLightReadout(field: string, light: EditorLight): void {
+    const readout = this.root.querySelector<HTMLElement>(`[data-readout="${field}:${CSS.escape(light.id)}"]`);
+    if (!readout) return;
+    if (field === 'angle') readout.textContent = `${Math.round(light.angle)}°`;
+    else if (field === 'intensity') readout.textContent = `${Math.round(light.intensity * 100)}%`;
+    else if (field === 'flicker') readout.textContent = `${Math.round(light.flicker * 100)}%`;
   }
 
   private handlePointerDown(event: PointerEvent): void {
@@ -873,6 +914,8 @@ export class EditorApp {
       if (handle) { handle.style.left = `${point.x}%`; handle.style.top = `${point.y}%`; }
       const fill = this.root.querySelector<HTMLElement>(`.editable-hotspot[data-hotspot="${CSS.escape(hotspot!.id)}"] .hotspot-fill`);
       if (fill) fill.style.clipPath = `polygon(${hotspot!.shapePoints!.map((entry) => `${entry.x}% ${entry.y}%`).join(',')})`;
+      const outline = this.root.querySelector<SVGPolygonElement>(`.editable-hotspot[data-hotspot="${CSS.escape(hotspot!.id)}"] .hotspot-outline polygon`);
+      if (outline) outline.setAttribute('points', hotspot!.shapePoints!.map((entry) => `${entry.x},${entry.y}`).join(' '));
     } else if (this.gesture.type === 'indicator') {
       const gesture = this.gesture;
       const room = this.project.findRoom(gesture.roomId);
@@ -1055,6 +1098,8 @@ export class EditorApp {
       if (key !== this.lastTestKey) { this.lastTestKey = key; this.render(); }
       else this.updateTestReadouts();
     }
+    // Prévia do flickering: redesenha a escuridão enquanto o editor da cena está aberto.
+    if (!this.testMode && this.hotspotEditorOpen && hasFlicker(this.selectedRoom?.lights)) this.updateDarknessCanvas();
     requestAnimationFrame(this.tick);
   };
 

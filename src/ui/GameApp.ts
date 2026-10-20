@@ -1,4 +1,5 @@
 import { ITEMS, type ItemDefinition, type RoomDefinition } from '../config/world';
+import { CLASSES, DEFAULT_CHARACTER, GENDERS, labelOf, MAX_CHARACTER_NAME, PHOBIAS, sanitizeCharacterName, STARTING_ITEMS } from '../config/character';
 import { Game } from '../core/Game';
 import { EditorProject } from '../editor/EditorProject';
 import { entitiesToRuntime, itemsToRuntime, levelToWorld } from '../editor/mapAdapter';
@@ -8,10 +9,15 @@ import {
   FX_ANXIETY, FX_HUNGER, FX_HUNGER_LOW, FX_HURT, FX_LOW_HEALTH, FX_PANIC_ATTACK, FX_SAFE_ROOM, FX_SCREAM, FX_THIRST, FX_THIRST_LOW,
   isLevelZero, MUSIC_LOBBY, MUSIC_MENU,
 } from '../systems/audioLibrary';
-import { SaveSystem } from '../systems/SaveSystem';
-import type { Direction, EncounterAction, HotspotId, ItemId, Preferences, SaveData, Screen } from '../types';
+import { drawRoomLighting, hasFlicker } from '../systems/lighting';
+import { createSlot, SaveSystem } from '../systems/SaveSystem';
+import { SAVE_SLOT_COUNT, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type Preferences, type SaveData, type SaveSlot, type Screen } from '../types';
 
 type NumericPreferenceKey = Exclude<keyof Preferences, 'showHealthBar'>;
+type SlotMode = 'new' | 'continue';
+/** Passos da criação do personagem, na ordem em que o jogador os percorre. */
+const CREATE_STEPS = ['gender', 'class', 'name', 'phobia', 'item'] as const;
+type CreateStep = typeof CREATE_STEPS[number];
 
 const DANGER_CUES: Record<number, Cue[]> = {
   1: ['discomfort'],
@@ -27,6 +33,8 @@ const DANGER_INTERVALS: Record<number, [number, number]> = {
   3: [5000, 9000],
   4: [3000, 6000],
 };
+
+const esc = (value: unknown): string => String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]!);
 
 export class GameApp {
   private screen: Screen = 'menu';
@@ -48,6 +56,11 @@ export class GameApp {
   private dangerSoundTier = 0;
   private nextDangerSoundAt = 0;
   private levelName = '';
+  /** Campanha em uso e como o jogador chegou à tela de registros. */
+  private activeSlot: number | null = null;
+  private slotMode: SlotMode = 'new';
+  private createStep: CreateStep = 'gender';
+  private draft: CharacterProfile = { ...DEFAULT_CHARACTER };
 
   constructor(private readonly root: HTMLElement) {
     this.save = this.saves.load();
@@ -72,11 +85,13 @@ export class GameApp {
         this.persist();
       }
       if (this.game.status === 'gameover' && Date.now() >= this.jumpscareUntil) { this.screen = 'gameover'; this.forcePaint = true; }
-      if (this.game.status === 'escaped') { this.screen = 'escaped'; this.audio.play('escape'); this.save.game = null; this.persistSave(); this.forcePaint = true; }
+      if (this.game.status === 'escaped') { this.screen = 'escaped'; this.audio.play('escape'); this.clearActiveGame(); this.forcePaint = true; }
       this.updateDangerAmbience();
       this.updateSampleAmbience();
     }
     this.render();
+    // Luzes com flickering precisam de um quadro novo mesmo sem mudança de estado.
+    if (this.screen === 'game' && this.game && hasFlicker((this.game.room as RoomDefinition).lights)) this.updateDarknessCanvas();
     requestAnimationFrame(this.tick);
   };
 
@@ -98,33 +113,18 @@ export class GameApp {
     const canvas = this.root.querySelector<HTMLCanvasElement>('[data-role="scene-darkness"]');
     if (!canvas || !this.game) return;
     const room = this.game.room as RoomDefinition;
-    const darkness = room.darknessLevel ?? 0;
-    const lights = room.lights ?? [];
-    canvas.width = canvas.offsetWidth || canvas.parentElement?.clientWidth || 800;
-    canvas.height = canvas.offsetHeight || canvas.parentElement?.clientHeight || 600;
+    const width = canvas.offsetWidth || canvas.parentElement?.clientWidth || 800;
+    const height = canvas.offsetHeight || canvas.parentElement?.clientHeight || 600;
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (darkness <= 0 && lights.length === 0) return;
-    ctx.fillStyle = `rgba(0,0,0,${darkness})`;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    if (lights.length > 0) {
-      ctx.globalCompositeOperation = 'destination-out';
-      for (const light of lights) {
-        const cx = (light.x / 100) * canvas.width;
-        const cy = (light.y / 100) * canvas.height;
-        const r = (light.radius / 100) * canvas.width;
-        const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-        grd.addColorStop(0, `rgba(0,0,0,${light.intensity})`);
-        grd.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = grd;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
-      ctx.globalCompositeOperation = 'source-over';
-    }
+    drawRoomLighting(ctx, canvas.width, canvas.height, room.darknessLevel ?? 0, room.lights ?? [], performance.now());
   }
 
   private structureKey(): string {
+    if (this.screen === 'slots') return `slots:${this.slotMode}:${JSON.stringify(this.save.slots)}`;
+    if (this.screen === 'create') return `create:${this.createStep}:${JSON.stringify(this.draft)}`;
     if (this.screen !== 'game' || !this.game) return `${this.screen}:${this.inventoryOpen}:${this.focusedItem ?? ''}:${JSON.stringify(this.save.preferences)}`;
     return JSON.stringify({
       screen: this.screen,
@@ -148,6 +148,8 @@ export class GameApp {
   private template(): string {
     switch (this.screen) {
       case 'menu': return this.menuTemplate();
+      case 'slots': return this.slotsTemplate();
+      case 'create': return this.createTemplate();
       case 'game': return this.gameTemplate();
       case 'settings': return this.settingsTemplate();
       case 'gameover': return this.gameOverTemplate();
@@ -162,11 +164,11 @@ export class GameApp {
       <div class="analog-noise" aria-hidden="true"></div><div class="menu-shadow" aria-hidden="true"></div>
       <section class="menu-panel">
         <p class="overline">REGISTRO DE EXPLORAÇÃO // 00</p>
-        <h1>MIMOSFERATU</h1>
+        <h1>HYDRAPHOBIA</h1>
         <p class="subtitle">Você não deveria ter atravessado aquela parede.</p>
         <nav class="menu-actions">
           <button class="primary" data-action="new-game"><span>01</span>Novo jogo</button>
-          <button data-action="continue" ${this.save.game ? '' : 'disabled'}><span>02</span>Continuar</button>
+          <button data-action="continue" ${this.hasAnyProgress() ? '' : 'disabled'}><span>02</span>Continuar</button>
           <button data-action="settings"><span>03</span>Configurações</button>
           <button data-action="editor"><span>04</span>Editor de salas</button>
           <button data-action="exit"><span>05</span>Sair</button>
@@ -175,6 +177,120 @@ export class GameApp {
       </section>
       <div class="status-code">NÍVEL 0<br><b>LOCALIZAÇÃO DESCONHECIDA</b></div>
     </main>`;
+  }
+
+  // --- escolha da campanha ---
+
+  private slotsTemplate(): string {
+    const continuing = this.slotMode === 'continue';
+    return `<main class="slots-screen">
+      <img src="/assets/scenes/corridor.jpg" alt="" />
+      <div class="settings-shade"></div>
+      <section class="slots-panel">
+        <small>${continuing ? 'RETOMAR REGISTRO' : 'NOVO REGISTRO'}</small>
+        <h1>${continuing ? 'Continuar' : 'Escolha um registro'}</h1>
+        <p class="setting-help">${continuing ? 'Selecione a campanha que deseja retomar.' : 'Cada registro guarda uma campanha independente, com o próprio personagem.'}</p>
+        <div class="slot-grid">
+          ${this.save.slots.map((slot, index) => this.slotCardTemplate(slot, index, continuing)).join('')}
+        </div>
+        <button class="primary" data-action="slots-back">Voltar</button>
+      </section>
+    </main>`;
+  }
+
+  private slotCardTemplate(slot: SaveSlot | null, index: number, continuing: boolean): string {
+    const number = String(index + 1).padStart(2, '0');
+    if (!slot) {
+      return `<article class="slot-card empty">
+        <header><small>REGISTRO ${number}</small><h2>Vazio</h2></header>
+        <p>Nenhuma campanha gravada aqui.</p>
+        <div class="slot-actions">
+          ${continuing
+            ? '<button disabled>Sem progresso</button>'
+            : `<button class="primary" data-action="slot-create" data-slot="${index}">Criar personagem</button>`}
+        </div>
+      </article>`;
+    }
+    const { character } = slot;
+    const progress = slot.game;
+    return `<article class="slot-card">
+      <header><small>REGISTRO ${number}</small><h2>${esc(character.name)}</h2></header>
+      <dl class="slot-facts">
+        <div><dt>Classe</dt><dd>${esc(labelOf(CLASSES, character.classId))}</dd></div>
+        <div><dt>Gênero</dt><dd>${esc(labelOf(GENDERS, character.gender))}</dd></div>
+        <div><dt>Fobia</dt><dd>${esc(labelOf(PHOBIAS, character.phobia))}</dd></div>
+        <div><dt>Tempo</dt><dd>${progress ? this.formatTime(progress.elapsed) : '—'}</dd></div>
+      </dl>
+      <p>${progress ? `${progress.discovered.length} sala(s) descoberta(s) · vida ${Math.round(progress.stats.health)}%` : 'Personagem criado, exploração ainda não iniciada.'}</p>
+      <div class="slot-actions">
+        ${progress
+          ? `<button class="primary" data-action="slot-continue" data-slot="${index}">Continuar</button>`
+          : `<button class="primary" data-action="slot-create" data-slot="${index}">Criar personagem</button>`}
+        ${continuing ? '' : `<button data-action="slot-overwrite" data-slot="${index}">Novo personagem</button>`}
+        <button class="discard" data-action="slot-delete" data-slot="${index}">Apagar</button>
+      </div>
+    </article>`;
+  }
+
+  // --- criação de personagem ---
+
+  private createTemplate(): string {
+    const step = this.createStep;
+    const index = CREATE_STEPS.indexOf(step);
+    const last = index === CREATE_STEPS.length - 1;
+    return `<main class="create-screen">
+      <img src="/assets/scenes/reception.jpg" alt="" />
+      <div class="settings-shade"></div>
+      <section class="create-panel">
+        <small>CRIAÇÃO DE PERSONAGEM · REGISTRO ${String((this.activeSlot ?? 0) + 1).padStart(2, '0')}</small>
+        <h1>${this.createStepTitle(step)}</h1>
+        <ol class="create-steps" aria-label="Etapas">
+          ${CREATE_STEPS.map((entry, position) => `<li class="${position === index ? 'active' : position < index ? 'done' : ''}" title="${entry}">${String(position + 1).padStart(2, '0')}</li>`).join('')}
+        </ol>
+        <div class="create-body">${this.createStepBody(step)}</div>
+        <div class="create-nav">
+          <button data-action="create-back">${index === 0 ? 'Voltar aos registros' : 'Voltar'}</button>
+          <button class="primary" data-action="create-next" ${this.createStepReady(step) ? '' : 'disabled'}>${last ? 'Começar a exploração' : 'Continuar'}</button>
+        </div>
+      </section>
+    </main>`;
+  }
+
+  private createStepTitle(step: CreateStep): string {
+    return { gender: 'Quem atravessou a parede?', class: 'O que você era antes', name: 'Como se chama', phobia: 'O que te paralisa', item: 'O que trouxe no bolso' }[step];
+  }
+
+  private createStepReady(step: CreateStep): boolean {
+    return step !== 'name' || sanitizeCharacterName(this.draft.name).length > 0;
+  }
+
+  private createStepBody(step: CreateStep): string {
+    switch (step) {
+      case 'gender': return this.optionGrid(GENDERS, this.draft.gender, 'gender');
+      case 'class': return this.optionGrid(CLASSES, this.draft.classId, 'classId');
+      case 'phobia': return this.optionGrid(PHOBIAS, this.draft.phobia, 'phobia');
+      case 'item': return this.startingItemGrid();
+      case 'name': return `<label class="create-name"><span>Nome do personagem</span>
+        <input type="text" maxlength="${MAX_CHARACTER_NAME}" value="${esc(this.draft.name)}" data-draft="name" placeholder="Até ${MAX_CHARACTER_NAME} caracteres" /></label>
+        <p class="setting-help">O nome aparece na lista de registros e nas anotações do jogo.</p>`;
+    }
+  }
+
+  private optionGrid<Id extends string>(options: ReadonlyArray<{ id: Id; label: string; description: string; icon: string }>, selected: Id, field: string): string {
+    return `<div class="option-grid">${options.map((option) => `
+      <button class="option-card ${option.id === selected ? 'selected' : ''}" data-action="draft-set" data-field="${field}" data-value="${esc(option.id)}">
+        <i>${esc(option.icon)}</i><b>${esc(option.label)}</b><small>${esc(option.description)}</small>
+      </button>`).join('')}</div>`;
+  }
+
+  private startingItemGrid(): string {
+    return `<div class="option-grid">${STARTING_ITEMS.map((id) => {
+      const item = this.items[id];
+      if (!item) return '';
+      return `<button class="option-card ${this.draft.startingItem === id ? 'selected' : ''}" data-action="draft-set" data-field="startingItem" data-value="${esc(id)}">
+        <i>${item.image ? `<img src="${esc(item.image)}" alt="" />` : esc(item.icon)}</i><b>${esc(item.name)}</b><small>${esc(item.description)}</small>
+      </button>`;
+    }).join('')}</div>`;
   }
 
   private gameTemplate(): string {
@@ -203,7 +319,7 @@ export class GameApp {
         ${exits.map(([direction, exit]) => this.movementButton(direction, exit)).join('')}
       </nav>
       <div class="message-strip" role="status"><i></i><p>${this.game.message}</p></div>
-      <button class="inventory-button ${this.game.selectedItem ? 'item-selected' : ''}" data-action="inventory"><span>▦</span><b>Inventário</b><small>${this.game.inventory.reduce((sum, item) => sum + item.quantity, 0)} itens</small></button>
+      <button class="inventory-button ${this.game.selectedItem ? 'item-selected' : ''}" data-action="inventory"><span>▦</span><b>Inventário</b><small>${this.itemCountLabel()}</small></button>
       ${this.inventoryOpen ? this.inventoryTemplate() : ''}
       ${this.game.encounter ? this.encounterTemplate() : ''}
       ${this.game.status === 'cutscene' ? this.cutsceneTemplate() : ''}
@@ -240,12 +356,22 @@ export class GameApp {
       const clip = hotspot.shape ? `clip-path:polygon(${hotspot.shape.points.map((point) => `${point.x}% ${point.y}%`).join(',')});` : '';
       const invisible = hotspot.visibility === 'invisible' && !revealed;
       const indicator = hotspot.indicator ?? { x: 50, y: 50 };
-      return `<div class="hotspot-group${invisible ? ' hotspot-invisible' : ''}" style="--x:${hotspot.x}%;--y:${hotspot.y}%;--w:${hotspot.width}%;--h:${hotspot.height}%">
+      // "Mudar de sala" é um caminho, não um objeto: o jogador vê uma seta.
+      const arrow = hotspot.kind === 'move';
+      const marker = arrow
+        ? `<i class="hotspot-marker hotspot-arrow${invisible ? ' invisible-hotspot' : ''}" style="left:${indicator.x}%;top:${indicator.y}%;--rotate:${hotspot.arrowRotation ?? 0}deg">↑</i>`
+        : `<i class="hotspot-marker${invisible ? ' invisible-hotspot' : ''}" style="left:${indicator.x}%;top:${indicator.y}%"></i>`;
+      return `<div class="hotspot-group${invisible ? ' hotspot-invisible' : ''}${arrow ? ' hotspot-move' : ''}" style="--x:${hotspot.x}%;--y:${hotspot.y}%;--w:${hotspot.width}%;--h:${hotspot.height}%">
         <button class="hotspot-hitbox" data-action="hotspot" data-hotspot="${hotspot.id}" style="${clip}" aria-label="${hotspot.label}"></button>
-        <i class="hotspot-marker${invisible ? ' invisible-hotspot' : ''}" style="left:${indicator.x}%;top:${indicator.y}%"></i>
+        ${marker}
         <span class="hotspot-label" style="left:${indicator.x}%;top:${indicator.y}%">${hotspot.label}</span>
       </div>`;
     }).join('');
+  }
+
+  private itemCountLabel(): string {
+    const total = this.game?.inventory.reduce((sum, item) => sum + item.quantity, 0) ?? 0;
+    return `${total} ${total === 1 ? 'item' : 'itens'}`;
   }
 
   private statBar(key: string, label: string, value: number): string {
@@ -352,20 +478,36 @@ export class GameApp {
 
   private settingsTemplate(): string {
     const p = this.save.preferences;
-    return `<main class="settings-screen"><img src="/assets/scenes/corridor.jpg" alt="" /><div class="settings-shade"></div><section class="settings-panel"><small>CONFIGURAÇÃO DO REGISTRO</small><h1>Configurações</h1>${this.range('masterVolume', 'Volume geral', p.masterVolume)}${this.range('musicVolume', 'Ambiente / música', p.musicVolume)}${this.range('effectsVolume', 'Efeitos sonoros', p.effectsVolume)}<label class="setting-select"><span>Intensidade dos sustos</span><select data-setting="jumpscareIntensity"><option value="0.25" ${p.jumpscareIntensity < .45 ? 'selected' : ''}>Baixa</option><option value="0.6" ${p.jumpscareIntensity >= .45 && p.jumpscareIntensity < .8 ? 'selected' : ''}>Média</option><option value="1" ${p.jumpscareIntensity >= .8 ? 'selected' : ''}>Alta</option></select></label><p class="setting-help">Controla o tremor, o flash, a duração e parte da força sonora do susto. Os controles de volume continuam valendo separadamente.</p><button data-action="fullscreen">${document.fullscreenElement ? 'Sair da tela cheia' : 'Ativar tela cheia'}</button><button class="danger-button" data-action="clear-save">Apagar save local</button><button class="primary" data-action="settings-back">Voltar</button></section></main>`;
+    return `<main class="settings-screen"><img src="/assets/scenes/corridor.jpg" alt="" /><div class="settings-shade"></div><section class="settings-panel"><small>CONFIGURAÇÃO DO REGISTRO</small><h1>Configurações</h1>${this.range('masterVolume', 'Volume geral', p.masterVolume)}${this.range('musicVolume', 'Ambiente / música', p.musicVolume)}${this.range('effectsVolume', 'Efeitos sonoros', p.effectsVolume)}${this.range('voiceVolume', 'Vocalização do personagem', p.voiceVolume)}<p class="setting-help">A vocalização reúne a respiração, os suspiros, a fome, a sede e os gritos do próprio personagem.</p><label class="setting-select"><span>Intensidade dos sustos</span><select data-setting="jumpscareIntensity"><option value="0.25" ${p.jumpscareIntensity < .45 ? 'selected' : ''}>Baixa</option><option value="0.6" ${p.jumpscareIntensity >= .45 && p.jumpscareIntensity < .8 ? 'selected' : ''}>Média</option><option value="1" ${p.jumpscareIntensity >= .8 ? 'selected' : ''}>Alta</option></select></label><p class="setting-help">Controla o tremor, o flash, a duração e parte da força sonora do susto. Os controles de volume continuam valendo separadamente.</p><button data-action="fullscreen">${document.fullscreenElement ? 'Sair da tela cheia' : 'Ativar tela cheia'}</button><button class="danger-button" data-action="clear-save">Apagar save local</button><button class="primary" data-action="settings-back">Voltar</button></section></main>`;
   }
 
   private devToolsTemplate(): string {
     if (!this.game) return '';
-    if (!this.devPanelOpen) return `<button class="dev-toggle" data-action="dev-toggle">DEV</button>`;
+    // Com o painel fechado os medidores continuam à vista, atualizados em tempo real.
+    if (!this.devPanelOpen) return `<div class="dev-live"><button class="dev-toggle" data-action="dev-toggle">DEV</button>${this.devMetersTemplate()}</div>`;
     const itemOptions = Object.entries(this.items).map(([id, item]) => `<option value="${id}">${item.name}</option>`).join('');
     return `<aside class="dev-panel"><header><b>DEV cheats</b><button data-action="dev-toggle">×</button></header>
+      ${this.devMetersTemplate()}
       ${(['health', 'thirst', 'hunger', 'anxiety'] as const).map((key) => `<label><span>${key}</span><input type="number" min="0" max="100" value="${Math.round(this.game!.stats[key])}" data-dev-stat="${key}" /></label>`).join('')}
       <label><span>perigo</span><input type="number" min="0" max="100" value="${Math.round(this.game.danger)}" data-dev-danger /></label>
       <label class="dev-check"><input type="checkbox" data-dev-invincible ${this.game.invincible ? 'checked' : ''} /><span>Invencibilidade</span></label>
       <label class="dev-check"><input type="checkbox" data-dev-health-bar ${this.save.preferences.showHealthBar ? 'checked' : ''} /><span>Mostrar barra de vida</span></label>
       <div class="dev-add"><select data-dev-item>${itemOptions}</select><button data-action="dev-add-item">Adicionar item</button></div>
     </aside>`;
+  }
+
+  /** Medidores sempre visíveis, para acompanhar o personagem sem abrir o painel. */
+  private devMetersTemplate(): string {
+    const game = this.game!;
+    const rows: Array<[string, string, number]> = [
+      ['health', 'vida', game.stats.health],
+      ['thirst', 'sede', game.stats.thirst],
+      ['hunger', 'fome', game.stats.hunger],
+      ['anxiety', 'ansiedade', game.stats.anxiety],
+      ['danger', 'perigo', game.danger],
+    ];
+    return `<div class="dev-meters">${rows.map(([key, label, value]) => `
+      <div class="dev-meter" data-dev-meter="${key}"><span>${label}</span><b>${Math.round(value)}</b><i><em style="width:${value}%"></em></i></div>`).join('')}</div>`;
   }
 
   private range(key: NumericPreferenceKey, label: string, value: number): string {
@@ -411,9 +553,17 @@ export class GameApp {
 
   private async handleAction(action: string, data: DOMStringMap): Promise<void> {
     switch (action) {
-      case 'new-game': this.beginNewGame(); break;
-      case 'continue': this.continueGame(); break;
-      case 'menu': this.screen = 'menu'; this.game = null; this.inventoryOpen = false; this.audio.play('click'); break;
+      case 'new-game': this.openSlots('new'); break;
+      case 'continue': this.openSlots('continue'); break;
+      case 'slots-back': this.screen = 'menu'; this.audio.play('click'); break;
+      case 'slot-create': this.startCharacterCreation(Number(data.slot)); break;
+      case 'slot-overwrite': this.overwriteSlot(Number(data.slot)); break;
+      case 'slot-continue': this.continueGame(Number(data.slot)); break;
+      case 'slot-delete': this.deleteSlot(Number(data.slot)); break;
+      case 'draft-set': this.applyDraft(data.field ?? '', data.value ?? ''); break;
+      case 'create-back': this.createPreviousStep(); break;
+      case 'create-next': this.createNextStep(); break;
+      case 'menu': this.screen = 'menu'; this.game = null; this.activeSlot = null; this.inventoryOpen = false; this.audio.play('click'); break;
       case 'settings': this.screen = 'settings'; this.audio.play('click'); break;
       case 'settings-back': this.screen = this.game ? 'game' : 'menu'; this.audio.play('click'); break;
       case 'editor': window.location.href = '/editor.html'; break;
@@ -442,11 +592,77 @@ export class GameApp {
     this.render(true);
   }
 
+  // --- campanhas ---
+
+  private hasAnyProgress(): boolean { return this.save.slots.some((slot) => slot?.game); }
+
+  private openSlots(mode: SlotMode): void {
+    this.slotMode = mode;
+    this.screen = 'slots';
+    this.game = null;
+    this.activeSlot = null;
+    this.inventoryOpen = false;
+    this.audio.play('click');
+  }
+
+  private startCharacterCreation(index: number): void {
+    if (!Number.isInteger(index) || index < 0 || index >= SAVE_SLOT_COUNT) return;
+    this.activeSlot = index;
+    this.draft = { ...DEFAULT_CHARACTER, name: '' };
+    this.createStep = 'gender';
+    this.screen = 'create';
+    this.audio.play('click');
+  }
+
+  private overwriteSlot(index: number): void {
+    const slot = this.save.slots[index];
+    if (slot && !window.confirm(`Substituir o registro ${index + 1} ("${slot.character.name}") por um personagem novo?`)) return;
+    this.startCharacterCreation(index);
+  }
+
+  private deleteSlot(index: number): void {
+    const slot = this.save.slots[index];
+    if (!slot) return;
+    if (!window.confirm(`Apagar o registro ${index + 1} ("${slot.character.name}")? Isso não pode ser desfeito.`)) return;
+    this.save.slots[index] = null;
+    if (this.save.activeSlot === index) this.save.activeSlot = null;
+    this.persistSave();
+    this.audio.play('click');
+  }
+
+  private applyDraft(field: string, value: string): void {
+    if (field === 'gender' && (value === 'male' || value === 'female')) this.draft.gender = value;
+    else if (field === 'classId') this.draft.classId = value as CharacterProfile['classId'];
+    else if (field === 'phobia') this.draft.phobia = value as CharacterProfile['phobia'];
+    else if (field === 'startingItem') this.draft.startingItem = value;
+    this.audio.play('click');
+  }
+
+  private createPreviousStep(): void {
+    const index = CREATE_STEPS.indexOf(this.createStep);
+    this.audio.play('click');
+    if (index <= 0) { this.screen = 'slots'; return; }
+    this.createStep = CREATE_STEPS[index - 1]!;
+  }
+
+  private createNextStep(): void {
+    if (!this.createStepReady(this.createStep)) return;
+    const index = CREATE_STEPS.indexOf(this.createStep);
+    this.audio.play('click');
+    if (index < CREATE_STEPS.length - 1) { this.createStep = CREATE_STEPS[index + 1]!; return; }
+    this.beginNewGame();
+  }
+
   private beginNewGame(): void {
+    if (this.activeSlot === null) { this.openSlots('new'); return; }
+    const character: CharacterProfile = { ...this.draft, name: sanitizeCharacterName(this.draft.name) || DEFAULT_CHARACTER.name };
     const data = this.currentGameData();
     this.items = data.items;
     this.levelName = data.levelName;
     this.game = new Game(undefined, Math.random, data.world, undefined, data.items, data.entities);
+    this.game.grantStartingItem(character.startingItem);
+    this.save.slots[this.activeSlot] = createSlot(character);
+    this.save.activeSlot = this.activeSlot;
     this.screen = 'game';
     this.inventoryOpen = false;
     this.focusedItem = null;
@@ -454,22 +670,27 @@ export class GameApp {
     this.dangerSoundTier = 0;
     this.nextDangerSoundAt = 0;
     this.audio.resetScheduling();
+    this.audio.setVoiceGender(character.gender);
     this.persist();
     this.audio.play('step');
     this.syncMusic();
   }
 
-  private continueGame(): void {
-    if (!this.save.game) return;
+  private continueGame(index: number): void {
+    const slot = this.save.slots[index];
+    if (!slot?.game) return;
     const data = this.currentGameData();
     this.items = data.items;
     this.levelName = data.levelName;
-    this.game = new Game(this.save.game, Math.random, data.world, undefined, data.items, data.entities);
+    this.activeSlot = index;
+    this.save.activeSlot = index;
+    this.game = new Game(slot.game, Math.random, data.world, undefined, data.items, data.entities);
     this.screen = 'game';
     this.inventoryOpen = false;
     this.dangerSoundTier = 0;
     this.nextDangerSoundAt = 0;
     this.audio.resetScheduling();
+    this.audio.setVoiceGender(slot.character.gender);
     this.audio.play('step');
     this.syncMusic();
   }
@@ -561,8 +782,18 @@ export class GameApp {
     if (hunger <= 25) this.audio.maybePlaySample(FX_HUNGER_LOW);
     else if (hunger <= 50) this.audio.maybePlaySample(FX_HUNGER);
     if (health <= 30) this.audio.maybePlaySample(FX_LOW_HEALTH);
-    if (game.anxietyLevel !== 'calm') this.audio.maybePlaySample(FX_ANXIETY, { pan: Math.random() * 1.2 - 0.6 });
+    if (game.anxietyLevel !== 'calm') this.audio.maybePlaySample(this.anxietyCategory(), { pan: Math.random() * 1.2 - 0.6 });
     if (game.danger >= 40) this.audio.maybePlaySample(FX_SCREAM, { pan: Math.random() * 1.6 - 0.8 });
+  }
+
+  /**
+   * Som passivo de ansiedade. Enquanto não houver arquivos em `FX/Anxiety` fora dos
+   * suspiros de sala segura e do ataque de pânico, o nível de terror usa o pânico e
+   * o nível inquieto usa o suspiro, para que a ansiedade nunca fique muda.
+   */
+  private anxietyCategory(): string {
+    if (this.audio.hasCategory(FX_ANXIETY)) return FX_ANXIETY;
+    return this.game?.anxietyLevel === 'terrified' ? FX_PANIC_ATTACK : FX_SAFE_ROOM;
   }
 
   /** Menu tem a música do menu; o nível 0 tem lobby_lights em todas as salas. */
@@ -581,6 +812,12 @@ export class GameApp {
   }
 
   private handleInput(input: HTMLInputElement): void {
+    if (input.dataset.draft === 'name') {
+      this.draft.name = input.value.slice(0, MAX_CHARACTER_NAME);
+      const next = this.root.querySelector<HTMLButtonElement>('[data-action="create-next"]');
+      if (next) next.disabled = !this.createStepReady('name');
+      return;
+    }
     const debugStat = input.dataset.devStat as 'health' | 'hunger' | 'thirst' | 'anxiety' | undefined;
     if (debugStat && this.game) {
       this.game.debugSetStat(debugStat, Number(input.value));
@@ -612,6 +849,13 @@ export class GameApp {
   }
 
   private handleKey(event: KeyboardEvent): void {
+    if (this.screen === 'create' && event.key === 'Enter') {
+      event.preventDefault();
+      this.createNextStep();
+      this.forcePaint = true;
+      this.render(true);
+      return;
+    }
     if (event.key === 'Tab' && this.screen === 'game') { event.preventDefault(); return; }
     const key = event.key.toLowerCase();
     if (key === 'i' && this.screen === 'game' && this.game && (this.inventoryOpen || this.game.status === 'exploring')) {
@@ -624,6 +868,8 @@ export class GameApp {
     }
     if (event.key === 'Escape') {
       if (this.inventoryOpen) { this.inventoryOpen = false; this.focusedItem = null; this.forcePaint = true; this.render(true); return; }
+      if (this.screen === 'create') { this.createPreviousStep(); this.forcePaint = true; this.render(true); return; }
+      if (this.screen === 'slots') { this.screen = 'menu'; this.forcePaint = true; this.render(true); return; }
       if (this.screen === 'game' && this.game && (this.game.status === 'exploring' || this.game.status === 'paused')) {
         this.game.pause();
         this.audio.play('click');
@@ -656,12 +902,11 @@ export class GameApp {
       stat?.classList.toggle('danger', value <= 25);
       stat?.classList.toggle('warning', value > 25 && value <= 50);
     });
+    this.updateDevMeters();
     const screen = this.root.querySelector<HTMLElement>('.game-screen');
     if (screen) screen.className = `game-screen ${this.conditionClasses()}`;
     const blood = this.root.querySelector<HTMLElement>('.blood-overlay');
     if (blood) blood.dataset.bloodLevel = String(this.bloodLevel());
-    const dangerReadout = this.root.querySelector<HTMLElement>('.dev-readout b');
-    if (dangerReadout) dangerReadout.textContent = String(Math.round(this.game.danger));
     if (this.game.encounter) {
       const timer = this.root.querySelector<HTMLElement>('.decision-timer i');
       if (timer) timer.style.width = `${(this.game.encounter.remaining / this.game.encounter.timeLimit) * 100}%`;
@@ -676,6 +921,26 @@ export class GameApp {
     }
   }
 
+  /** Mantém os medidores do DEV em tempo real, com o painel aberto ou fechado. */
+  private updateDevMeters(): void {
+    const game = this.game;
+    if (!game) return;
+    const values: Record<string, number> = {
+      health: game.stats.health, thirst: game.stats.thirst, hunger: game.stats.hunger,
+      anxiety: game.stats.anxiety, danger: game.danger,
+    };
+    this.root.querySelectorAll<HTMLElement>('[data-dev-meter]').forEach((meter) => {
+      const key = meter.dataset.devMeter ?? '';
+      const value = values[key];
+      if (value === undefined) return;
+      const readout = meter.querySelector('b');
+      if (readout) readout.textContent = String(Math.round(value));
+      const bar = meter.querySelector<HTMLElement>('em');
+      if (bar) bar.style.width = `${value}%`;
+      meter.classList.toggle('critical', key === 'danger' || key === 'anxiety' ? value >= 60 : value <= 25);
+    });
+  }
+
   private updateInventoryFocus(): void {
     this.root.querySelectorAll<HTMLElement>('.item-slot[data-item]').forEach((slot) => slot.classList.toggle('focused', slot.dataset.item === this.focusedItem));
     const details = this.root.querySelector<HTMLElement>('.item-details');
@@ -683,20 +948,33 @@ export class GameApp {
   }
 
   private persist(): void {
-    if (!this.game || this.game.status === 'gameover') return;
-    this.save.game = this.game.toSave();
-    this.save.updatedAt = new Date().toISOString();
+    if (!this.game || this.activeSlot === null || this.game.status === 'gameover') return;
+    const slot = this.save.slots[this.activeSlot];
+    if (!slot) return;
+    slot.game = this.game.toSave();
+    slot.updatedAt = new Date().toISOString();
+    this.save.updatedAt = slot.updatedAt;
+    this.persistSave();
+  }
+
+  /** Fim de campanha: o personagem continua no registro, o progresso é zerado. */
+  private clearActiveGame(): void {
+    if (this.activeSlot === null) return;
+    const slot = this.save.slots[this.activeSlot];
+    if (slot) { slot.game = null; slot.updatedAt = new Date().toISOString(); }
+    this.save.activeSlot = null;
     this.persistSave();
   }
 
   private persistSave(): void { this.saves.save(this.save); }
 
   private clearSave(): void {
-    if (!window.confirm('Apagar todo o progresso e as configurações salvas neste navegador?')) return;
+    if (!window.confirm('Apagar todos os registros e as configurações salvas neste navegador?')) return;
     this.saves.clear();
     this.save = this.saves.load();
     this.audio.updatePreferences(this.save.preferences);
     this.game = null;
+    this.activeSlot = null;
     this.inventoryOpen = false;
     this.screen = 'menu';
   }

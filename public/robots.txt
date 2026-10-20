@@ -19,5 +19,5 @@ Disallow: /
 User-agent: Omgilibot
 Disallow: /
 
-# Mimosferatu — © 2024–2026 DotH0llow. All rights reserved.
+# HYDRAPHOBIA — © 2024–2026 DotH0llow. All rights reserved.
 # Unauthorized scraping, reproduction, or AI training on this content is prohibited.

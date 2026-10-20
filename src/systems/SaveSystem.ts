@@ -1,17 +1,31 @@
-import type { GameSave, InventoryEntry, Preferences, RoomId, SaveData } from '../types';
+import { validateCharacter } from '../config/character';
+import { SAVE_SLOT_COUNT, type CharacterProfile, type GameSave, type InventoryEntry, type Preferences, type RoomId, type SaveData, type SaveSlot } from '../types';
 
-const STORAGE_KEY = 'limiar:save:v2';
+const STORAGE_KEY = 'limiar:save:v3';
+/** Chave da versão anterior, lida uma única vez para migrar o progresso antigo. */
+const LEGACY_STORAGE_KEY = 'limiar:save:v2';
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
-const INTEGRITY_SEED = 'limiar:v2:integrity:f4k3r$';
-export const DEFAULT_PREFERENCES: Preferences = { masterVolume: 0.72, musicVolume: 0.34, effectsVolume: 0.78, jumpscareIntensity: 0.8, showHealthBar: false };
-export const DEFAULT_SAVE: SaveData = { version: 2, updatedAt: '', game: null, preferences: DEFAULT_PREFERENCES };
+const INTEGRITY_SEED = 'limiar:v3:integrity:f4k3r$';
+export const DEFAULT_PREFERENCES: Preferences = { masterVolume: 0.72, musicVolume: 0.34, effectsVolume: 0.78, voiceVolume: 0.8, jumpscareIntensity: 0.8, showHealthBar: false };
+
+const emptySlots = (): Array<SaveSlot | null> => Array.from({ length: SAVE_SLOT_COUNT }, () => null);
+
+export const DEFAULT_SAVE: SaveData = { version: 3, updatedAt: '', activeSlot: null, slots: emptySlots(), preferences: DEFAULT_PREFERENCES };
+
+export const createSlot = (character: CharacterProfile): SaveSlot => {
+  const now = new Date().toISOString();
+  return { character, game: null, createdAt: now, updatedAt: now };
+};
 
 type SaveStorage = Pick<Storage, 'getItem' | 'setItem'> & Partial<Pick<Storage, 'removeItem'>>;
 
 type PersistedSave = SaveData & { _ic?: string };
 
+/** Formato antigo, com uma campanha só. */
+type LegacySave = { version?: number; updatedAt?: string; game?: unknown; preferences?: Partial<Preferences> };
+
 function computeIntegrity(data: SaveData): string {
-  const payload = INTEGRITY_SEED + JSON.stringify({ version: data.version, updatedAt: data.updatedAt, game: data.game });
+  const payload = INTEGRITY_SEED + JSON.stringify({ version: data.version, updatedAt: data.updatedAt, slots: data.slots });
   let hash = 0x811c9dc5;
   for (let i = 0; i < payload.length; i++) {
     hash ^= payload.charCodeAt(i);
@@ -26,14 +40,13 @@ export class SaveSystem {
   load(): SaveData {
     try {
       const raw = this.storage?.getItem(STORAGE_KEY);
-      if (!raw) return structuredClone(DEFAULT_SAVE);
+      if (!raw) return this.migrateLegacy();
       const parsed = JSON.parse(raw) as PersistedSave;
       const validated = this.validate(parsed);
-      if (validated.game !== null && typeof parsed._ic === 'string') {
-        const expected = computeIntegrity(validated);
-        if (parsed._ic !== expected) {
-          validated.game = null;
-        }
+      // Save editado por fora: o progresso cai, as configurações permanecem.
+      if (typeof parsed._ic === 'string' && parsed._ic !== computeIntegrity(validated)) {
+        validated.slots = emptySlots();
+        validated.activeSlot = null;
       }
       return validated;
     } catch { return structuredClone(DEFAULT_SAVE); }
@@ -51,33 +64,77 @@ export class SaveSystem {
 
   clear(): boolean {
     try {
-      if (this.storage?.removeItem) this.storage.removeItem(STORAGE_KEY);
+      if (this.storage?.removeItem) { this.storage.removeItem(STORAGE_KEY); this.storage.removeItem(LEGACY_STORAGE_KEY); }
       else this.storage?.setItem(STORAGE_KEY, '');
       return this.storage !== null;
     } catch { return false; }
   }
 
+  /** Converte um save da versão 2 (campanha única) no primeiro slot da versão 3. */
+  private migrateLegacy(): SaveData {
+    const fresh = structuredClone(DEFAULT_SAVE);
+    try {
+      const raw = this.storage?.getItem(LEGACY_STORAGE_KEY);
+      if (!raw) return fresh;
+      const legacy = JSON.parse(raw) as LegacySave;
+      if (legacy.preferences) fresh.preferences = this.validatePreferences(legacy.preferences);
+      const game = this.validateGame(legacy.game);
+      if (game) {
+        const slot = createSlot(validateCharacter({ name: 'Registro anterior' }));
+        slot.game = game;
+        slot.createdAt = typeof legacy.updatedAt === 'string' ? legacy.updatedAt : slot.createdAt;
+        slot.updatedAt = slot.createdAt;
+        fresh.slots[0] = slot;
+      }
+      this.save(fresh);
+      return fresh;
+    } catch { return fresh; }
+  }
+
   private validate(value: unknown): SaveData {
     if (!value || typeof value !== 'object') return structuredClone(DEFAULT_SAVE);
     const raw = value as Partial<SaveData>;
-    const prefs = raw.preferences ?? DEFAULT_PREFERENCES;
+    const rawSlots = Array.isArray(raw.slots) ? raw.slots : [];
+    const slots = Array.from({ length: SAVE_SLOT_COUNT }, (_, index) => this.validateSlot(rawSlots[index]));
+    const requested = typeof raw.activeSlot === 'number' && Number.isInteger(raw.activeSlot) ? raw.activeSlot : -1;
     return {
-      version: 2,
+      version: 3,
       updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : '',
+      activeSlot: requested >= 0 && requested < SAVE_SLOT_COUNT && slots[requested] ? requested : null,
+      slots,
+      preferences: this.validatePreferences(raw.preferences),
+    };
+  }
+
+  private validatePreferences(value: Partial<Preferences> | undefined): Preferences {
+    const prefs = value ?? DEFAULT_PREFERENCES;
+    return {
+      masterVolume: this.number(prefs.masterVolume, 0, 1, DEFAULT_PREFERENCES.masterVolume),
+      musicVolume: this.number(prefs.musicVolume, 0, 1, DEFAULT_PREFERENCES.musicVolume),
+      effectsVolume: this.number(prefs.effectsVolume, 0, 1, DEFAULT_PREFERENCES.effectsVolume),
+      voiceVolume: this.number(prefs.voiceVolume, 0, 1, DEFAULT_PREFERENCES.voiceVolume),
+      jumpscareIntensity: this.number(prefs.jumpscareIntensity, 0, 1, DEFAULT_PREFERENCES.jumpscareIntensity),
+      showHealthBar: typeof prefs.showHealthBar === 'boolean' ? prefs.showHealthBar : DEFAULT_PREFERENCES.showHealthBar,
+    };
+  }
+
+  private validateSlot(value: unknown): SaveSlot | null {
+    if (!value || typeof value !== 'object') return null;
+    const raw = value as Partial<SaveSlot>;
+    const character = validateCharacter(raw.character);
+    const timestamp = (candidate: unknown): string => typeof candidate === 'string' ? candidate : '';
+    return {
+      character,
       game: this.validateGame(raw.game),
-      preferences: {
-        masterVolume: this.number(prefs.masterVolume, 0, 1, DEFAULT_PREFERENCES.masterVolume),
-        musicVolume: this.number(prefs.musicVolume, 0, 1, DEFAULT_PREFERENCES.musicVolume),
-        effectsVolume: this.number(prefs.effectsVolume, 0, 1, DEFAULT_PREFERENCES.effectsVolume),
-        jumpscareIntensity: this.number(prefs.jumpscareIntensity, 0, 1, DEFAULT_PREFERENCES.jumpscareIntensity),
-        showHealthBar: typeof prefs.showHealthBar === 'boolean' ? prefs.showHealthBar : DEFAULT_PREFERENCES.showHealthBar,
-      },
+      createdAt: timestamp(raw.createdAt),
+      updatedAt: timestamp(raw.updatedAt),
     };
   }
 
   private number(value: unknown, min: number, max: number, fallback: number): number {
     return typeof value === 'number' && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
   }
+
   private validateGame(value: unknown): GameSave | null {
     if (!value || typeof value !== 'object') return null;
     const raw = value as Partial<GameSave>;

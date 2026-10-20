@@ -91,11 +91,11 @@ describe('sobrevivência e entidades', () => {
     expect(game.stats.health).toBeLessThan(100);
   });
 
-  it('usa a drenagem de fome e sede reduzida em vinte por cento', () => {
+  it('drena fome e sede três vezes mais devagar', () => {
     const game = new Game(undefined, () => 1);
     game.update(.25);
-    expect(game.stats.hunger).toBeCloseTo(99.976, 5);
-    expect(game.stats.thirst).toBeCloseTo(99.964, 5);
+    expect(game.stats.hunger).toBeCloseTo(99.992, 5);
+    expect(game.stats.thirst).toBeCloseTo(99.988, 5);
   });
 
   it('resolve encontro com a decisão coerente', () => {
@@ -175,10 +175,39 @@ describe('medidor de perigo', () => {
 });
 
 describe('ansiedade', () => {
-  it('soma 1 ponto a cada 10s de jogo', () => {
+  it('soma 1 ponto a cada 20s de jogo', () => {
     const game = new Game(undefined, () => 1, simpleWorld());
+    game.debugSetStat('anxiety', 50);
     advance(game, 10);
-    expect(game.stats.anxiety).toBe(1);
+    // 10s parado: só a calma agiu.
+    expect(game.stats.anxiety).toBe(49);
+    advance(game, 10);
+    // 20s: a subida passiva entra e a calma desce outro ponto.
+    expect(game.stats.anxiety).toBe(49);
+    advance(game, 20);
+    expect(game.stats.anxiety).toBe(48);
+  });
+
+  it('cai 1 ponto a cada 10s parado na mesma sala', () => {
+    const game = new Game(undefined, () => 1, simpleWorld());
+    game.debugSetStat('anxiety', 30);
+    advance(game, 10);
+    expect(game.stats.anxiety).toBe(29);
+    advance(game, 10);
+    expect(game.stats.anxiety).toBe(29);
+  });
+
+  it('sobe 1 ponto a cada travessia de sala e reinicia a contagem de calma', () => {
+    const game = new Game(undefined, () => 1, simpleWorld());
+    game.debugSetStat('anxiety', 20);
+    advance(game, 9);
+    game.navigate('forward');
+    expect(game.stats.anxiety).toBe(21);
+    advance(game, 9);
+    // A contagem de calma recomeçou com a troca de sala.
+    expect(game.stats.anxiety).toBe(21);
+    game.navigate('back');
+    expect(game.stats.anxiety).toBe(22);
   });
 
   it('soma 10 pontos ao iniciar um encontro e 20 ao se machucar', () => {
@@ -191,9 +220,13 @@ describe('ansiedade', () => {
 
   it('soma 1 ponto a cada 10s com algum atributo crítico', () => {
     const game = new Game(undefined, () => 1, simpleWorld());
+    game.debugSetStat('anxiety', 40);
     game.debugSetStat('thirst', 10);
     advance(game, 10);
-    expect(game.stats.anxiety).toBe(2);
+    // +1 do atributo crítico e -1 da calma: o medidor fica estável.
+    expect(game.stats.anxiety).toBe(40);
+    advance(game, 10);
+    expect(game.stats.anxiety).toBe(41);
   });
 });
 

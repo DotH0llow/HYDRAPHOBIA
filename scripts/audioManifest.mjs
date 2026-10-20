@@ -40,7 +40,7 @@ export const writeAudioManifest = ({ root = AUDIO_ROOT, output = MANIFEST_PATH, 
 
 /** Keeps public/assets/audio/manifest.json in sync while developing and on every build. */
 export const audioManifestPlugin = () => ({
-  name: 'mimosferatu-audio-manifest',
+  name: 'hydraphobia-audio-manifest',
   buildStart() { writeAudioManifest({ quiet: true }); },
   configureServer(server) {
     writeAudioManifest({ quiet: true });

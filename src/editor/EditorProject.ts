@@ -1,8 +1,9 @@
 import { DEFAULT_WORLD } from '../config/world';
 import type { ItemEffect } from '../config/world';
 import type { CutsceneMediaType, EncounterAction, HotspotVisibility } from '../types';
+import { isLightShape } from '../systems/lighting';
 import { DEFAULT_ENTITIES, DEFAULT_ITEMS } from './types';
-import type { EditorConnection, EditorEntity, EditorHotspot, EditorHotspotAction, EditorItem, EditorLevel, EditorProjectData, EditorRoom } from './types';
+import type { EditorConnection, EditorEntity, EditorHotspot, EditorHotspotAction, EditorItem, EditorLevel, EditorLight, EditorProjectData, EditorRoom } from './types';
 
 export const EDITOR_STORAGE_KEY = 'limiar:room-editor:v1';
 
@@ -80,7 +81,7 @@ export const createProject = (): EditorProjectData => {
   })));
   return {
     version: 1,
-    name: 'Mapa Mimosferatu',
+    name: 'Mapa HYDRAPHOBIA',
     activeLevelId: levelId,
     updatedAt: new Date().toISOString(),
     levels: [{ id: levelId, name: 'Nível 0', startRoomId: DEFAULT_WORLD.startRoomId, escapeRoomId: DEFAULT_WORLD.escapeRoomId, rooms, connections }],
@@ -307,7 +308,7 @@ export class EditorProject {
     });
     const requestedActiveLevelId = cleanId(String(raw.activeLevelId ?? ''));
     const activeLevelId = levels.some((level) => level.id === requestedActiveLevelId) ? requestedActiveLevelId : levels[0]!.id;
-    return { version: 1, name: String(raw.name ?? 'Mapa Mimosferatu'), activeLevelId, updatedAt: String(raw.updatedAt ?? ''), levels, items: finalItems, entities: finalEntities };
+    return { version: 1, name: String(raw.name ?? 'Mapa HYDRAPHOBIA'), activeLevelId, updatedAt: String(raw.updatedAt ?? ''), levels, items: finalItems, entities: finalEntities };
   }
 
   private validateRoom(value: unknown, index: number, itemIds: Set<string>, eventIds: Set<string>): EditorRoom {
@@ -322,7 +323,28 @@ export class EditorProject {
       description: String(room.description ?? fallback.description), image: String(room.image ?? fallback.image),
       position: { x: number(position.x, fallback.position.x), y: number(position.y, fallback.position.y) },
       hotspots: Array.isArray(room.hotspots) ? room.hotspots.flatMap((hotspot, hotspotIndex) => this.validateHotspot(hotspot, hotspotIndex, itemIds, eventIds)) : [],
+      darknessLevel: typeof room.darknessLevel === 'number' && Number.isFinite(room.darknessLevel) ? Math.max(0, Math.min(1, room.darknessLevel)) : undefined,
+      lights: Array.isArray(room.lights) ? room.lights.flatMap((light, lightIndex) => this.validateLight(light, lightIndex)) : undefined,
     };
+  }
+
+  /** Focos de luz da sala: perdiam-se a cada recarregamento antes desta validação existir. */
+  private validateLight(value: unknown, index: number): EditorLight[] {
+    if (!value || typeof value !== 'object') return [];
+    const raw = value as Partial<EditorLight>;
+    const number = (candidate: unknown, fallback: number, min: number, max: number): number =>
+      typeof candidate === 'number' && Number.isFinite(candidate) ? Math.max(min, Math.min(max, candidate)) : fallback;
+    return [{
+      id: cleanId(String(raw.id ?? `luz-${index + 1}`)) || createId('luz'),
+      x: number(raw.x, 50, 0, 100),
+      y: number(raw.y, 50, 0, 100),
+      radius: number(raw.radius, 20, 2, 60),
+      intensity: number(raw.intensity, 0.9, 0, 1),
+      color: typeof raw.color === 'string' && /^#[0-9a-f]{6}$/i.test(raw.color) ? raw.color : '#fffbe8',
+      angle: ((number(raw.angle, 0, -3600, 3600) % 360) + 360) % 360,
+      shape: isLightShape(raw.shape) ? raw.shape : 'circle',
+      flicker: number(raw.flicker, 0, 0, 1),
+    }];
   }
 
   private validateHotspot(value: unknown, index: number, itemIds: Set<string>, eventIds: Set<string>): EditorHotspot[] {
@@ -349,6 +371,7 @@ export class EditorProject {
       action, message: String(hotspot.message ?? 'Você examina o objeto.'), item, requiresItem,
       grantsFlag: typeof hotspot.grantsFlag === 'string' ? hotspot.grantsFlag : undefined,
       targetRoomId: typeof hotspot.targetRoomId === 'string' ? hotspot.targetRoomId : undefined,
+      arrowRotation: typeof hotspot.arrowRotation === 'number' && Number.isFinite(hotspot.arrowRotation) ? ((hotspot.arrowRotation % 360) + 360) % 360 : undefined,
       event, once: hotspot.once === true,
       highlightColor: typeof hotspot.highlightColor === 'string' && /^#[0-9a-f]{6}$/i.test(hotspot.highlightColor) ? hotspot.highlightColor : '#d7df77',
       highlightOpacity: number(hotspot.highlightOpacity, .22, .05, .65),

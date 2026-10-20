@@ -261,3 +261,34 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
+
+/* Delimitação pontilhada dos interagíveis de contorno irregular/circular.
+   O clip-path corta bordas CSS, então o contorno é desenhado em SVG. */
+.editable-hotspot .hotspot-outline { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.editable-hotspot .hotspot-outline polygon { fill: none; stroke: var(--hotspot-color); stroke-width: 1.5; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
+.editable-hotspot.selected .hotspot-outline polygon { stroke-width: 2.5; stroke-dasharray: none; filter: drop-shadow(0 0 6px var(--hotspot-color)); }
+.editable-hotspot.muted-visibility .hotspot-outline polygon { stroke-dasharray: 2 4; }
+
+/* Focos de luz: o bloco abre e fecha só pelo nome, no canto superior */
+.light-entry { margin-bottom: .35rem; border: 1px solid var(--line); background: #0b0d0b; }
+.light-entry.active { border-color: #8c9164; }
+.light-entry > header { display: flex; align-items: stretch; gap: .25rem; }
+.light-entry-name { display: flex; flex: 1; align-items: center; gap: .45rem; min-width: 0; padding: .45rem .55rem; border: 0; background: transparent; text-align: left; font: .62rem "Courier New", monospace; }
+.light-entry-name:hover { background: #151812; }
+.light-entry-name i { flex: 0 0 9px; width: 9px; height: 9px; border: 1px solid #0b0d0a; border-radius: 50%; }
+.light-entry-name span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.light-entry-name em { color: #8c9164; font-style: normal; }
+.light-entry.active .light-entry-name { color: #e4e5d4; background: #15180f; }
+.light-entry-delete { flex: 0 0 auto; padding: .2rem .45rem; border: 0; border-left: 1px solid var(--line); background: #1a1215; font-size: .7rem; }
+.light-entry-delete:hover { background: #3a1d1b; }
+.light-fields { padding: .1rem .55rem .6rem; border-top: 1px solid #22251e; }
+.light-fields > label { display: grid; gap: .25rem; margin: .5rem 0 0; }
+.light-fields > label > span { color: #8e9284; font: .6rem "Courier New", monospace; text-transform: uppercase; letter-spacing: .06em; }
+.light-fields .panel-hint { margin: .45rem 0 0; }
+.slider-row { display: flex; align-items: center; gap: .45rem; }
+.slider-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--acid); }
+.slider-row b { flex: 0 0 3rem; color: #c4c6b2; text-align: right; font: .62rem "Courier New", monospace; }
+
+/* Teste: "Mudar de sala" aparece como seta, igual ao jogo */
+.test-hotspot-marker.test-hotspot-arrow { display: grid; place-items: center; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 0; border: 1px solid #8a896b; background: #0a0c0acb; color: #f0edc3; font: normal 1.8rem "Courier New", monospace; font-style: normal; transform: rotate(var(--rotate, 0deg)); }
+.test-hotspot-group:hover .test-hotspot-marker.test-hotspot-arrow { color: #000; background: var(--highlight); box-shadow: 0 0 22px color-mix(in srgb, var(--highlight) 55%, transparent); }

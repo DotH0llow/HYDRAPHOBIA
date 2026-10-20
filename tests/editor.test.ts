@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { Game } from '../src/core/Game';
 import { EditorProject } from '../src/editor/EditorProject';
 import { levelToWorld } from '../src/editor/mapAdapter';
+import { createLight } from '../src/editor/types';
+import { flickerFactor, hasFlicker, isLightShape, LIGHT_SHAPES } from '../src/systems/lighting';
 
 class MemoryStorage {
   private readonly values = new Map<string, string>();
@@ -81,5 +83,74 @@ describe('editor visual de salas', () => {
     expect(project.activeLevel.escapeRoomId).toBe('threshold');
     const world = levelToWorld(project.activeLevel);
     expect(world.rooms.mainCorridor.exits.forward.requires).toBe('maintenanceUnlocked');
+  });
+});
+
+describe('iluminação das salas', () => {
+  it('preserva escuridão e focos de luz entre recarregamentos', () => {
+    const storage = new MemoryStorage();
+    const project = new EditorProject(storage);
+    const room = project.activeLevel.rooms[0]!;
+    room.darknessLevel = 0.75;
+    room.lights = [createLight('luz-teste')];
+    room.lights[0]!.shape = 'star';
+    room.lights[0]!.angle = 45;
+    room.lights[0]!.flicker = 0.4;
+    room.lights[0]!.radius = 33;
+    project.save();
+
+    const restored = new EditorProject(storage).findRoom(room.id)!;
+    expect(restored.darknessLevel).toBe(0.75);
+    expect(restored.lights).toHaveLength(1);
+    expect(restored.lights![0]).toMatchObject({ shape: 'star', angle: 45, flicker: 0.4, radius: 33 });
+
+    // E chega inteira na engine.
+    const world = levelToWorld(new EditorProject(storage).activeLevel);
+    expect(world.rooms[room.id]!.lights![0]).toMatchObject({ shape: 'star', angle: 45, flicker: 0.4 });
+  });
+
+  it('corrige valores de luz fora da faixa e formatos inexistentes', () => {
+    const storage = new MemoryStorage();
+    const project = new EditorProject(storage);
+    const room = project.activeLevel.rooms[0]!;
+    room.lights = [{ id: 'luz-ruim', x: 500, y: -20, radius: 999, intensity: 5, color: 'azul', angle: 400, shape: 'hexágono' as never, flicker: 9 }];
+    project.save();
+
+    const light = new EditorProject(storage).findRoom(room.id)!.lights![0]!;
+    expect(light).toMatchObject({ x: 100, y: 0, radius: 60, intensity: 1, color: '#fffbe8', angle: 40, shape: 'circle', flicker: 1 });
+  });
+
+  it('leva a rotação da seta de "Mudar de sala" até a engine', () => {
+    const project = new EditorProject(null);
+    const room = project.activeLevel.rooms[0]!;
+    const hotspot = project.addHotspot(room.id)!;
+    hotspot.action = 'move';
+    hotspot.arrowRotation = 270;
+    const runtime = levelToWorld(project.activeLevel).rooms[room.id]!.hotspots.find((entry) => entry.id === hotspot.id)!;
+    expect(runtime.kind).toBe('move');
+    expect(runtime.arrowRotation).toBe(270);
+  });
+});
+
+describe('focos de luz desenhados', () => {
+  it('mantém o brilho estável sem flickering e oscila com ele', () => {
+    const steady = { x: 50, y: 50, radius: 20, intensity: 1, flicker: 0 };
+    expect(flickerFactor(steady, 0)).toBe(1);
+    expect(flickerFactor(steady, 1234)).toBe(1);
+    expect(hasFlicker([steady])).toBe(false);
+
+    const blinking = { ...steady, flicker: 0.6 };
+    expect(hasFlicker([blinking])).toBe(true);
+    const samples = Array.from({ length: 200 }, (_, index) => flickerFactor(blinking, index * 37));
+    expect(Math.min(...samples)).toBeGreaterThanOrEqual(0.4);
+    expect(Math.max(...samples)).toBeLessThanOrEqual(1);
+    // Realmente varia ao longo do tempo.
+    expect(Math.max(...samples) - Math.min(...samples)).toBeGreaterThan(0.2);
+  });
+
+  it('oferece os seis formatos pedidos para os focos', () => {
+    expect(LIGHT_SHAPES.map((shape) => shape.id)).toEqual(['circle', 'square', 'rectangle', 'star', 'pentagon', 'triangle']);
+    expect(isLightShape('star')).toBe(true);
+    expect(isLightShape('hexágono')).toBe(false);
   });
 });

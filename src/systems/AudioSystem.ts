@@ -1,5 +1,8 @@
 import type { Preferences } from '../types';
-import { buildLibrary, configFor, GLOBAL_FX_SPACING_MS, selectClip, type AudioClip, type CategoryConfig } from './audioLibrary';
+import {
+  buildLibrary, clipGain, clipsForGender, configFor, ESTIMATED_CLIP_MS, GLOBAL_FX_SPACING_MS, selectClip,
+  type AudioClip, type CategoryConfig, type VoiceGender,
+} from './audioLibrary';
 
 export type Cue = 'click' | 'step' | 'pickup' | 'use' | 'locked' | 'entity' | 'jumpscare' | 'escape'
   | 'discomfort' | 'suspicion-step' | 'suspicion-scratch' | 'threat-step' | 'threat-breath' | 'danger-scrape' | 'danger-silence';
@@ -40,6 +43,7 @@ export class AudioSystem {
   private ambience: { source: AudioBufferSourceNode; gain: GainNode } | null = null;
   private musicBus: GainNode | null = null;
   private effectsBus: GainNode | null = null;
+  private voiceBus: GainNode | null = null;
   private library = new Map<string, AudioClip[]>();
   private libraryRequest: Promise<void> | null = null;
   private readonly buffers = new Map<string, AudioBuffer | null>();
@@ -48,7 +52,12 @@ export class AudioSystem {
   private readonly recent = new Map<string, string[]>();
   private readonly nextAllowedAt = new Map<string, number>();
   private readonly cooldownUntil = new Map<string, number>();
-  private lastEffectAt = 0;
+  /** Instante em que o último efeito termina de soar, mais o espaçamento mínimo. */
+  private effectBusyUntil = 0;
+  /** O mesmo, por grupo exclusivo (voz do personagem, batimentos). */
+  private readonly groupBusyUntil = new Map<string, number>();
+  /** Gênero do personagem atual: define quais arquivos de voz podem tocar. */
+  private voiceGender: VoiceGender = 'male';
   private music: MusicState | null = null;
   private requestedMusic: string | null = null;
   private scheduler: ReturnType<typeof setInterval> | null = null;
@@ -57,7 +66,7 @@ export class AudioSystem {
   async unlock(): Promise<void> {
     if (!this.context) this.context = new AudioContext();
     if (this.context.state === 'suspended') await this.context.resume();
-    if (!this.musicBus || !this.effectsBus) this.createBuses();
+    if (!this.musicBus || !this.effectsBus || !this.voiceBus) this.createBuses();
     if (!this.ambience) this.startAmbience();
     if (!this.scheduler) this.scheduler = setInterval(() => this.updateMusicScheduling(), SCHEDULER_INTERVAL_MS);
     void this.loadLibrary();
@@ -66,6 +75,13 @@ export class AudioSystem {
   updatePreferences(preferences: Preferences): void {
     this.preferences = preferences;
     this.applyBusLevels();
+  }
+
+  /** Personagem masculino ou feminino: só os arquivos do gênero certo (ou neutros) tocam. */
+  setVoiceGender(gender: VoiceGender): void {
+    if (this.voiceGender === gender) return;
+    this.voiceGender = gender;
+    this.recent.clear();
   }
 
   /** Define a categoria de música desejada; a troca acontece com fade. */
@@ -97,9 +113,35 @@ export class AudioSystem {
       return false;
     }
     if (now < allowedAt) return false;
-    if (config.bus === 'fx' && !options.immediate && now - this.lastEffectAt < GLOBAL_FX_SPACING_MS) return false;
+    if (!options.immediate && this.busy(config, now)) return false;
     if (options.chance !== undefined && Math.random() > options.chance) return false;
     return this.playCategory(category, config, clips, options);
+  }
+
+  /** Verdadeiro enquanto outro efeito (ou outro som do mesmo grupo) ainda está soando. */
+  private busy(config: CategoryConfig, now: number): boolean {
+    if (config.bus === 'music') return false;
+    if (now < this.effectBusyUntil) return true;
+    const group = config.group;
+    return group !== undefined && now < (this.groupBusyUntil.get(group) ?? 0);
+  }
+
+  /**
+   * Reserva a janela em que nenhum outro efeito pode entrar: a duração do arquivo
+   * mais o espaçamento mínimo. Chamado com a estimativa ao disparar e de novo com a
+   * duração real quando o arquivo já está decodificado.
+   */
+  private reserveEffectWindow(config: CategoryConfig, durationMs: number): void {
+    if (config.bus === 'music') return;
+    const until = Date.now() + durationMs + GLOBAL_FX_SPACING_MS;
+    this.effectBusyUntil = Math.max(this.effectBusyUntil, until);
+    const group = config.group;
+    if (group !== undefined) this.groupBusyUntil.set(group, Math.max(this.groupBusyUntil.get(group) ?? 0, until));
+  }
+
+  private knownDurationMs(path: string): number | null {
+    const buffer = this.buffers.get(path);
+    return buffer ? buffer.duration * 1000 : null;
   }
 
   /** Som de evento (dano, esconder-se): ignora o intervalo aleatório, mas respeita o cooldown. */
@@ -114,7 +156,8 @@ export class AudioSystem {
     this.nextAllowedAt.clear();
     this.cooldownUntil.clear();
     this.recent.clear();
-    this.lastEffectAt = 0;
+    this.groupBusyUntil.clear();
+    this.effectBusyUntil = 0;
   }
 
   hasCategory(category: string): boolean {
@@ -146,6 +189,7 @@ export class AudioSystem {
 
   private musicLevel(value: number): number { return value * this.preferences.masterVolume * this.preferences.musicVolume; }
   private effectsLevel(value: number): number { return value * this.preferences.masterVolume * this.preferences.effectsVolume; }
+  private voiceLevel(value: number): number { return value * this.preferences.masterVolume * this.preferences.voiceVolume; }
 
   // --- amostras de arquivo (música e efeitos gravados) ---
 
@@ -154,8 +198,10 @@ export class AudioSystem {
     if (!context) return;
     this.musicBus = context.createGain();
     this.effectsBus = context.createGain();
+    this.voiceBus = context.createGain();
     this.musicBus.connect(context.destination);
     this.effectsBus.connect(context.destination);
+    this.voiceBus.connect(context.destination);
     this.applyBusLevels();
   }
 
@@ -163,6 +209,7 @@ export class AudioSystem {
     if (this.ambience) this.ambience.gain.gain.value = this.musicLevel(0.14) * (this.music ? AMBIENCE_DUCK : 1);
     if (this.musicBus) this.musicBus.gain.value = this.musicLevel(1);
     if (this.effectsBus) this.effectsBus.gain.value = this.effectsLevel(1);
+    if (this.voiceBus) this.voiceBus.gain.value = this.voiceLevel(1);
   }
 
   private async loadLibrary(): Promise<void> {
@@ -187,9 +234,12 @@ export class AudioSystem {
     if (!this.context || this.preferences.masterVolume === 0) return null;
     const config = configFor(category);
     if (config.bus === 'fx' && this.preferences.effectsVolume === 0) return null;
+    if (config.bus === 'voice' && this.preferences.voiceVolume === 0) return null;
     if (config.bus === 'music' && this.preferences.musicVolume === 0) return null;
-    const clips = this.library.get(category);
-    if (!clips || clips.length === 0) { void this.loadLibrary(); return null; }
+    const all = this.library.get(category);
+    if (!all || all.length === 0) { void this.loadLibrary(); return null; }
+    const clips = config.bus === 'voice' ? clipsForGender(all, this.voiceGender) : all;
+    if (clips.length === 0) return null;
     if (Date.now() < (this.cooldownUntil.get(category) ?? 0)) return null;
     return { config, clips };
   }
@@ -200,7 +250,7 @@ export class AudioSystem {
     const now = Date.now();
     this.nextAllowedAt.set(category, now + Math.max(config.cooldownMs, this.randomGap(config)));
     this.cooldownUntil.set(category, now + config.cooldownMs);
-    if (config.bus === 'fx') this.lastEffectAt = now;
+    this.reserveEffectWindow(config, this.knownDurationMs(clip.path) ?? ESTIMATED_CLIP_MS);
     void this.playClip(clip, config, options.pan ?? 0);
     return true;
   }
@@ -248,19 +298,22 @@ export class AudioSystem {
     if (!buffer || !context) return;
     // A categoria de música pode ter mudado enquanto o arquivo carregava.
     if (config.bus === 'music' && this.requestedMusic !== clip.category) return;
-    const bus = config.bus === 'music' ? this.musicBus : this.effectsBus;
+    const bus = config.bus === 'music' ? this.musicBus : config.bus === 'voice' ? this.voiceBus : this.effectsBus;
     if (!bus) return;
     const source = context.createBufferSource();
     const gain = context.createGain();
     source.buffer = buffer;
     source.playbackRate.value = 1 + (Math.random() * 2 - 1) * config.pitch;
     const duration = buffer.duration / source.playbackRate.value;
+    // Agora a duração verdadeira é conhecida: ajusta a janela de exclusividade.
+    this.reserveEffectWindow(config, duration * 1000);
+    const level = Math.min(1, config.volume * clipGain(clip.path));
     const fadeIn = Math.min(config.fadeInMs / 1000, duration * 0.4);
     const fadeOut = Math.min(config.fadeOutMs / 1000, duration * 0.5);
     const now = context.currentTime;
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.linearRampToValueAtTime(config.volume, now + Math.max(0.01, fadeIn));
-    gain.gain.setValueAtTime(config.volume, now + Math.max(0.01, duration - fadeOut));
+    gain.gain.linearRampToValueAtTime(level, now + Math.max(0.01, fadeIn));
+    gain.gain.setValueAtTime(level, now + Math.max(0.01, duration - fadeOut));
     gain.gain.linearRampToValueAtTime(0.0001, now + duration);
     if (pan !== 0) {
       const panner = context.createStereoPanner();
