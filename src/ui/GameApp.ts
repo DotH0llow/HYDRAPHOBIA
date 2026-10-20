@@ -6,7 +6,7 @@ import { entitiesToRuntime, itemsToRuntime, levelToWorld } from '../editor/mapAd
 import { anxietyTier, anxietyTierLabel } from '../core/anxiety';
 import { AudioSystem, type Cue } from '../systems/AudioSystem';
 import {
-  FX_ANXIETY, FX_HUNGER, FX_HUNGER_LOW, FX_HURT, FX_LOW_HEALTH, FX_PANIC_ATTACK, FX_SAFE_ROOM, FX_SCREAM, FX_THIRST, FX_THIRST_LOW,
+  anxietyCategoryFor, FX_HUNGER, FX_HUNGER_LOW, FX_HURT, FX_LOW_HEALTH, FX_PANIC_ATTACK, FX_SAFE_ROOM, FX_SCREAM, FX_THIRST, FX_THIRST_LOW,
   isLevelZero, MUSIC_LOBBY, MUSIC_MENU,
 } from '../systems/audioLibrary';
 import { drawRoomLighting, hasFlicker } from '../systems/lighting';
@@ -493,7 +493,23 @@ export class GameApp {
       <label class="dev-check"><input type="checkbox" data-dev-invincible ${this.game.invincible ? 'checked' : ''} /><span>Invencibilidade</span></label>
       <label class="dev-check"><input type="checkbox" data-dev-health-bar ${this.save.preferences.showHealthBar ? 'checked' : ''} /><span>Mostrar barra de vida</span></label>
       <div class="dev-add"><select data-dev-item>${itemOptions}</select><button data-action="dev-add-item">Adicionar item</button></div>
+      ${this.devVoicesTemplate()}
     </aside>`;
+  }
+
+  /**
+   * Um botão por métrica, tocando a mesma vocalização que o estado atual do
+   * personagem dispararia no jogo — sem esperar o intervalo nem o cooldown.
+   */
+  private devVoicesTemplate(): string {
+    const metrics: Array<[string, string]> = [
+      ['health', 'vida'], ['thirst', 'sede'], ['hunger', 'fome'], ['anxiety', 'ansiedade'], ['danger', 'perigo'],
+    ];
+    return `<div class="dev-voices">
+      <span>Forçar vocalização</span>
+      <div>${metrics.map(([metric, label]) => `<button data-action="dev-voice" data-metric="${metric}">${label}</button>`).join('')}</div>
+      <small data-role="dev-voice-status">Toca o som que a métrica dispararia agora.</small>
+    </div>`;
   }
 
   /** Medidores sempre visíveis, para acompanhar o personagem sem abrir o painel. */
@@ -581,6 +597,7 @@ export class GameApp {
       case 'exit-hideout': this.game?.exitHideout(); this.audio.play('step'); break;
       case 'resume': this.game?.pause(false); this.audio.play('click'); break;
       case 'dev-toggle': this.devPanelOpen = !this.devPanelOpen; break;
+      case 'dev-voice': this.forceVocalization(data.metric ?? ''); return;
       case 'dev-add-item': {
         const select = this.root.querySelector<HTMLSelectElement>('[data-dev-item]');
         if (select) this.game?.debugAddItem(select.value as ItemId);
@@ -782,18 +799,31 @@ export class GameApp {
     if (hunger <= 25) this.audio.maybePlaySample(FX_HUNGER_LOW);
     else if (hunger <= 50) this.audio.maybePlaySample(FX_HUNGER);
     if (health <= 30) this.audio.maybePlaySample(FX_LOW_HEALTH);
-    if (game.anxietyLevel !== 'calm') this.audio.maybePlaySample(this.anxietyCategory(), { pan: Math.random() * 1.2 - 0.6 });
+    this.audio.maybePlaySample(anxietyCategoryFor(game.anxietyLevel), { pan: Math.random() * 1.2 - 0.6 });
     if (game.danger >= 40) this.audio.maybePlaySample(FX_SCREAM, { pan: Math.random() * 1.6 - 0.8 });
   }
 
-  /**
-   * Som passivo de ansiedade. Enquanto não houver arquivos em `FX/Anxiety` fora dos
-   * suspiros de sala segura e do ataque de pânico, o nível de terror usa o pânico e
-   * o nível inquieto usa o suspiro, para que a ansiedade nunca fique muda.
-   */
-  private anxietyCategory(): string {
-    if (this.audio.hasCategory(FX_ANXIETY)) return FX_ANXIETY;
-    return this.game?.anxietyLevel === 'terrified' ? FX_PANIC_ATTACK : FX_SAFE_ROOM;
+  /** Categoria que cada métrica toca no estado atual do personagem. */
+  private vocalCategoryFor(metric: string): string | null {
+    const game = this.game;
+    if (!game) return null;
+    switch (metric) {
+      case 'health': return FX_LOW_HEALTH;
+      case 'hunger': return game.stats.hunger <= 25 ? FX_HUNGER_LOW : FX_HUNGER;
+      case 'thirst': return game.stats.thirst <= 25 ? FX_THIRST_LOW : FX_THIRST;
+      case 'anxiety': return anxietyCategoryFor(game.anxietyLevel);
+      case 'danger': return FX_SCREAM;
+      default: return null;
+    }
+  }
+
+  /** DEV: toca agora a vocalização da métrica e diz no painel o que saiu. */
+  private forceVocalization(metric: string): void {
+    const category = this.vocalCategoryFor(metric);
+    const status = this.root.querySelector<HTMLElement>('[data-role="dev-voice-status"]');
+    if (!category) return;
+    const played = this.audio.forceSample(category, { pan: Math.random() * 1.2 - 0.6 });
+    if (status) status.textContent = played ? `tocando ${category}` : `sem arquivo em ${category}`;
   }
 
   /** Menu tem a música do menu; o nível 0 tem lobby_lights em todas as salas. */
@@ -998,7 +1028,7 @@ export class GameApp {
     if (!this.game) return '';
     const { thirst, hunger } = this.game.stats;
     return [
-      thirst <= 10 ? 'thirst-critical' : thirst <= 30 ? 'thirst-low' : '',
+      thirst <= 10 ? 'thirst-critical' : '',
       hunger <= 10 ? 'hunger-critical' : hunger <= 30 ? 'hunger-low' : '',
       `anxiety-${this.game.anxietyLevel}`,
     ].filter(Boolean).join(' ');

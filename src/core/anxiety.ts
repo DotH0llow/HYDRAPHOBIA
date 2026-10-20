@@ -23,3 +23,21 @@ export const anxietyTier = (value: number): AnxietyTier => {
 
 export const anxietyTierLabel = (value: number): string =>
   ANXIETY_TIERS.find((tier) => tier.id === anxietyTier(value))!.label;
+
+/**
+ * Valor em que cada nível começa. Serve para um evento colocar o personagem
+ * exatamente no início de um nível, sem herdar o quanto ele já estava carregado.
+ */
+export const anxietyTierStart = (tier: AnxietyTier): number =>
+  ANXIETY_TIERS.find((entry) => entry.id === tier)!.min;
+
+/**
+ * Sobe um nível de ansiedade e devolve o valor inicial do nível seguinte:
+ * calma → inquieto → terror. No último nível o medidor fica onde está, já que
+ * não há para onde subir.
+ */
+export const escalateAnxiety = (value: number): number => {
+  const index = ANXIETY_TIERS.findIndex((entry) => entry.id === anxietyTier(value));
+  const next = ANXIETY_TIERS[index + 1];
+  return next ? Math.max(value, next.min) : value;
+};

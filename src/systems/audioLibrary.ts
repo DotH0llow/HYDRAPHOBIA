@@ -7,6 +7,8 @@
  * arquivo na pasta correspondente — nada precisa ser escrito em código.
  */
 
+import type { AnxietyTier } from '../core/anxiety';
+
 export type AudioBus = 'music' | 'fx' | 'voice';
 
 /** Personagens masculinos e femininos têm vocalizações próprias; `any` serve aos dois. */
@@ -48,7 +50,10 @@ export const MUSIC_CHASE = 'music:chase';
 export const MUSIC_AMBIENT = 'music:ambient';
 export const FX_SAFE_ROOM = 'fx:safe-room';
 export const FX_PANIC_ATTACK = 'fx:panic-attack';
-export const FX_ANXIETY = 'fx:anxiety';
+/** Respiração do personagem em cada um dos três níveis de ansiedade. */
+export const FX_ANXIETY_CALM = 'fx:anxiety-calm';
+export const FX_ANXIETY_UNEASY = 'fx:anxiety-uneasy';
+export const FX_ANXIETY_TERRIFIED = 'fx:anxiety-terrified';
 export const FX_HUNGER = 'fx:hunger';
 export const FX_HUNGER_LOW = 'fx:hunger-low';
 export const FX_THIRST = 'fx:thirst';
@@ -98,7 +103,10 @@ export const CATEGORY_CONFIG: Record<string, CategoryConfig> = {
   [MUSIC_AMBIENT]: MUSIC_DEFAULT,
   [FX_SAFE_ROOM]: voice({ gapMs: [45000, 120000], cooldownMs: 45000, pitch: 0.045, volume: 0.72, fadeOutMs: 700 }),
   [FX_PANIC_ATTACK]: voice({ gapMs: [25000, 70000], cooldownMs: 22000, pitch: 0.04, volume: 0.92, fadeOutMs: 900 }),
-  [FX_ANXIETY]: voice({ gapMs: [26000, 70000], cooldownMs: 16000, volume: 0.76 }),
+  // Ansiedade: quanto mais alto o nível, mais frequente e mais forte a respiração.
+  [FX_ANXIETY_CALM]: voice({ gapMs: [40000, 95000], cooldownMs: 24000, volume: 0.62 }),
+  [FX_ANXIETY_UNEASY]: voice({ gapMs: [26000, 70000], cooldownMs: 16000, volume: 0.76 }),
+  [FX_ANXIETY_TERRIFIED]: voice({ gapMs: [18000, 48000], cooldownMs: 12000, volume: 0.88 }),
   // Fome e sede: volume 20% menor do que o ajuste anterior.
   [FX_HUNGER]: voice({ gapMs: [52000, 115000], cooldownMs: 24000, volume: 0.528 }),
   [FX_HUNGER_LOW]: voice({ gapMs: [26000, 62000], cooldownMs: 18000, volume: 0.608 }),
@@ -171,8 +179,16 @@ export const clipsForGender = (clips: readonly AudioClip[], gender: VoiceGender)
   return matching.length > 0 ? matching : [...clips];
 };
 
-/** Pastas antigas de ansiedade por nível: ignoradas caso os arquivos voltem a aparecer. */
-const RETIRED_ANXIETY_FOLDERS = /^fx\/anxiety\/lv\d/;
+/** Pastas de ansiedade por nível, dentro de `FX/Anxiety`. */
+const ANXIETY_TIER_FOLDERS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^fx\/anxiety\/lv1_calm\//, FX_ANXIETY_CALM],
+  [/^fx\/anxiety\/lv2_uneasy\//, FX_ANXIETY_UNEASY],
+  [/^fx\/anxiety\/lv3_terrified\//, FX_ANXIETY_TERRIFIED],
+];
+
+/** Categoria de respiração correspondente a um nível de ansiedade do jogo. */
+export const anxietyCategoryFor = (tier: AnxietyTier): string =>
+  tier === 'terrified' ? FX_ANXIETY_TERRIFIED : tier === 'uneasy' ? FX_ANXIETY_UNEASY : FX_ANXIETY_CALM;
 
 /**
  * Só tocam os arquivos de `FX` e `Music`. Qualquer outra pasta dentro de
@@ -192,11 +208,13 @@ export const categoryOf = (path: string): string | null => {
     return MUSIC_AMBIENT;
   }
   if (lower.startsWith('fx/')) {
-    if (RETIRED_ANXIETY_FOLDERS.test(lower)) return null;
     if (lower.startsWith('fx/anxiety/')) {
+      const tier = ANXIETY_TIER_FOLDERS.find(([pattern]) => pattern.test(lower));
+      if (tier) return tier[1];
       if (name.includes('safe_room') || name.includes('safe room')) return FX_SAFE_ROOM;
       if (name.includes('panicattack') || name.includes('panic_attack') || name.includes('panic attack')) return FX_PANIC_ATTACK;
-      return FX_ANXIETY;
+      // Arquivo solto na raiz de Anxiety, sem pasta de nível: entra no nível intermediário.
+      return FX_ANXIETY_UNEASY;
     }
     if (lower.startsWith('fx/hunger/')) return name.startsWith('hunger_low') || name.includes('_low_') ? FX_HUNGER_LOW : FX_HUNGER;
     if (lower.startsWith('fx/thirst/')) return name.startsWith('thirst_low') || name.includes('_low_') ? FX_THIRST_LOW : FX_THIRST;

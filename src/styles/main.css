@@ -166,8 +166,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .blood-overlay[data-blood-level="2"] { opacity: .36; }
 .blood-overlay[data-blood-level="2"] i:nth-child(3) { display: none; }
 .blood-overlay[data-blood-level="3"] { opacity: .52; }
-.thirst-low .scene > img { filter: blur(2px); transform: scale(1.025); transition: filter .8s, transform .8s; }
-.thirst-critical .scene > img { filter: blur(6px) contrast(1.08); transform: scale(1.045); }
+/* Único borrão por sede: a partir de 10 ou menos, e de apenas 2px. */
+.scene > img { transition: filter .8s; }
+.thirst-critical .scene > img { filter: blur(2px); }
 .hunger-low .scene { animation: scene-enter .48s ease both, hunger-shake 7s ease-in-out 1s infinite; }
 .hunger-critical .scene { animation: scene-enter .48s ease both, hunger-shake 3s ease-in-out .5s infinite; }
 
@@ -342,3 +343,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 }
 .create-nav button:disabled { opacity: .32; cursor: not-allowed; }
 .create-nav button.primary:disabled { color: #5d6042; background: #3b3f2b; }
+
+/* DEV: forçar a vocalização de cada métrica */
+.dev-voices { margin-top: .8rem; padding-top: .65rem; border-top: 1px solid #343629; }
+.dev-voices > span { display: block; margin-bottom: .4rem; color: #9d9f8c; font: .62rem "Courier New", monospace; text-transform: uppercase; letter-spacing: .08em; }
+.dev-voices > div { display: flex; flex-wrap: wrap; gap: .25rem; }
+.dev-voices button { flex: 1 1 auto; min-height: 28px; padding: .3rem .4rem; border: 1px solid #4d5041; background: #141712; color: #c9cab4; font: .6rem "Courier New", monospace; cursor: pointer; }
+.dev-voices button:hover { color: #000; background: var(--acid); border-color: var(--acid); }
+.dev-voices small { display: block; margin-top: .4rem; color: #6f7265; font: .56rem "Courier New", monospace; overflow-wrap: anywhere; }

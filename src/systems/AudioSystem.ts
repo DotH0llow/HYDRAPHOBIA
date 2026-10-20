@@ -151,6 +151,16 @@ export class AudioSystem {
     return this.playCategory(category, ready.config, ready.clips, { ...options, immediate: true });
   }
 
+  /**
+   * Toca a categoria imediatamente, ignorando intervalo, cooldown e grupo exclusivo.
+   * Existe para os botões do painel DEV ouvirem um som sob demanda.
+   */
+  forceSample(category: string, options: SampleOptions = {}): boolean {
+    const ready = this.categoryReady(category, true);
+    if (!ready) return false;
+    return this.playCategory(category, ready.config, ready.clips, { ...options, immediate: true });
+  }
+
   /** Esquece a programação de todas as categorias (troca de tela, novo jogo). */
   resetScheduling(): void {
     this.nextAllowedAt.clear();
@@ -230,7 +240,7 @@ export class AudioSystem {
     await this.libraryRequest;
   }
 
-  private categoryReady(category: string): { config: CategoryConfig; clips: AudioClip[] } | null {
+  private categoryReady(category: string, ignoreCooldown = false): { config: CategoryConfig; clips: AudioClip[] } | null {
     if (!this.context || this.preferences.masterVolume === 0) return null;
     const config = configFor(category);
     if (config.bus === 'fx' && this.preferences.effectsVolume === 0) return null;
@@ -240,7 +250,7 @@ export class AudioSystem {
     if (!all || all.length === 0) { void this.loadLibrary(); return null; }
     const clips = config.bus === 'voice' ? clipsForGender(all, this.voiceGender) : all;
     if (clips.length === 0) return null;
-    if (Date.now() < (this.cooldownUntil.get(category) ?? 0)) return null;
+    if (!ignoreCooldown && Date.now() < (this.cooldownUntil.get(category) ?? 0)) return null;
     return { config, clips };
   }
 

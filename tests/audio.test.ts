@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { ANXIETY_TIERS, anxietyTier, anxietyTierLabel } from '../src/core/anxiety';
+import { ANXIETY_TIERS, anxietyTier, anxietyTierLabel, anxietyTierStart, escalateAnxiety } from '../src/core/anxiety';
 import {
-  buildLibrary, categoryOf, clipGain, clipGenderOf, clipsForGender, configFor, FX_ANXIETY, FX_HUNGER, FX_HUNGER_LOW,
-  FX_HURT, FX_LOW_HEALTH, FX_PANIC_ATTACK, FX_SAFE_ROOM, FX_SCREAM, FX_THIRST, FX_THIRST_LOW, isLevelZero, isRareClip,
-  isVoiceCategory, MUSIC_LOBBY, MUSIC_MENU, selectClip, VOICE_GROUP, VOICE_SPACING_FACTOR,
+  anxietyCategoryFor, buildLibrary, categoryOf, clipGain, clipGenderOf, clipsForGender, configFor, FX_ANXIETY_CALM,
+  FX_ANXIETY_TERRIFIED, FX_ANXIETY_UNEASY, FX_HUNGER, FX_HUNGER_LOW, FX_HURT, FX_LOW_HEALTH, FX_PANIC_ATTACK,
+  FX_SAFE_ROOM, FX_SCREAM, FX_THIRST, FX_THIRST_LOW, isLevelZero, isRareClip, isVoiceCategory, MUSIC_LOBBY, MUSIC_MENU,
+  selectClip, VOICE_GROUP, VOICE_SPACING_FACTOR,
 } from '../src/systems/audioLibrary';
 import { collectAudioFiles } from '../scripts/audioManifest.mjs';
 
@@ -28,6 +29,22 @@ describe('níveis de ansiedade', () => {
     expect(anxietyTierLabel(50)).toBe('INQUIETO');
     expect(anxietyTierLabel(95)).toBe('TERROR');
   });
+
+  it('conhece o valor em que cada nível começa', () => {
+    expect(anxietyTierStart('calm')).toBe(0);
+    expect(anxietyTierStart('uneasy')).toBe(36);
+    expect(anxietyTierStart('terrified')).toBe(80);
+  });
+
+  it('sobe um nível de cada vez, começando no valor inicial do nível seguinte', () => {
+    expect(escalateAnxiety(0)).toBe(36);
+    expect(escalateAnxiety(35)).toBe(36);
+    expect(escalateAnxiety(36)).toBe(80);
+    expect(escalateAnxiety(79)).toBe(80);
+    // No topo não há próximo nível: o valor acumulado é preservado.
+    expect(escalateAnxiety(80)).toBe(80);
+    expect(escalateAnxiety(95)).toBe(95);
+  });
 });
 
 describe('catálogo de áudio', () => {
@@ -36,7 +53,10 @@ describe('catálogo de áudio', () => {
     expect(categoryOf('/assets/audio/Music/Ambient/LV0_lobby/lobby_lights (1).mp3')).toBe(MUSIC_LOBBY);
     expect(categoryOf('/assets/audio/FX/Anxiety/female_gasp_entering_safe_room1.mp3')).toBe(FX_SAFE_ROOM);
     expect(categoryOf('/assets/audio/FX/Anxiety/female_shivering_panicattack.mp3')).toBe(FX_PANIC_ATTACK);
-    expect(categoryOf('/assets/audio/FX/Anxiety/respiracao_nova.mp3')).toBe(FX_ANXIETY);
+    expect(categoryOf('/assets/audio/FX/Anxiety/LV1_CALM/ANXIETY_CALM_male_sigh1.mp3')).toBe(FX_ANXIETY_CALM);
+    expect(categoryOf('/assets/audio/FX/Anxiety/LV2_UNEASY/ANXIETY_MALE_BREATHING_UNEASY_1.mp3')).toBe(FX_ANXIETY_UNEASY);
+    expect(categoryOf('/assets/audio/FX/Anxiety/LV3_TERRIFIED/ANXIETY_TERRIFIED_female_shivering.mp3')).toBe(FX_ANXIETY_TERRIFIED);
+    expect(categoryOf('/assets/audio/FX/Anxiety/respiracao_nova.mp3')).toBe(FX_ANXIETY_UNEASY);
     expect(categoryOf('/assets/audio/FX/Hunger/HUNGER_growl1.mp3')).toBe(FX_HUNGER);
     expect(categoryOf('/assets/audio/FX/Hunger/HUNGER_LOW_growl1.mp3')).toBe(FX_HUNGER_LOW);
     expect(categoryOf('/assets/audio/FX/Thirst/THIRST_woman clearing throat1.mp3')).toBe(FX_THIRST);
@@ -54,9 +74,15 @@ describe('catálogo de áudio', () => {
     expect([...buildLibrary(collectAudioFiles()).values()].flat().every((clip) => /^\/assets\/audio\/(FX|Music)\//.test(clip.path))).toBe(true);
   });
 
-  it('ignora as antigas pastas de ansiedade por nível e caminhos de fora', () => {
-    expect(categoryOf('/assets/audio/FX/Anxiety/LV2_UNEASY/qualquer.mp3')).toBeNull();
+  it('ignora caminhos de fora da pasta de áudio', () => {
     expect(categoryOf('/assets/scenes/reception.jpg')).toBeNull();
+    expect(categoryOf('/assets/audio/Memes HYDRA/MAKITA.ogg')).toBeNull();
+  });
+
+  it('liga cada nível de ansiedade do jogo à pasta correspondente', () => {
+    expect(anxietyCategoryFor('calm')).toBe(FX_ANXIETY_CALM);
+    expect(anxietyCategoryFor('uneasy')).toBe(FX_ANXIETY_UNEASY);
+    expect(anxietyCategoryFor('terrified')).toBe(FX_ANXIETY_TERRIFIED);
   });
 
   it('reconhece os arquivos marcados como "rare"', () => {
@@ -71,8 +97,10 @@ describe('catálogo de áudio', () => {
     expect(library.get(FX_SAFE_ROOM)?.length).toBeGreaterThanOrEqual(2);
     expect(library.get(FX_PANIC_ATTACK)?.length).toBeGreaterThanOrEqual(1);
     expect(library.get(MUSIC_MENU)?.length).toBe(1);
-    // Os sons de ansiedade por nível foram removidos do jogo.
-    expect(library.get(FX_ANXIETY)).toBeUndefined();
+    // Os três níveis de ansiedade têm arquivos próprios.
+    expect(library.get(FX_ANXIETY_CALM)?.length).toBeGreaterThanOrEqual(5);
+    expect(library.get(FX_ANXIETY_UNEASY)?.length).toBeGreaterThanOrEqual(4);
+    expect(library.get(FX_ANXIETY_TERRIFIED)?.length).toBeGreaterThanOrEqual(5);
   });
 
   it('toda categoria tem fade de saída e variação de afinação', () => {
@@ -135,7 +163,10 @@ describe('sorteio dos arquivos', () => {
 });
 
 describe('vocalizações do personagem', () => {
-  const VOCAL = [FX_SAFE_ROOM, FX_PANIC_ATTACK, FX_ANXIETY, FX_HUNGER, FX_HUNGER_LOW, FX_THIRST, FX_THIRST_LOW, FX_SCREAM];
+  const VOCAL = [
+    FX_SAFE_ROOM, FX_PANIC_ATTACK, FX_ANXIETY_CALM, FX_ANXIETY_UNEASY, FX_ANXIETY_TERRIFIED,
+    FX_HUNGER, FX_HUNGER_LOW, FX_THIRST, FX_THIRST_LOW, FX_SCREAM,
+  ];
 
   it('roteia toda a voz do personagem para o próprio barramento e grupo exclusivo', () => {
     VOCAL.forEach((category) => {

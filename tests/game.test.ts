@@ -210,12 +210,33 @@ describe('ansiedade', () => {
     expect(game.stats.anxiety).toBe(22);
   });
 
-  it('soma 10 pontos ao iniciar um encontro e 20 ao se machucar', () => {
+  it('soma 10 pontos ao iniciar um encontro e sobe um nível ao se machucar', () => {
     const game = new Game(undefined, () => 1, simpleWorld());
     game.debugStartEncounter('watcher');
     expect(game.stats.anxiety).toBe(10);
+    // Ataque com o personagem calmo: vai para o início do nível inquieto.
     game.respondToEncounter('run');
-    expect(game.stats.anxiety).toBe(30);
+    expect(game.stats.anxiety).toBe(36);
+    expect(game.anxietyLevel).toBe('uneasy');
+  });
+
+  it('cada ataque leva o personagem ao início do próximo nível', () => {
+    const game = new Game(undefined, () => 1, simpleWorld());
+    /** Sofre um ataque partindo da ansiedade indicada e devolve o medidor resultante. */
+    const attackFrom = (anxiety: number): number => {
+      game.debugSetStat('health', 100);
+      game.debugStartEncounter('watcher');
+      game.debugSetStat('anxiety', anxiety);
+      game.respondToEncounter('run');
+      return game.stats.anxiety;
+    };
+    expect(attackFrom(0)).toBe(36);
+    expect(attackFrom(20)).toBe(36);
+    expect(attackFrom(50)).toBe(80);
+    expect(attackFrom(79)).toBe(80);
+    // No último nível não há para onde subir: o medidor fica onde está.
+    expect(attackFrom(90)).toBe(90);
+    expect(game.anxietyLevel).toBe('terrified');
   });
 
   it('soma 1 ponto a cada 10s com algum atributo crítico', () => {

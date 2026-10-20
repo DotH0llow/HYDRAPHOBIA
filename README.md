@@ -77,9 +77,12 @@ Os sons do próprio personagem (respiração, fome, sede, suspiros, gritos) form
 exclusivo: nunca tocam dois ao mesmo tempo e têm o próprio controle de volume nas
 configurações.
 
-> **Pendência de assets:** a pasta `public/assets/audio/FX/Anxiety` hoje só tem suspiros
-> de sala segura e um ataque de pânico. Não há arquivos de ansiedade passiva, então o jogo
-> recorre a esses dois enquanto nenhum for adicionado.
+A respiração do personagem tem arquivos próprios por nível de ansiedade, em
+`FX/Anxiety/LV1_CALM`, `LV2_UNEASY` e `LV3_TERRIFIED`. O jogo toca a pasta correspondente
+ao nível atual; os arquivos soltos na raiz de `FX/Anxiety` entram no nível intermediário.
+
+> **Pendência de assets:** não existe a pasta `FX/Screams`, então a categoria de grito
+> (disparada com perigo alto) fica muda. O botão "perigo" do painel DEV avisa isso.
 
 ## Cloudflare Pages
 

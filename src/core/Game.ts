@@ -1,5 +1,5 @@
 import { DEFAULT_WORLD, ENTITIES, ITEMS, type EntityDefinition, type HotspotDefinition, type ItemDefinition, type WorldDefinition } from '../config/world';
-import { anxietyTier, type AnxietyTier } from './anxiety';
+import { anxietyTier, escalateAnxiety, type AnxietyTier } from './anxiety';
 import type { CutsceneState, Direction, Encounter, EncounterAction, EntityId, GameSave, GameStatus, HideoutState, HotspotId, InventoryEntry, ItemId, RoomId, Stats } from '../types';
 
 export interface ActionResult {
@@ -477,7 +477,8 @@ export class Game {
   private receiveAttack(message: string): ActionResult {
     if (!this.invincible) {
       this.stats.health = this.clamp(this.stats.health - 34);
-      this.stats.anxiety = this.clamp(this.stats.anxiety + 20);
+      // Levar um ataque joga o personagem para o início do nível de ansiedade seguinte.
+      this.stats.anxiety = this.clamp(escalateAnxiety(this.stats.anxiety));
     }
     this.attackNonce += 1;
     this.lastThreatElapsed = this.elapsed;
