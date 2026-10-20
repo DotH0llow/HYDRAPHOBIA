@@ -310,3 +310,45 @@ describe('cutscenes', () => {
     expect(game.status).toBe('exploring');
   });
 });
+
+describe('leitura de ambiente para o áudio', () => {
+  it('considera comum uma sala sem entidade, cutscene ou escuridão', () => {
+    const game = new Game(undefined, () => 1, simpleWorld([
+      { id: 'caixa', label: 'Caixa', x: 10, y: 10, width: 10, height: 10, kind: 'examine', message: 'Vazia.' },
+    ]));
+    expect(game.roomIsOrdinary).toBe(true);
+    expect(game.pursued).toBe(false);
+  });
+
+  it('não considera comum uma sala com susto, cutscene ou escuridão total', () => {
+    const withEvent = new Game(undefined, () => 1, simpleWorld([
+      { id: 'susto', label: 'Vão', x: 10, y: 10, width: 10, height: 10, kind: 'event', event: 'jumpscare', message: 'Algo passa.' },
+    ]));
+    expect(withEvent.roomIsOrdinary).toBe(false);
+
+    const withCutscene = new Game(undefined, () => 1, simpleWorld([
+      { id: 'cena', label: 'Janela', x: 10, y: 10, width: 10, height: 10, kind: 'cutscene', cutscenePath: '/assets/cutscenes/x.jpg', message: 'Você vê algo.' },
+    ]));
+    expect(withCutscene.roomIsOrdinary).toBe(false);
+
+    const dark = simpleWorld();
+    dark.rooms.start!.darknessLevel = 0.9;
+    expect(new Game(undefined, () => 1, dark).roomIsOrdinary).toBe(false);
+  });
+
+  it('marca perseguição quando o perigo sobe ou houve ameaça recente', () => {
+    const game = new Game(undefined, () => 1, simpleWorld());
+    game.debugSetDanger(70);
+    expect(game.pursued).toBe(true);
+    expect(game.roomIsOrdinary).toBe(false);
+  });
+
+  it('expõe o nível de ansiedade em três faixas', () => {
+    const game = new Game(undefined, () => 1, simpleWorld());
+    expect(game.anxietyLevel).toBe('calm');
+    game.debugSetStat('anxiety', 40);
+    expect(game.anxietyLevel).toBe('uneasy');
+    game.debugSetStat('anxiety', 90);
+    expect(game.anxietyLevel).toBe('terrified');
+  });
+});

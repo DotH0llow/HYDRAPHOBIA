@@ -1,6 +1,7 @@
 import { Game } from '../core/Game';
 import type { RoomDefinition } from '../config/world';
 import { AudioSystem } from '../systems/AudioSystem';
+import { isLevelZero, MUSIC_LOBBY } from '../systems/audioLibrary';
 import { DEFAULT_PREFERENCES } from '../systems/SaveSystem';
 import type { EncounterAction, ItemId } from '../types';
 import { EditorProject } from './EditorProject';
@@ -1017,6 +1018,8 @@ export class EditorApp {
     this.testAttackNonce = 0;
     this.testJumpscareUntil = 0;
     this.lastTestKey = '';
+    // O teste também ouve a trilha do nível 0.
+    void this.audio.unlock().then(() => this.audio.setMusic(isLevelZero(level.name, this.testGame?.room.code, this.testGame?.room.image) ? MUSIC_LOBBY : null)).catch(() => undefined);
     this.render();
   }
 
@@ -1025,7 +1028,7 @@ export class EditorApp {
     if (!game) return;
     void this.audio.unlock().catch(() => undefined);
     switch (action) {
-      case 'exit': this.testMode = false; this.testGame = null; this.testInventoryOpen = false; this.render(); return;
+      case 'exit': this.testMode = false; this.testGame = null; this.testInventoryOpen = false; this.audio.setMusic(null); this.render(); return;
       case 'move': { const result = game.navigate(data.direction ?? ''); this.audio.play(result.changed ? 'step' : 'locked'); break; }
       case 'hotspot': { const result = game.interact(data.hotspot ?? ''); this.audio.play(result.pickup ? 'pickup' : result.changed ? 'use' : 'click'); break; }
       case 'inventory': this.testInventoryOpen = !this.testInventoryOpen; this.audio.play('click'); break;

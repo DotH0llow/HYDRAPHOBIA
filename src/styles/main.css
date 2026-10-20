@@ -75,6 +75,13 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .stat[data-stat="thirst"] i { background: #3f9ed1; }
 .stat[data-stat="hunger"] i { background: #df8738; }
 .stat[data-stat="anxiety"] i { background: #a773d6; }
+.stat[data-stat="anxiety"] > b { display: block; float: right; color: #9a86ad; font: .6rem "Courier New", monospace; letter-spacing: .12em; }
+.stat.anx-uneasy > b { color: #c8a071; }
+.stat.anx-uneasy i { filter: brightness(.92) saturate(1.35); }
+.stat.anx-terrified > b { color: #d0737f; }
+.stat.anx-terrified i { background: #d0737f; }
+.stat.anx-terrified { animation: critical 1.6s ease-in-out infinite; }
+.anxiety-terrified .scene > img { filter: saturate(.82) contrast(1.06); }
 .stat.warning i { filter: brightness(.82) saturate(1.2); }
 .stat.danger { animation: critical 1.2s ease-in-out infinite; }
 

@@ -1,4 +1,5 @@
 import { DEFAULT_WORLD, ENTITIES, ITEMS, type EntityDefinition, type HotspotDefinition, type ItemDefinition, type WorldDefinition } from '../config/world';
+import { anxietyTier, type AnxietyTier } from './anxiety';
 import type { CutsceneState, Direction, Encounter, EncounterAction, EntityId, GameSave, GameStatus, HideoutState, HotspotId, InventoryEntry, ItemId, RoomId, Stats } from '../types';
 
 export interface ActionResult {
@@ -32,6 +33,7 @@ export class Game {
   private anxietyTimer = 0;
   private criticalTimer = 0;
   private wasStarving = false;
+  private lastThreatElapsed = Number.NEGATIVE_INFINITY;
 
   constructor(
     save?: GameSave,
@@ -45,6 +47,31 @@ export class Game {
     this.position = initialRoom;
     this.discovered = new Set<RoomId>([initialRoom]);
     if (save && world.rooms[save.position]) this.restore(save);
+  }
+
+  /** Um dos três níveis de ansiedade: calma (0-35), inquieto (36-79), terror (80-100). */
+  get anxietyLevel(): AnxietyTier { return anxietyTier(this.stats.anxiety); }
+
+  /** Houve encontro ou ataque nos últimos 30 segundos de jogo. */
+  get recentlyThreatened(): boolean { return this.elapsed - this.lastThreatElapsed <= 30; }
+
+  /** Verdadeiro quando algo está atrás do jogador: perigo alto ou ameaça recente. */
+  get pursued(): boolean { return this.danger >= 50 || this.recentlyThreatened; }
+
+  /**
+   * Sala comum: nada de entidade, susto, cutscene pendente, escuridão total ou perigo alto.
+   * Usada para os sons de alívio ao entrar em um lugar seguro.
+   */
+  get roomIsOrdinary(): boolean {
+    if (this.status !== 'exploring' || this.encounter || this.cutscene) return false;
+    if (this.danger >= 40 || this.recentlyThreatened) return false;
+    const room = this.room;
+    if ((room.darknessLevel ?? 0) > 0.5) return false;
+    return !room.hotspots.some((hotspot) => {
+      if (hotspot.once && this.flags[`hotspot:${this.position}:${hotspot.id}`]) return false;
+      if (hotspot.kind === 'cutscene' && hotspot.cutscenePath) return true;
+      return hotspot.kind === 'event' && Boolean(hotspot.event);
+    });
   }
 
   get room() {
@@ -402,6 +429,7 @@ export class Game {
     if (!definition) return;
     this.encounter = { id, name: definition.name, prompt: definition.prompt, hint: definition.hint, solution: definition.solution, remaining: definition.timeLimit, timeLimit: definition.timeLimit, image: definition.image, jumpscareDuration: definition.jumpscareSeconds };
     this.status = 'encounter';
+    this.lastThreatElapsed = this.elapsed;
     this.message = this.encounter.prompt;
     this.stats.anxiety = this.clamp(this.stats.anxiety + 10);
   }
@@ -412,6 +440,7 @@ export class Game {
       this.stats.anxiety = this.clamp(this.stats.anxiety + 20);
     }
     this.attackNonce += 1;
+    this.lastThreatElapsed = this.elapsed;
     this.encounter = null;
     this.status = this.stats.health === 0 ? 'gameover' : 'exploring';
     this.message = this.status === 'gameover' ? 'Você não consegue mais se levantar.' : message;

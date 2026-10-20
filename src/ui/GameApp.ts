@@ -2,7 +2,12 @@ import { ITEMS, type ItemDefinition, type RoomDefinition } from '../config/world
 import { Game } from '../core/Game';
 import { EditorProject } from '../editor/EditorProject';
 import { entitiesToRuntime, itemsToRuntime, levelToWorld } from '../editor/mapAdapter';
+import { anxietyTier, anxietyTierLabel } from '../core/anxiety';
 import { AudioSystem, type Cue } from '../systems/AudioSystem';
+import {
+  FX_ANXIETY, FX_HUNGER, FX_HUNGER_LOW, FX_HURT, FX_LOW_HEALTH, FX_MEME, FX_PANIC_ATTACK, FX_SAFE_ROOM, FX_SCREAM, FX_THIRST, FX_THIRST_LOW,
+  isLevelZero, MUSIC_LOBBY, MUSIC_MENU,
+} from '../systems/audioLibrary';
 import { SaveSystem } from '../systems/SaveSystem';
 import type { Direction, EncounterAction, HotspotId, ItemId, Preferences, SaveData, Screen } from '../types';
 
@@ -14,6 +19,11 @@ const DANGER_CUES: Record<number, Cue[]> = {
   3: ['threat-step', 'threat-breath'],
   4: ['danger-scrape', 'danger-silence'],
 };
+/** Chance de um suspiro de alívio ao entrar em uma sala comum. */
+const SAFE_ROOM_CHANCE = 0.16;
+/** Easter egg: os áudios da pasta "Memes HYDRA" aparecem muito raramente. */
+const MEME_CHANCE = 0.006;
+
 const DANGER_INTERVALS: Record<number, [number, number]> = {
   1: [9000, 16000],
   2: [7000, 13000],
@@ -40,11 +50,13 @@ export class GameApp {
   private devPanelOpen = false;
   private dangerSoundTier = 0;
   private nextDangerSoundAt = 0;
+  private levelName = '';
 
   constructor(private readonly root: HTMLElement) {
     this.save = this.saves.load();
     this.audio = new AudioSystem(this.save.preferences);
     this.bindEvents();
+    this.bindFirstGesture();
   }
 
   start(): void {
@@ -65,6 +77,7 @@ export class GameApp {
       if (this.game.status === 'gameover' && Date.now() >= this.jumpscareUntil) { this.screen = 'gameover'; this.forcePaint = true; }
       if (this.game.status === 'escaped') { this.screen = 'escaped'; this.audio.play('escape'); this.save.game = null; this.persistSave(); this.forcePaint = true; }
       this.updateDangerAmbience();
+      this.updateSampleAmbience();
     }
     this.render();
     requestAnimationFrame(this.tick);
@@ -130,6 +143,7 @@ export class GameApp {
       devPanelOpen: this.devPanelOpen,
       flags: this.game.flags,
       showHealthBar: this.save.preferences.showHealthBar,
+      anxietyTier: this.game.anxietyLevel,
       jumpscare: Date.now() < this.jumpscareUntil,
     });
   }
@@ -238,6 +252,10 @@ export class GameApp {
   }
 
   private statBar(key: string, label: string, value: number): string {
+    // Na ansiedade o ruim é o valor alto, e ela aparece pelos três níveis em vez do número.
+    if (key === 'anxiety') {
+      return `<div class="stat stat-anxiety anx-${anxietyTier(value)}" data-stat="anxiety"><span>${label}</span><b>${anxietyTierLabel(value)}</b><div><i style="width:${value}%"></i></div></div>`;
+    }
     const danger = value <= 25 ? 'danger' : value <= 50 ? 'warning' : '';
     return `<div class="stat stat-${key} ${danger}" data-stat="${key}"><span>${label}</span><b aria-hidden="true">${Math.round(value)}</b><div><i style="width:${value}%"></i></div></div>`;
   }
@@ -387,6 +405,13 @@ export class GameApp {
     });
   }
 
+  /** O navegador só libera áudio depois de uma interação; a primeira serve de gatilho. */
+  private bindFirstGesture(): void {
+    const begin = (): void => { void this.audio.unlock().then(() => this.syncMusic()).catch(() => undefined); };
+    window.addEventListener('pointerdown', begin, { once: true });
+    window.addEventListener('keydown', begin, { once: true });
+  }
+
   private async handleAction(action: string, data: DOMStringMap): Promise<void> {
     switch (action) {
       case 'new-game': this.beginNewGame(); break;
@@ -415,6 +440,7 @@ export class GameApp {
         break;
       }
     }
+    this.syncMusic();
     this.forcePaint = true;
     this.render(true);
   }
@@ -422,6 +448,7 @@ export class GameApp {
   private beginNewGame(): void {
     const data = this.currentGameData();
     this.items = data.items;
+    this.levelName = data.levelName;
     this.game = new Game(undefined, Math.random, data.world, undefined, data.items, data.entities);
     this.screen = 'game';
     this.inventoryOpen = false;
@@ -429,20 +456,25 @@ export class GameApp {
     this.seenAttackNonce = 0;
     this.dangerSoundTier = 0;
     this.nextDangerSoundAt = 0;
+    this.audio.resetScheduling();
     this.persist();
     this.audio.play('step');
+    this.syncMusic();
   }
 
   private continueGame(): void {
     if (!this.save.game) return;
     const data = this.currentGameData();
     this.items = data.items;
+    this.levelName = data.levelName;
     this.game = new Game(this.save.game, Math.random, data.world, undefined, data.items, data.entities);
     this.screen = 'game';
     this.inventoryOpen = false;
     this.dangerSoundTier = 0;
     this.nextDangerSoundAt = 0;
+    this.audio.resetScheduling();
     this.audio.play('step');
+    this.syncMusic();
   }
 
   private move(direction: Direction): void {
@@ -450,14 +482,28 @@ export class GameApp {
     const result = this.game.navigate(direction);
     this.audio.play(result.changed ? 'step' : 'locked');
     if (this.game.status === 'encounter') this.audio.play('entity');
+    if (result.changed) this.onRoomEntered();
     this.persist();
   }
 
   private interact(id: HotspotId): void {
     if (!this.game) return;
+    const previousRoom = this.game.position;
     const result = this.game.interact(id);
     this.audio.play(result.pickup ? 'pickup' : result.changed ? 'use' : 'click');
+    if (this.game.status === 'hidden' && this.game.pursued) this.audio.playSample(FX_PANIC_ATTACK);
+    if (this.game.position !== previousRoom) this.onRoomEntered();
     this.persist();
+  }
+
+  /** Sala nova: acerta a música do nível e, se nada estranho mora aqui, pode soltar um alívio. */
+  private onRoomEntered(): void {
+    const game = this.game;
+    if (!game) return;
+    this.syncMusic();
+    if (!game.roomIsOrdinary) return;
+    if (this.audio.maybePlaySample(FX_SAFE_ROOM, { chance: SAFE_ROOM_CHANCE })) return;
+    this.audio.maybePlaySample(FX_MEME, { chance: MEME_CHANCE });
   }
 
   private useItem(id: ItemId): void {
@@ -474,7 +520,11 @@ export class GameApp {
     const entityImage = this.game.encounter?.image ?? this.jumpscareImage;
     const result = this.game.respondToEncounter(action);
     if (result.attack) { this.jumpscareImage = entityImage; this.seenAttackNonce = this.game.attackNonce; this.triggerJumpscare(this.game.encounter?.jumpscareDuration); }
-    else this.audio.play('step');
+    else {
+      this.audio.play('step');
+      // Escapou se escondendo de algo que o perseguia: ataque de pânico.
+      if (action === 'hide') this.audio.playSample(FX_PANIC_ATTACK);
+    }
     this.persist();
   }
 
@@ -483,6 +533,7 @@ export class GameApp {
     const duration = baseDuration * (0.4 + this.save.preferences.jumpscareIntensity * 0.6);
     this.jumpscareUntil = Date.now() + Math.max(300, duration);
     this.audio.play('jumpscare');
+    this.audio.playSample(FX_HURT);
     this.forcePaint = true;
   }
 
@@ -501,6 +552,36 @@ export class GameApp {
       const [min, max] = DANGER_INTERVALS[tier]!;
       this.nextDangerSoundAt = now + min + Math.random() * (max - min);
     }
+  }
+
+  /** Efeitos gravados que acompanham o estado do jogador; o ritmo fica com o AudioSystem. */
+  private updateSampleAmbience(): void {
+    const game = this.game;
+    if (!game) return;
+    if (game.status !== 'exploring' && game.status !== 'hidden') return;
+    const { health, hunger, thirst } = game.stats;
+    if (thirst <= 25) this.audio.maybePlaySample(FX_THIRST_LOW);
+    else if (thirst <= 50) this.audio.maybePlaySample(FX_THIRST);
+    if (hunger <= 25) this.audio.maybePlaySample(FX_HUNGER_LOW);
+    else if (hunger <= 50) this.audio.maybePlaySample(FX_HUNGER);
+    if (health <= 30) this.audio.maybePlaySample(FX_LOW_HEALTH);
+    if (game.anxietyLevel !== 'calm') this.audio.maybePlaySample(FX_ANXIETY, { pan: Math.random() * 1.2 - 0.6 });
+    if (game.danger >= 40) this.audio.maybePlaySample(FX_SCREAM, { pan: Math.random() * 1.6 - 0.8 });
+  }
+
+  /** Menu tem a música do menu; o nível 0 tem lobby_lights em todas as salas. */
+  private syncMusic(): void {
+    if (this.screen === 'gameover' || this.screen === 'escaped') { this.audio.setMusic(null); return; }
+    if (this.game && (this.screen === 'game' || this.screen === 'settings')) {
+      this.audio.setMusic(this.levelZeroActive() ? MUSIC_LOBBY : null);
+      return;
+    }
+    this.audio.setMusic(MUSIC_MENU);
+  }
+
+  private levelZeroActive(): boolean {
+    const room = this.game?.room;
+    return isLevelZero(this.levelName, room?.code, room?.image);
   }
 
   private handleInput(input: HTMLInputElement): void {
@@ -568,6 +649,14 @@ export class GameApp {
       const value = this.game!.stats[key];
       const bar = stat?.querySelector<HTMLElement>('i');
       if (bar) bar.style.width = `${value}%`;
+      if (key === 'anxiety') {
+        const tier = anxietyTier(value);
+        const readout = stat?.querySelector<HTMLElement>('b');
+        if (readout) readout.textContent = anxietyTierLabel(value);
+        stat?.classList.remove('danger', 'warning');
+        (['calm', 'uneasy', 'terrified'] as const).forEach((name) => stat?.classList.toggle(`anx-${name}`, name === tier));
+        return;
+      }
       stat?.classList.toggle('danger', value <= 25);
       stat?.classList.toggle('warning', value > 25 && value <= 50);
     });
@@ -619,6 +708,7 @@ export class GameApp {
   private currentGameData() {
     const project = new EditorProject();
     return {
+      levelName: project.activeLevel.name,
       world: levelToWorld(project.activeLevel),
       items: itemsToRuntime(project.data.items),
       entities: entitiesToRuntime(project.data.entities),
@@ -633,7 +723,11 @@ export class GameApp {
   private conditionClasses(): string {
     if (!this.game) return '';
     const { thirst, hunger } = this.game.stats;
-    return [thirst <= 10 ? 'thirst-critical' : thirst <= 30 ? 'thirst-low' : '', hunger <= 10 ? 'hunger-critical' : hunger <= 30 ? 'hunger-low' : ''].filter(Boolean).join(' ');
+    return [
+      thirst <= 10 ? 'thirst-critical' : thirst <= 30 ? 'thirst-low' : '',
+      hunger <= 10 ? 'hunger-critical' : hunger <= 30 ? 'hunger-low' : '',
+      `anxiety-${this.game.anxietyLevel}`,
+    ].filter(Boolean).join(' ');
   }
 
   private async toggleFullscreen(): Promise<void> {
