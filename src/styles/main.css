@@ -324,6 +324,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .slot-progress span { display: inline-flex; align-items: center; gap: .35rem; }
 .slot-progress i { color: var(--acid); font-style: normal; }
 .slot-progress em { color: #5c5f4f; font-style: normal; }
+/* Registro encerrado: a campanha acabou ali, a miniatura esfria e o fim dá o tom. */
+.slot-card.ended { border-color: #3a3a31; background: #080908; }
+.slot-card.ended .slot-thumb img { filter: saturate(.18) contrast(1.05) brightness(.72); }
+.slot-card.ended-death .slot-progress i { color: #b4554a; }
+.slot-card.ended-escape .slot-progress i { color: #9ab87a; }
 .slot-actions { display: grid; gap: .4rem; margin-top: auto; }
 .slot-actions-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: .4rem; }
 .slot-actions button.wide { width: 100%; }

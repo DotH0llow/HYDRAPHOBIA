@@ -1,5 +1,5 @@
 import { validateCharacter } from '../config/character';
-import { SAVE_SLOT_COUNT, type CharacterProfile, type GameSave, type InventoryEntry, type Preferences, type RoomId, type SaveData, type SaveSlot } from '../types';
+import { SAVE_SLOT_COUNT, type CampaignEnding, type CharacterProfile, type GameSave, type InventoryEntry, type Preferences, type RoomId, type SaveData, type SaveSlot } from '../types';
 
 const STORAGE_KEY = 'limiar:save:v3';
 /** Chave da versão anterior, lida uma única vez para migrar o progresso antigo. */
@@ -22,10 +22,11 @@ export const createSlot = (character: CharacterProfile): SaveSlot => {
  * progresso. A morte nunca chega a ser gravada, então sem isto o save fica parado no
  * instante anterior a ela e "Continuar" devolve o jogador para morrer de novo.
  */
-export const endCampaign = (save: SaveData, slotIndex: number, at = new Date().toISOString()): boolean => {
+export const endCampaign = (save: SaveData, slotIndex: number, ending?: CampaignEnding, at = new Date().toISOString()): boolean => {
   const slot = save.slots[slotIndex];
   if (!slot) return false;
   slot.game = null;
+  slot.ending = ending;
   slot.updatedAt = at;
   save.activeSlot = null;
   save.updatedAt = at;
@@ -143,6 +144,20 @@ export class SaveSystem {
       game: this.validateGame(raw.game),
       createdAt: timestamp(raw.createdAt),
       updatedAt: timestamp(raw.updatedAt),
+      ending: this.validateEnding(raw.ending),
+    };
+  }
+
+  /** Registro gravado antes de o fim existir, ou editado por fora: simplesmente não tem fim. */
+  private validateEnding(value: unknown): CampaignEnding | undefined {
+    if (!value || typeof value !== 'object') return undefined;
+    const raw = value as Partial<CampaignEnding>;
+    if (raw.kind !== 'death' && raw.kind !== 'escape') return undefined;
+    return {
+      kind: raw.kind,
+      room: typeof raw.room === 'string' ? raw.room.slice(0, 80) : '',
+      roomId: typeof raw.roomId === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(raw.roomId) ? raw.roomId : '',
+      elapsed: this.number(raw.elapsed, 0, 10000000, 0),
     };
   }
 

@@ -91,6 +91,13 @@ esquerdo, as opções ocupam o resto da tela e "Voltar" e "Continuar" ficam no m
 Classe e fobia ficam gravadas no registro e aparecem na lista de campanhas; por enquanto
 não alteram as mecânicas. Gênero, item inicial e modo já têm efeito no jogo.
 
+**Fim de campanha.** Morrer e escapar encerram o registro do mesmo jeito: o personagem
+continua lá, o progresso sai e o card passa a contar como terminou — *Morreu · Setor
+alagado* ou *Escapou · O limiar*, com o tempo na ficha e a miniatura da sala do fim.
+Um registro encerrado não oferece mais "Continuar"; o caminho é criar outro personagem
+nele ou apagá-lo. A morte nunca é gravada, então sem isso o save ficaria parado no
+instante anterior a ela e "Continuar" devolveria o jogador para morrer de novo.
+
 Cada classe tem duas artes em `public/assets/characters`: `<classe>.webp` e
 `<classe>_feminino.webp`. A tela escolhe a arte pelo gênero já selecionado e cai de volta
 na arte comum se o arquivo feminino não existir (`classArtFor`, em
@@ -109,6 +116,7 @@ na arte comum se o arquivo feminino não existir (`classArtFor`, em
 - Duas entidades com aparições dirigidas e probabilísticas.
 - Decisões rápidas, dano, jumpscares configuráveis e game over.
 - Quatro registros de save com criação de personagem, persistidos em `localStorage`.
+- Fim de campanha gravado no registro: morte ou fuga, com a sala e o tempo.
 - Áudio procedural após a primeira interação do jogador.
 - Trilha e efeitos por arquivo, com volume separado para a vocalização do personagem.
 - Escuridão por sala com focos de luz de formato, abertura, rotação e flickering configuráveis.

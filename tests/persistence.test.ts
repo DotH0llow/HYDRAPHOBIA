@@ -149,6 +149,46 @@ describe('fim de campanha', () => {
     expect(data.activeSlot).toBeNull();
   });
 
+  it('guarda como a campanha terminou e devolve isso depois de gravar', () => {
+    const storage = new MemoryStorage();
+    const saves = new SaveSystem(storage);
+    const data = structuredClone(DEFAULT_SAVE);
+    const slot = createSlot({ ...DEFAULT_CHARACTER, name: 'Ana' });
+    slot.game = progress();
+    data.slots[1] = slot;
+
+    endCampaign(data, 1, { kind: 'death', room: 'Setor alagado', roomId: 'floodedRoom', elapsed: 763 });
+    saves.save(data);
+
+    const ending = saves.load().slots[1]?.ending;
+    expect(ending).toEqual({ kind: 'death', room: 'Setor alagado', roomId: 'floodedRoom', elapsed: 763 });
+  });
+
+  it('descarta um fim inventado e mantém o registro legível', () => {
+    const storage = new MemoryStorage();
+    const saves = new SaveSystem(storage);
+    const slot = createSlot({ ...DEFAULT_CHARACTER, name: 'Ana' });
+    storage.setItem('limiar:save:v3', JSON.stringify({
+      version: 3,
+      slots: [{ ...slot, ending: { kind: 'desapareceu', room: 7, roomId: '../etc', elapsed: 'muito' } }],
+    }));
+
+    const restored = saves.load();
+    expect(restored.slots[0]?.character.name).toBe('Ana');
+    expect(restored.slots[0]?.ending).toBeUndefined();
+  });
+
+  it('o fim de uma fuga também fica gravado', () => {
+    const data = structuredClone(DEFAULT_SAVE);
+    const slot = createSlot({ ...DEFAULT_CHARACTER, name: 'Caio' });
+    slot.game = progress();
+    data.slots[0] = slot;
+
+    endCampaign(data, 0, { kind: 'escape', room: 'O limiar', roomId: 'threshold', elapsed: 1200 });
+    expect(data.slots[0]?.ending?.kind).toBe('escape');
+    expect(data.slots[0]?.game).toBeNull();
+  });
+
   it('o registro encerrado não volta a ser continuável depois de gravado', () => {
     const storage = new MemoryStorage();
     const saves = new SaveSystem(storage);

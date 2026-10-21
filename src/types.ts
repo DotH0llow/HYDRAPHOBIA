@@ -84,12 +84,27 @@ export interface GameSave {
   roomTime: Record<RoomId, number>;
 }
 
+/**
+ * Como uma campanha terminou. Fica gravado no registro no lugar do progresso, para
+ * o card contar o fim em vez de simplesmente esvaziar.
+ */
+export interface CampaignEnding {
+  kind: 'death' | 'escape';
+  /** Sala do fim, guardada pelo nome e pelo id do momento em que aconteceu. */
+  room: string;
+  roomId: RoomId;
+  /** Tempo de jogo acumulado, em segundos. */
+  elapsed: number;
+}
+
 /** Uma campanha: o personagem criado pelo jogador e o progresso dele. */
 export interface SaveSlot {
   character: CharacterProfile;
   game: GameSave | null;
   createdAt: string;
   updatedAt: string;
+  /** Presente só depois do fim; um registro em andamento não tem. */
+  ending?: CampaignEnding;
 }
 
 export interface SaveData {

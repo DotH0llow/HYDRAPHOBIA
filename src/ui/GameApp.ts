@@ -14,7 +14,7 @@ import { defaultArrowRotation, defaultPathPosition } from '../config/paths';
 import { drawRoomLighting, hasFlicker } from '../systems/lighting';
 import { labelAnchorOf } from '../systems/hotspots';
 import { createSlot, endCampaign, SaveSystem } from '../systems/SaveSystem';
-import { SAVE_SLOT_COUNT, type CharacterClassId, type CharacterGender, type CharacterMode, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type PhobiaId, type Preferences, type RoomId, type SaveData, type SaveSlot, type Screen } from '../types';
+import { SAVE_SLOT_COUNT, type CampaignEnding, type CharacterClassId, type CharacterGender, type CharacterMode, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type PhobiaId, type Preferences, type RoomId, type SaveData, type SaveSlot, type Screen } from '../types';
 
 type NumericPreferenceKey = Exclude<keyof Preferences, 'showHealthBar'>;
 /** Uma pergunta de sim/nao desenhada pelo proprio jogo, com a acao ja escolhida. */
@@ -134,8 +134,8 @@ export class GameApp {
       // Morrer encerra a campanha como a fuga encerra. Sem isto o registro ficava no
       // instante anterior à morte — morrer de fome devolvia o jogador com a fome em
       // zero, para morrer de novo em menos de um minuto, sempre no mesmo save.
-      if (this.game.status === 'gameover' && Date.now() >= this.jumpscareUntil) { this.screen = 'gameover'; this.audio.stopRoomTrack(); this.clearActiveGame(); this.forcePaint = true; }
-      if (this.game.status === 'escaped') { this.screen = 'escaped'; this.audio.stopRoomTrack(); this.audio.play('escape'); this.clearActiveGame(); this.forcePaint = true; }
+      if (this.game.status === 'gameover' && Date.now() >= this.jumpscareUntil) { this.screen = 'gameover'; this.audio.stopRoomTrack(); this.clearActiveGame('death'); this.forcePaint = true; }
+      if (this.game.status === 'escaped') { this.screen = 'escaped'; this.audio.stopRoomTrack(); this.audio.play('escape'); this.clearActiveGame('escape'); this.forcePaint = true; }
       this.updateDangerAmbience();
       this.updateSampleAmbience();
     }
@@ -262,9 +262,9 @@ export class GameApp {
     </main>`;
   }
 
-  /** Miniatura do registro: a sala onde o personagem parou. */
+  /** Miniatura do registro: a sala onde o personagem parou — ou onde a campanha acabou. */
   private slotThumb(slot: SaveSlot): string {
-    const position = slot.game?.position;
+    const position = slot.game?.position ?? slot.ending?.roomId;
     return (position && this.roomImages[position]) || '/assets/scenes/corridor.jpg';
   }
 
@@ -310,9 +310,10 @@ export class GameApp {
     }
     const { character } = slot;
     const progress = slot.game;
+    const ending = progress ? undefined : slot.ending;
     const rooms = progress?.discovered.length ?? 0;
-    return `<article class="slot-card">
-      <small class="slot-tag">REGISTRO ${number}</small>
+    return `<article class="slot-card${ending ? ` ended ended-${ending.kind}` : ''}">
+      <small class="slot-tag">REGISTRO ${number}${ending ? ' · ENCERRADO' : ''}</small>
       <div class="slot-body">
         <div class="slot-thumb"><img src="${esc(this.slotThumb(slot))}" alt="" /></div>
         <div class="slot-info">
@@ -321,13 +322,15 @@ export class GameApp {
             <div><dt>Classe</dt><dd>${esc(labelOf(CLASSES, character.classId))}</dd></div>
             <div><dt>Gênero</dt><dd>${esc(labelOf(GENDERS, character.gender))}</dd></div>
             <div><dt>Fobia</dt><dd>${esc(labelOf(PHOBIAS, character.phobia))}</dd></div>
-            <div><dt>Tempo</dt><dd>${progress ? this.formatTime(progress.elapsed) : '00:00'}</dd></div>
+            <div><dt>Tempo</dt><dd>${this.formatTime(progress?.elapsed ?? ending?.elapsed ?? 0)}</dd></div>
           </dl>
         </div>
       </div>
       <p class="slot-progress">${progress
         ? `<span><i aria-hidden="true">&#9635;</i>${rooms} ${rooms === 1 ? 'sala descoberta' : 'salas descobertas'}</span><em>·</em><span><i aria-hidden="true">&#9829;</i>vida ${Math.round(progress.stats.health)}%</span>`
-        : '<span>Personagem criado, exploração ainda não iniciada.</span>'}</p>
+        : ending
+          ? this.endingNote(ending)
+          : '<span>Personagem criado, exploração ainda não iniciada.</span>'}</p>
       <div class="slot-actions">
         ${progress
           ? `<button class="primary wide" data-action="slot-continue" data-slot="${index}">Continuar</button>`
@@ -338,6 +341,21 @@ export class GameApp {
         </div>
       </div>
     </article>`;
+  }
+
+  /**
+   * A linha que um registro encerrado mostra no lugar do progresso: como a campanha
+   * acabou e onde. Sem isso o registro simplesmente esvaziava, como se o personagem
+   * nunca tivesse saído do lugar.
+   */
+  private endingNote(ending: CampaignEnding): string {
+    // O tempo já está na ficha, em "Tempo": repeti-lo aqui só encheria a linha. A sala
+    // vem depois do ponto, e não como "em <sala>", para o nome dela não precisar
+    // concordar com artigo nenhum — "Escapou · O limiar" serve a qualquer nome.
+    const what = ending.kind === 'death'
+      ? '<span><i aria-hidden="true">&#9760;</i>Morreu</span>'
+      : '<span><i aria-hidden="true">&#10022;</i>Escapou</span>';
+    return ending.room ? `${what}<em>·</em><span>${esc(ending.room)}</span>` : what;
   }
 
   // --- criação de personagem ---
@@ -1296,15 +1314,24 @@ export class GameApp {
     const slot = this.save.slots[this.activeSlot];
     if (!slot) return;
     slot.game = this.game.toSave();
+    // Campanha em andamento não carrega a marca de uma campanha anterior.
+    slot.ending = undefined;
     slot.updatedAt = new Date().toISOString();
     this.save.updatedAt = slot.updatedAt;
     this.persistSave();
   }
 
-  /** Fim de campanha: o personagem continua no registro, o progresso é zerado. */
-  private clearActiveGame(): void {
+  /**
+   * Fim de campanha: o personagem continua no registro, o progresso é zerado e no
+   * lugar dele fica a marca de como a campanha acabou.
+   */
+  private clearActiveGame(kind: CampaignEnding['kind']): void {
     if (this.activeSlot === null) return;
-    endCampaign(this.save, this.activeSlot);
+    const game = this.game;
+    const ending: CampaignEnding | undefined = game
+      ? { kind, room: game.room.name, roomId: game.position, elapsed: game.elapsed }
+      : undefined;
+    endCampaign(this.save, this.activeSlot, ending);
     // Soltar o registro fecha a porta: nenhuma gravação posterior ressuscita o progresso.
     this.activeSlot = null;
     this.persistSave();
