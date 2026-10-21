@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createSlot, DEFAULT_PREFERENCES, DEFAULT_SAVE, SaveSystem } from '../src/systems/SaveSystem';
+import { createSlot, DEFAULT_PREFERENCES, DEFAULT_SAVE, endCampaign, SaveSystem } from '../src/systems/SaveSystem';
 import { DEFAULT_CHARACTER } from '../src/config/character';
 import { SAVE_SLOT_COUNT, type GameSave } from '../src/types';
 
@@ -132,5 +132,49 @@ describe('SaveSystem', () => {
     saves.save(structuredClone(DEFAULT_SAVE));
     expect(saves.clear()).toBe(true);
     expect(storage.getItem('limiar:save:v3')).toBeNull();
+  });
+});
+
+describe('fim de campanha', () => {
+  it('o fim tira o progresso do registro e mantém o personagem', () => {
+    const data = structuredClone(DEFAULT_SAVE);
+    const slot = createSlot({ ...DEFAULT_CHARACTER, name: 'Ana' });
+    slot.game = progress();
+    data.slots[1] = slot;
+    data.activeSlot = 1;
+
+    expect(endCampaign(data, 1)).toBe(true);
+    expect(data.slots[1]?.game).toBeNull();
+    expect(data.slots[1]?.character.name).toBe('Ana');
+    expect(data.activeSlot).toBeNull();
+  });
+
+  it('o registro encerrado não volta a ser continuável depois de gravado', () => {
+    const storage = new MemoryStorage();
+    const saves = new SaveSystem(storage);
+    const data = structuredClone(DEFAULT_SAVE);
+    const slot = createSlot({ ...DEFAULT_CHARACTER, name: 'Caio' });
+    // Morrer nunca é gravado: o save guarda o instante anterior à morte.
+    slot.game = { ...progress(), stats: { health: 34, hunger: 0, thirst: 80, anxiety: 100 } };
+    data.slots[0] = slot;
+    data.activeSlot = 0;
+    saves.save(data);
+    expect(saves.load().slots[0]?.game).not.toBeNull();
+
+    endCampaign(data, 0);
+    saves.save(data);
+
+    const restored = saves.load();
+    expect(restored.slots[0]?.game).toBeNull();
+    expect(restored.slots[0]?.character.name).toBe('Caio');
+    expect(restored.activeSlot).toBeNull();
+    expect(restored.slots.some((entry) => entry?.game)).toBe(false);
+  });
+
+  it('não mexe em um registro vazio', () => {
+    const data = structuredClone(DEFAULT_SAVE);
+    data.activeSlot = null;
+    expect(endCampaign(data, 2)).toBe(false);
+    expect(data.slots[2]).toBeNull();
   });
 });

@@ -13,7 +13,7 @@ import { HUNGER_LOW_THRESHOLD, HUNGER_THRESHOLD, THIRST_LOW_THRESHOLD, THIRST_TH
 import { defaultArrowRotation, defaultPathPosition } from '../config/paths';
 import { drawRoomLighting, hasFlicker } from '../systems/lighting';
 import { labelAnchorOf } from '../systems/hotspots';
-import { createSlot, SaveSystem } from '../systems/SaveSystem';
+import { createSlot, endCampaign, SaveSystem } from '../systems/SaveSystem';
 import { SAVE_SLOT_COUNT, type CharacterClassId, type CharacterGender, type CharacterMode, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type PhobiaId, type Preferences, type RoomId, type SaveData, type SaveSlot, type Screen } from '../types';
 
 type NumericPreferenceKey = Exclude<keyof Preferences, 'showHealthBar'>;
@@ -131,7 +131,10 @@ export class GameApp {
         this.triggerJumpscare(this.game.encounter?.jumpscareDuration);
         this.persist();
       }
-      if (this.game.status === 'gameover' && Date.now() >= this.jumpscareUntil) { this.screen = 'gameover'; this.audio.stopRoomTrack(); this.forcePaint = true; }
+      // Morrer encerra a campanha como a fuga encerra. Sem isto o registro ficava no
+      // instante anterior à morte — morrer de fome devolvia o jogador com a fome em
+      // zero, para morrer de novo em menos de um minuto, sempre no mesmo save.
+      if (this.game.status === 'gameover' && Date.now() >= this.jumpscareUntil) { this.screen = 'gameover'; this.audio.stopRoomTrack(); this.clearActiveGame(); this.forcePaint = true; }
       if (this.game.status === 'escaped') { this.screen = 'escaped'; this.audio.stopRoomTrack(); this.audio.play('escape'); this.clearActiveGame(); this.forcePaint = true; }
       this.updateDangerAmbience();
       this.updateSampleAmbience();
@@ -1288,7 +1291,8 @@ export class GameApp {
   }
 
   private persist(): void {
-    if (!this.game || this.activeSlot === null || this.game.status === 'gameover') return;
+    // Campanha encerrada não volta para o save: o fim já tirou o progresso do registro.
+    if (!this.game || this.activeSlot === null || this.game.status === 'gameover' || this.game.status === 'escaped') return;
     const slot = this.save.slots[this.activeSlot];
     if (!slot) return;
     slot.game = this.game.toSave();
@@ -1300,9 +1304,9 @@ export class GameApp {
   /** Fim de campanha: o personagem continua no registro, o progresso é zerado. */
   private clearActiveGame(): void {
     if (this.activeSlot === null) return;
-    const slot = this.save.slots[this.activeSlot];
-    if (slot) { slot.game = null; slot.updatedAt = new Date().toISOString(); }
-    this.save.activeSlot = null;
+    endCampaign(this.save, this.activeSlot);
+    // Soltar o registro fecha a porta: nenhuma gravação posterior ressuscita o progresso.
+    this.activeSlot = null;
     this.persistSave();
   }
 

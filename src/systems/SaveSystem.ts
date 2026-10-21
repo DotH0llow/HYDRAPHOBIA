@@ -17,6 +17,21 @@ export const createSlot = (character: CharacterProfile): SaveSlot => {
   return { character, game: null, createdAt: now, updatedAt: now };
 };
 
+/**
+ * Fim de campanha, por morte ou por fuga: o registro guarda o personagem e perde o
+ * progresso. A morte nunca chega a ser gravada, então sem isto o save fica parado no
+ * instante anterior a ela e "Continuar" devolve o jogador para morrer de novo.
+ */
+export const endCampaign = (save: SaveData, slotIndex: number, at = new Date().toISOString()): boolean => {
+  const slot = save.slots[slotIndex];
+  if (!slot) return false;
+  slot.game = null;
+  slot.updatedAt = at;
+  save.activeSlot = null;
+  save.updatedAt = at;
+  return true;
+};
+
 type SaveStorage = Pick<Storage, 'getItem' | 'setItem'> & Partial<Pick<Storage, 'removeItem'>>;
 
 type PersistedSave = SaveData & { _ic?: string };
