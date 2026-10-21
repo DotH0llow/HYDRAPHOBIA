@@ -22,14 +22,11 @@ export interface HotspotDefinition {
   y: number;
   width: number;
   height: number;
-  kind: 'examine' | 'collect' | 'use' | 'move' | 'event' | 'cutscene' | 'hideout';
+  kind: 'examine' | 'collect' | 'use' | 'event' | 'cutscene' | 'hideout';
   message: string;
   item?: ItemId;
   requiresItem?: ItemId;
   grantsFlag?: string;
-  targetRoom?: RoomId;
-  /** Para `kind: 'move'`: rotação da seta mostrada ao jogador, em graus. */
-  arrowRotation?: number;
   event?: EntityId | 'jumpscare';
   highlight?: { color: string; opacity: number };
   once?: boolean;

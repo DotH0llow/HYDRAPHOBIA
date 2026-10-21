@@ -29,6 +29,11 @@ export interface SampleOptions {
   pan?: number;
   /** Ignora o espaçamento global entre efeitos (para sons de evento, como dano). */
   immediate?: boolean;
+  /**
+   * Em vez de sortear, percorre os arquivos da categoria em ordem, um por chamada.
+   * Os testes de vocalização do painel DEV usam isto para ouvir a pasta inteira.
+   */
+  sequential?: boolean;
 }
 
 interface MusicState {
@@ -70,6 +75,8 @@ export class AudioSystem {
   private readonly pending = new Map<string, Promise<AudioBuffer | null>>();
   /** Últimas escolhas por categoria, para nunca repetir o mesmo arquivo mais de duas vezes. */
   private readonly recent = new Map<string, string[]>();
+  /** Posição da próxima execução em ordem, por categoria (painel DEV). */
+  private readonly sequenceIndex = new Map<string, number>();
   private readonly nextAllowedAt = new Map<string, number>();
   private readonly cooldownUntil = new Map<string, number>();
   /** Instante em que o último efeito termina de soar, mais o espaçamento mínimo. */
@@ -116,6 +123,8 @@ export class AudioSystem {
     if (this.voiceGender === gender) return;
     this.voiceGender = gender;
     this.recent.clear();
+    // A lista de arquivos muda com o gênero: a sequência recomeça do primeiro.
+    this.sequenceIndex.clear();
   }
 
   /** Define a categoria de música desejada; a troca acontece com fade. */
@@ -195,6 +204,19 @@ export class AudioSystem {
     // O painel DEV sempre corta o som atual: o novo entra limpo, sem sobreposição.
     this.stopEffects();
     return this.playCategory(category, ready.config, ready.clips, { ...options, immediate: true });
+  }
+
+  /**
+   * Nome do arquivo que a próxima chamada sequencial desta categoria vai tocar, e
+   * quantos arquivos ela tem. Serve ao painel DEV para dizer onde está na sequência.
+   */
+  sequencePosition(category: string): { index: number; total: number } | null {
+    const all = this.library.get(category);
+    if (!all || all.length === 0) return null;
+    const config = configFor(category);
+    const clips = config.bus === 'voice' ? clipsForGender(all, this.voiceGender) : all;
+    if (clips.length === 0) return null;
+    return { index: (this.sequenceIndex.get(category) ?? 0) % clips.length, total: clips.length };
   }
 
   /** Corta agora todo efeito e vocalização de arquivo que ainda esteja soando. */
@@ -311,6 +333,7 @@ export class AudioSystem {
     this.nextAllowedAt.clear();
     this.cooldownUntil.clear();
     this.recent.clear();
+    this.sequenceIndex.clear();
     this.groupBusyUntil.clear();
     this.effectBusyUntil = 0;
   }
@@ -401,7 +424,7 @@ export class AudioSystem {
   }
 
   private playCategory(category: string, config: CategoryConfig, clips: AudioClip[], options: SampleOptions): boolean {
-    const clip = this.pickClip(category, clips, config);
+    const clip = options.sequential ? this.nextInSequence(category, clips) : this.pickClip(category, clips, config);
     if (!clip) return false;
     const now = Date.now();
     this.nextAllowedAt.set(category, now + Math.max(config.cooldownMs, this.randomGap(config)));
@@ -414,6 +437,19 @@ export class AudioSystem {
   private randomGap(config: CategoryConfig): number {
     const [min, max] = config.gapMs;
     return min + Math.random() * Math.max(0, max - min);
+  }
+
+  /**
+   * Próximo arquivo da categoria em ordem, voltando ao primeiro no fim da lista.
+   * O sorteio não entra aqui: a sequência é sempre a mesma, do primeiro ao último.
+   */
+  private nextInSequence(category: string, clips: AudioClip[]): AudioClip | null {
+    if (clips.length === 0) return null;
+    const position = (this.sequenceIndex.get(category) ?? 0) % clips.length;
+    this.sequenceIndex.set(category, (position + 1) % clips.length);
+    const clip = clips[position]!;
+    this.recent.set(category, [...(this.recent.get(category) ?? []), clip.path].slice(-2));
+    return clip;
   }
 
   private pickClip(category: string, clips: AudioClip[], config: CategoryConfig): AudioClip | null {

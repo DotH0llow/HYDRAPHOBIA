@@ -12,7 +12,25 @@ type EditorStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
 const cleanId = (value: string): string => value.trim().replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
-const ACTIONS = new Set<EditorHotspotAction>(['examine', 'collect', 'use', 'move', 'event', 'cutscene', 'hideout']);
+const ACTIONS = new Set<EditorHotspotAction>(['examine', 'collect', 'use', 'event', 'cutscene', 'hideout']);
+
+/**
+ * Interagível de "Mudar de sala" dos projetos antigos. A ação deixou de existir: ao
+ * carregar o projeto cada um destes vira uma conexão de verdade, no mesmo ponto da
+ * cena, para que exista um único caminho entre salas com uma única aparência.
+ */
+interface LegacyMoveHotspot {
+  action?: string;
+  label?: unknown;
+  targetRoomId?: unknown;
+  targetLevelId?: unknown;
+  arrowRotation?: unknown;
+  x?: unknown;
+  y?: unknown;
+  width?: unknown;
+  height?: unknown;
+  indicator?: { x?: unknown; y?: unknown };
+}
 const VISIBILITIES = new Set<HotspotVisibility>(['visible', 'hidden', 'invisible']);
 const EFFECTS = new Set<ItemEffect>(['none', 'heal', 'hydrate', 'feed']);
 const SOLUTIONS = new Set<EncounterAction>(['run', 'hide']);
@@ -55,7 +73,6 @@ export const createProject = (): EditorProjectData => {
       item: hotspot.item,
       requiresItem: hotspot.requiresItem,
       grantsFlag: hotspot.grantsFlag,
-      targetRoomId: hotspot.targetRoom,
       event: hotspot.event,
       once: hotspot.once === true,
       highlightColor: hotspot.highlight?.color ?? '#d7df77',
@@ -157,11 +174,6 @@ export class EditorProject {
     const gone = new Set(level.rooms.map((room) => room.id));
     this.data.levels.forEach((entry) => {
       entry.connections = entry.connections.filter((connection) => !gone.has(connection.to));
-      entry.rooms.forEach((room) => {
-        room.hotspots.forEach((hotspot) => {
-          if (hotspot.targetRoomId && gone.has(hotspot.targetRoomId)) { hotspot.targetRoomId = undefined; hotspot.targetLevelId = undefined; }
-        });
-      });
     });
     if (this.data.activeLevelId === id) this.data.activeLevelId = this.data.levels[0]!.id;
     this.save();
@@ -363,23 +375,66 @@ export class EditorProject {
           }];
         })
         : [];
-      // Um hotspot "Mudar de sala" também pode apontar para outro nível.
-      rooms.forEach((room) => room.hotspots.forEach((hotspot) => {
-        if (!hotspot.targetLevelId) return;
-        if (!levelIds.has(hotspot.targetLevelId) || hotspot.targetLevelId === draft.id) hotspot.targetLevelId = undefined;
-      }));
       return {
         id: draft.id,
         name: draft.name,
         startRoomId: roomIds.has(String(rawLevel.startRoomId)) ? String(rawLevel.startRoomId) : rooms[0]!.id,
         escapeRoomId: roomIds.has(String(rawLevel.escapeRoomId)) ? String(rawLevel.escapeRoomId) : undefined,
         rooms,
-        connections,
+        connections: [...connections, ...this.migratedMoveConnections(rawLevel, rooms, roomIds, levelIds, allRoomIds, draft.id)],
       };
     });
     const requestedActiveLevelId = cleanId(String(raw.activeLevelId ?? ''));
     const activeLevelId = levels.some((level) => level.id === requestedActiveLevelId) ? requestedActiveLevelId : levels[0]!.id;
     return { version: 1, name: String(raw.name ?? 'Mapa HYDRAPHOBIA'), activeLevelId, updatedAt: String(raw.updatedAt ?? ''), levels, items: finalItems, entities: finalEntities };
+  }
+
+  /**
+   * Converte os antigos interagíveis de "Mudar de sala" em conexões. O botão nasce
+   * onde estava o círculo do interagível — a origem do bloco mais a posição do
+   * indicador dentro dele — para o caminho continuar no mesmo ponto da cena.
+   */
+  private migratedMoveConnections(
+    rawLevel: Partial<EditorLevel>,
+    rooms: EditorRoom[],
+    roomIds: Set<string>,
+    levelIds: Set<string>,
+    allRoomIds: Set<string>,
+    levelId: string,
+  ): EditorConnection[] {
+    const rawRooms = Array.isArray(rawLevel.rooms) ? rawLevel.rooms : [];
+    return rooms.flatMap((room, roomIndex) => {
+      const rawRoom = rawRooms[roomIndex] as Partial<EditorRoom> | undefined;
+      const hotspots = Array.isArray(rawRoom?.hotspots) ? rawRoom.hotspots : [];
+      return hotspots.flatMap((value, index): EditorConnection[] => {
+        if (!value || typeof value !== 'object') return [];
+        const legacy = value as LegacyMoveHotspot;
+        if (legacy.action !== 'move') return [];
+        const toLevelId = typeof legacy.targetLevelId === 'string' && levelIds.has(legacy.targetLevelId) && legacy.targetLevelId !== levelId
+          ? legacy.targetLevelId
+          : undefined;
+        const reachable = toLevelId ? allRoomIds : roomIds;
+        const to = String(legacy.targetRoomId ?? '');
+        if (!to || to === room.id || !reachable.has(to)) return [];
+        const num = (candidate: unknown, fallback: number): number => typeof candidate === 'number' && Number.isFinite(candidate) ? candidate : fallback;
+        const anchor = (origin: unknown, size: unknown, inside: unknown): number => {
+          const position = num(origin, 38) + (num(inside, 50) / 100) * num(size, 18);
+          return Math.max(0, Math.min(100, Math.round(position * 10) / 10));
+        };
+        return [{
+          id: createId('conexao'),
+          from: room.id,
+          to,
+          toLevelId,
+          label: String(legacy.label ?? 'Caminho'),
+          direction: `caminho-${room.id}-${index + 1}`,
+          bidirectional: false,
+          buttonX: anchor(legacy.x, legacy.width, legacy.indicator?.x),
+          buttonY: anchor(legacy.y, legacy.height, legacy.indicator?.y),
+          arrowRotation: typeof legacy.arrowRotation === 'number' && Number.isFinite(legacy.arrowRotation) ? ((legacy.arrowRotation % 360) + 360) % 360 : undefined,
+        }];
+      });
+    });
   }
 
   private validateRoom(value: unknown, index: number, itemIds: Set<string>, eventIds: Set<string>): EditorRoom {
@@ -433,6 +488,8 @@ export class EditorProject {
   private validateHotspot(value: unknown, index: number, itemIds: Set<string>, eventIds: Set<string>): EditorHotspot[] {
     if (!value || typeof value !== 'object') return [];
     const hotspot = value as Partial<EditorHotspot>;
+    // "Mudar de sala" virou conexão: migratedMoveConnections já cuidou deste aqui.
+    if ((value as LegacyMoveHotspot).action === 'move') return [];
     const number = (candidate: unknown, fallback: number, min: number, max: number): number => typeof candidate === 'number' && Number.isFinite(candidate) ? Math.max(min, Math.min(max, candidate)) : fallback;
     const action = ACTIONS.has(hotspot.action as EditorHotspotAction) ? hotspot.action as EditorHotspotAction : 'examine';
     const item = itemIds.has(String(hotspot.item)) ? hotspot.item : undefined;
@@ -453,9 +510,6 @@ export class EditorProject {
       width: number(hotspot.width, 18, 1, 400), height: number(hotspot.height, 18, 1, 400),
       action, message: String(hotspot.message ?? 'Você examina o objeto.'), item, requiresItem,
       grantsFlag: typeof hotspot.grantsFlag === 'string' ? hotspot.grantsFlag : undefined,
-      targetRoomId: typeof hotspot.targetRoomId === 'string' ? hotspot.targetRoomId : undefined,
-      targetLevelId: typeof hotspot.targetLevelId === 'string' && hotspot.targetLevelId ? hotspot.targetLevelId : undefined,
-      arrowRotation: typeof hotspot.arrowRotation === 'number' && Number.isFinite(hotspot.arrowRotation) ? ((hotspot.arrowRotation % 360) + 360) % 360 : undefined,
       event, once: hotspot.once === true,
       highlightColor: typeof hotspot.highlightColor === 'string' && /^#[0-9a-f]{6}$/i.test(hotspot.highlightColor) ? hotspot.highlightColor : '#d7df77',
       highlightOpacity: number(hotspot.highlightOpacity, .22, .05, .65),

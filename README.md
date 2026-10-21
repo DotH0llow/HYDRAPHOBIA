@@ -39,10 +39,20 @@ conexão herdada. O nome do nível aberto é editável no painel lateral (ou pel
 nível na lista), e *Excluir nível* remove o nível inteiro junto com os caminhos que
 apontavam para ele.
 
-**Caminhos entre níveis.** Todo destino — tanto de um caminho quanto de um interagível de
-"Mudar de sala" — tem primeiro um seletor de **nível** e depois a lista de salas daquele
-nível. O jogo carrega todos os níveis em um mundo só, então a passagem funciona direto,
-inclusive no modo de teste.
+**Caminhos.** Um caminho é o único interagível que leva o jogador a outra sala: arraste o
+ponto ◉ de um bloco até outro no mapa e ele nasce. Ele tem a mesma aparência no editor e
+no jogo — a seta redonda com a etiqueta do destino — e é arrastável sobre a cena para
+escolher onde o botão aparece. Projetos antigos que usavam a ação "Mudar de sala" em um
+interagível são convertidos em caminhos ao serem abertos, no mesmo ponto da tela.
+
+**Caminhos entre níveis.** O destino de um caminho tem primeiro um seletor de **nível** e
+depois a lista de salas daquele nível. O jogo carrega todos os níveis em um mundo só,
+então a passagem funciona direto, inclusive no modo de teste.
+
+**Enquadramento.** A cena é sempre enquadrada em 16:9 e ampliada até cobrir a tela, tanto
+no palco do editor quanto no jogo: uma coordenada em % cai no mesmo ponto da imagem nos
+dois. O contorno tracejado sobre o palco marca o que a janela atual do jogador mostra —
+o que fica fora dele é cortado.
 
 **Copiar e colar.** `Ctrl+C` copia o que estiver selecionado — interagível, foco de luz,
 sala, item ou entidade — e `Ctrl+V` cola uma cópia independente, com id próprio e
@@ -63,23 +73,35 @@ Para disponibilizar novas imagens no seletor, coloque os arquivos em `public/ass
 
 **Novo jogo** abre a tela de registros: quatro campanhas independentes, cada uma com o
 próprio personagem e o próprio progresso. Ao escolher um registro vazio (ou substituir um
-existente) começa a criação do personagem, em cinco etapas com botão de voltar em todas:
+existente) começa a criação do personagem, em seis etapas com botão de voltar em todas.
+Cada etapa exige exatamente uma escolha, e o botão de continuar só liga depois dela:
 
 1. **Gênero** — masculino ou feminino. Define quais arquivos de voz tocam no jogo.
 2. **Classe** — explorador, técnico, adolescente ou cavaleiro.
-3. **Nome** — até 18 caracteres.
+3. **Nome** — de 3 a 26 caracteres, ao lado da arte da classe escolhida.
 4. **Fobia** — doze opções: nictofobia, claustrofobia, hemofobia, monofobia,
    talassofobia, escopofobia, automatonofobia, necrofobia, fonofobia, mecanofobia,
    tanatofobia e apeirofobia.
 5. **Item inicial** — uma entre quatro opções, entregue no inventário ao começar.
+6. **Modo** — clássico (com interface) ou imersivo (a tela fica só com a cena).
+
+A tela não tem caixas: o título, os numerais e a regra da etapa ficam no canto superior
+esquerdo, as opções ocupam o resto da tela e "Voltar" e "Continuar" ficam no meio da base.
 
 Classe e fobia ficam gravadas no registro e aparecem na lista de campanhas; por enquanto
-não alteram as mecânicas. Gênero e item inicial já têm efeito no jogo.
+não alteram as mecânicas. Gênero, item inicial e modo já têm efeito no jogo.
+
+> As artes femininas das classes ainda não existem em `public/assets/characters`. Assim
+> que os arquivos `<classe>_feminino.webp` forem adicionados, basta incluir o id da classe
+> em `FEMALE_CLASS_ART_READY` (`src/config/character.ts`) para a tela passar a usá-los.
 
 ## Sistemas implementados
 
 - Sete pontos de exploração conectados, com quatro cenários e duas entidades originais.
-- Hotspots com highlight e descrições contextuais; os de "Mudar de sala" aparecem como setas.
+- Hotspots com highlight e descrições contextuais; caminhos entre salas com seta e etiqueta.
+- Legendas que somem após dez segundos e caixa de inventário que só aparece por quatro
+  segundos, depois de uma interação ou de um item recebido.
+- Modo imersivo: a campanha roda sem nenhuma peça de interface sobre a cena.
 - Inventário com usar, examinar, descartar e aplicação direta no cenário.
 - Vida, fome e sede atualizadas por tempo decorrido.
 - Recursos consumíveis: ração, água de amêndoas e kit médico.

@@ -120,15 +120,20 @@ describe('iluminação das salas', () => {
     expect(light).toMatchObject({ x: 100, y: 0, radius: 60, intensity: 1, color: '#fffbe8', angle: 40, shape: 'circle', flicker: 1 });
   });
 
-  it('leva a rotação da seta de "Mudar de sala" até a engine', () => {
+  it('leva a rotação da seta de um caminho até a engine', () => {
     const project = new EditorProject(null);
-    const room = project.activeLevel.rooms[0]!;
-    const hotspot = project.addHotspot(room.id)!;
-    hotspot.action = 'move';
-    hotspot.arrowRotation = 270;
-    const runtime = levelToWorld(project.activeLevel).rooms[room.id]!.hotspots.find((entry) => entry.id === hotspot.id)!;
-    expect(runtime.kind).toBe('move');
-    expect(runtime.arrowRotation).toBe(270);
+    const level = project.activeLevel;
+    const room = level.rooms[0]!;
+    const connection = project.addConnection(room.id, level.rooms[1]!.id)!;
+    connection.direction = 'left';
+    connection.arrowRotation = 270;
+    connection.buttonX = 18;
+    connection.buttonY = 62;
+    const exit = levelToWorld(level).rooms[room.id]!.exits.left!;
+    expect(exit.to).toBe(level.rooms[1]!.id);
+    expect(exit.arrowRotation).toBe(270);
+    expect(exit.buttonX).toBe(18);
+    expect(exit.buttonY).toBe(62);
   });
 });
 

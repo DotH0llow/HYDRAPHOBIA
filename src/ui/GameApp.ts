@@ -1,5 +1,5 @@
 import { ITEMS, type ItemDefinition, type RoomDefinition } from '../config/world';
-import { allIllustrated, CLASSES, DEFAULT_CHARACTER, GENDERS, labelOf, MAX_CHARACTER_NAME, PHOBIAS, sanitizeCharacterName, STARTING_ITEMS } from '../config/character';
+import { allIllustrated, CLASSES, classArtFor, DEFAULT_CHARACTER, GENDERS, labelOf, MAX_CHARACTER_NAME, MIN_CHARACTER_NAME, MODES, PHOBIAS, sanitizeCharacterName, STARTING_ITEMS } from '../config/character';
 import { Game } from '../core/Game';
 import { EditorProject } from '../editor/EditorProject';
 import { entitiesToRuntime, itemsToRuntime, projectToWorld } from '../editor/mapAdapter';
@@ -13,7 +13,7 @@ import { HUNGER_LOW_THRESHOLD, HUNGER_THRESHOLD, THIRST_LOW_THRESHOLD, THIRST_TH
 import { drawRoomLighting, hasFlicker } from '../systems/lighting';
 import { labelAnchorOf } from '../systems/hotspots';
 import { createSlot, SaveSystem } from '../systems/SaveSystem';
-import { SAVE_SLOT_COUNT, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type Preferences, type RoomId, type SaveData, type SaveSlot, type Screen } from '../types';
+import { SAVE_SLOT_COUNT, type CharacterClassId, type CharacterGender, type CharacterMode, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type PhobiaId, type Preferences, type RoomId, type SaveData, type SaveSlot, type Screen } from '../types';
 
 type NumericPreferenceKey = Exclude<keyof Preferences, 'showHealthBar'>;
 /** Uma pergunta de sim/nao desenhada pelo proprio jogo, com a acao ja escolhida. */
@@ -26,8 +26,28 @@ interface ConfirmRequest {
 }
 type SlotMode = 'new' | 'continue';
 /** Passos da criação do personagem, na ordem em que o jogador os percorre. */
-const CREATE_STEPS = ['gender', 'class', 'name', 'phobia', 'item'] as const;
+const CREATE_STEPS = ['gender', 'class', 'name', 'phobia', 'item', 'mode'] as const;
 type CreateStep = typeof CREATE_STEPS[number];
+
+/**
+ * O personagem em construção. Cada escolha nasce vazia de propósito: o jogador tem
+ * de escolher uma opção — e só uma — em cada passo antes de poder seguir.
+ */
+interface CharacterDraft {
+  name: string;
+  gender: CharacterGender | null;
+  classId: CharacterClassId | null;
+  phobia: PhobiaId | null;
+  startingItem: ItemId | null;
+  mode: CharacterMode | null;
+}
+
+const emptyDraft = (): CharacterDraft => ({ name: '', gender: null, classId: null, phobia: null, startingItem: null, mode: null });
+
+/** Quanto tempo a caixa do inventário fica à vista depois de uma interação. */
+const INVENTORY_HINT_MS = 4000;
+/** Quanto tempo uma legenda fica na tela antes de desaparecer. */
+const MESSAGE_LIFETIME_MS = 10000;
 
 const DANGER_CUES: Record<number, Cue[]> = {
   1: ['discomfort'],
@@ -70,7 +90,14 @@ export class GameApp {
   private activeSlot: number | null = null;
   private slotMode: SlotMode = 'new';
   private createStep: CreateStep = 'gender';
-  private draft: CharacterProfile = { ...DEFAULT_CHARACTER };
+  private draft: CharacterDraft = emptyDraft();
+  /** Modo imersivo: o jogo roda sem nenhuma peça de interface sobre a cena. */
+  private immersive = false;
+  /** Até quando a caixa do inventário fica visível; ela só aparece por um tempo. */
+  private inventoryHintUntil = 0;
+  /** Quando a legenda atual entrou na tela, para ela sair sozinha depois. */
+  private messageShownAt = 0;
+  private shownMessage = '';
   /** Confirmação dentro do jogo; `window.confirm` não aparece em todos os navegadores. */
   private confirm: ConfirmRequest | null = null;
   /** Salas do projeto inteiro, para a miniatura de cada registro na tela de campanhas. */
@@ -146,6 +173,7 @@ export class GameApp {
       const { name: _name, ...rest } = this.draft;
       return `create:${this.createStep}:${JSON.stringify(rest)}${dialog}`;
     }
+    this.trackMessage();
     if (this.screen !== 'game' || !this.game) return `${this.screen}:${this.inventoryOpen}:${this.focusedItem ?? ''}:${JSON.stringify(this.save.preferences)}${dialog}`;
     return JSON.stringify({
       screen: this.screen,
@@ -160,6 +188,9 @@ export class GameApp {
       selectedItem: this.game.selectedItem,
       devPanelOpen: this.devPanelOpen,
       flags: this.game.flags,
+      immersive: this.immersive,
+      message: this.messageVisible() ? this.game.message : '',
+      inventoryHint: this.inventoryHintVisible(),
       showHealthBar: this.save.preferences.showHealthBar,
       anxietyTier: this.game.anxietyLevel,
       jumpscare: Date.now() < this.jumpscareUntil,
@@ -303,6 +334,11 @@ export class GameApp {
 
   // --- criação de personagem ---
 
+  /**
+   * A cena da criação não tem caixa nenhuma: o título, os numerais e a etapa ficam no
+   * canto superior esquerdo, as opções ocupam a tela toda e só "Voltar" e "Continuar"
+   * ficam no meio da base, tudo flutuando sobre o fundo.
+   */
   private createTemplate(): string {
     const step = this.createStep;
     const index = CREATE_STEPS.indexOf(step);
@@ -310,12 +346,15 @@ export class GameApp {
     return `<main class="create-screen">
       <img src="/assets/scenes/reception.jpg" alt="" />
       <div class="settings-shade"></div>
-      <section class="create-panel">
-        <small>CRIAÇÃO DE PERSONAGEM · REGISTRO ${String((this.activeSlot ?? 0) + 1).padStart(2, '0')}</small>
-        <h1>${this.createStepTitle(step)}</h1>
-        <ol class="create-steps" aria-label="Etapas">
-          ${CREATE_STEPS.map((entry, position) => `<li class="${position === index ? 'active' : position < index ? 'done' : ''}" title="${entry}">${String(position + 1).padStart(2, '0')}</li>`).join('')}
-        </ol>
+      <section class="create-panel create-step-${step}">
+        <div class="create-head">
+          <small>CRIAÇÃO DE PERSONAGEM · REGISTRO ${String((this.activeSlot ?? 0) + 1).padStart(2, '0')}</small>
+          <h1>${this.createStepTitle(step)}</h1>
+          <ol class="create-steps" aria-label="Etapas">
+            ${CREATE_STEPS.map((entry, position) => `<li class="${position === index ? 'active' : position < index ? 'done' : ''}" title="${entry}">${String(position + 1).padStart(2, '0')}</li>`).join('')}
+          </ol>
+          <p class="create-rule">${this.createStepRule(step)}</p>
+        </div>
         <div class="create-body">${this.createStepBody(step)}</div>
         <div class="create-nav">
           <button data-action="create-back">${index === 0 ? 'Voltar aos registros' : 'Voltar'}</button>
@@ -325,27 +364,50 @@ export class GameApp {
     </main>`;
   }
 
+  /** Toda pergunta da criação termina em interrogação. */
   private createStepTitle(step: CreateStep): string {
-    return { gender: 'Quem atravessou a parede?', class: 'O que você era antes', name: 'Como se chama', phobia: 'O que te paralisa', item: 'O que trouxe no bolso' }[step];
+    return {
+      gender: 'Quem atravessou a parede?',
+      class: 'O que você era antes?',
+      name: 'Como se chama?',
+      phobia: 'O que te paralisa?',
+      item: 'O que trouxe no bolso?',
+      mode: 'Como quer atravessar?',
+    }[step];
   }
 
+  /** A regra do passo, dita antes de o jogador descobrir o botão desligado. */
+  private createStepRule(step: CreateStep): string {
+    if (step === 'name') return `De ${MIN_CHARACTER_NAME} a ${MAX_CHARACTER_NAME} letras.`;
+    return 'Escolha uma opção — apenas uma.';
+  }
+
+  /** Cada passo exige exatamente uma escolha; o nome exige o mínimo de letras. */
   private createStepReady(step: CreateStep): boolean {
-    return step !== 'name' || sanitizeCharacterName(this.draft.name).length > 0;
+    switch (step) {
+      case 'gender': return this.draft.gender !== null;
+      case 'class': return this.draft.classId !== null;
+      case 'phobia': return this.draft.phobia !== null;
+      case 'item': return this.draft.startingItem !== null;
+      case 'mode': return this.draft.mode !== null;
+      case 'name': return sanitizeCharacterName(this.draft.name).length >= MIN_CHARACTER_NAME;
+    }
   }
 
   private createStepBody(step: CreateStep): string {
     switch (step) {
       case 'gender': return this.optionGrid(GENDERS, this.draft.gender, 'gender');
-      case 'class': return this.optionGrid(CLASSES, this.draft.classId, 'classId');
+      case 'class': return this.optionGrid(this.classOptions(), this.draft.classId, 'classId');
       case 'phobia': return this.optionGrid(PHOBIAS, this.draft.phobia, 'phobia');
       case 'item': return this.startingItemGrid();
+      case 'mode': return this.optionGrid(MODES, this.draft.mode, 'mode');
       case 'name': {
-        // O retrato é a arte do gênero já escolhido: quem está sendo batizado fica à vista.
-        const portrait = GENDERS.find((option) => option.id === this.draft.gender)?.image;
+        // O retrato é a arte da classe escolhida: quem está sendo batizado fica à vista.
+        const portrait = this.draft.classId ? classArtFor(this.draft.classId, this.draft.gender ?? 'male') : undefined;
         return `<div class="create-name-row">
-          <div>
+          <div class="create-name-field">
             <label class="create-name"><span>Nome do personagem</span>
-              <input type="text" maxlength="${MAX_CHARACTER_NAME}" value="${esc(this.draft.name)}" data-draft="name" placeholder="Até ${MAX_CHARACTER_NAME} caracteres" /></label>
+              <input type="text" maxlength="${MAX_CHARACTER_NAME}" value="${esc(this.draft.name)}" data-draft="name" placeholder="${MIN_CHARACTER_NAME} a ${MAX_CHARACTER_NAME} caracteres" /></label>
             <p class="setting-help">O nome aparece na lista de registros e nas anotações do jogo.</p>
           </div>
           ${portrait ? `<div class="create-portrait"><img src="${esc(portrait)}" alt="" /></div>` : ''}
@@ -354,11 +416,17 @@ export class GameApp {
     }
   }
 
-  private optionGrid<Id extends string>(options: ReadonlyArray<{ id: Id; label: string; description: string; icon: string; image?: string }>, selected: Id, field: string): string {
+  /** As classes com a arte do gênero já escolhido. */
+  private classOptions(): ReadonlyArray<{ id: CharacterClassId; label: string; description: string; icon: string; image?: string }> {
+    const gender = this.draft.gender ?? 'male';
+    return CLASSES.map((option) => ({ ...option, image: classArtFor(option.id, gender) }));
+  }
+
+  private optionGrid<Id extends string>(options: ReadonlyArray<{ id: Id; label: string; description: string; icon: string; image?: string }>, selected: Id | null, field: string): string {
     // Com arte em todas as opções o card vira a própria ilustração, com o texto por cima.
     const illustrated = allIllustrated(options);
-    return `<div class="option-grid ${illustrated ? 'illustrated' : ''}">${options.map((option) => `
-      <button class="option-card ${option.id === selected ? 'selected' : ''}" data-action="draft-set" data-field="${field}" data-value="${esc(option.id)}">
+    return `<div class="option-grid ${illustrated ? 'illustrated' : ''}" role="radiogroup">${options.map((option) => `
+      <button class="option-card ${option.id === selected ? 'selected' : ''}" role="radio" aria-checked="${option.id === selected}" data-action="draft-set" data-field="${field}" data-value="${esc(option.id)}">
         ${illustrated ? `<img class="option-art" src="${esc(option.image!)}" alt="" loading="lazy" />` : ''}
         <i>${esc(option.icon)}</i><b>${esc(option.label)}</b><small>${esc(option.description)}</small>
       </button>`).join('')}</div>`;
@@ -367,8 +435,8 @@ export class GameApp {
   private startingItemGrid(): string {
     const offered = STARTING_ITEMS.map((id) => ({ id, item: this.items[id] })).filter((entry) => entry.item);
     const illustrated = offered.length > 0 && offered.every((entry) => Boolean(entry.item!.image));
-    return `<div class="option-grid ${illustrated ? 'illustrated' : ''}">${offered.map(({ id, item }) => `
-      <button class="option-card ${this.draft.startingItem === id ? 'selected' : ''}" data-action="draft-set" data-field="startingItem" data-value="${esc(id)}">
+    return `<div class="option-grid ${illustrated ? 'illustrated' : ''}" role="radiogroup">${offered.map(({ id, item }) => `
+      <button class="option-card ${this.draft.startingItem === id ? 'selected' : ''}" role="radio" aria-checked="${this.draft.startingItem === id}" data-action="draft-set" data-field="startingItem" data-value="${esc(id)}">
         ${illustrated ? `<img class="option-art" src="${esc(item!.image!)}" alt="" loading="lazy" />` : ''}
         <i>${!illustrated && item!.image ? `<img src="${esc(item!.image)}" alt="" />` : esc(item!.icon)}</i><b>${esc(item!.name)}</b><small>${esc(item!.description)}</small>
       </button>`).join('')}</div>`;
@@ -379,15 +447,20 @@ export class GameApp {
     const room = this.game.room;
     const exits = Object.entries(room.exits) as Array<[Direction, NonNullable<typeof room.exits[Direction]>]>;
     const condition = this.conditionClasses();
-    return `<main class="game-screen ${condition}">
+    // No modo imersivo nada de interface entra na tela: só a cena e o que está nela.
+    const hud = !this.immersive;
+    return `<main class="game-screen ${condition}${hud ? '' : ' immersive'}">
       <section class="scene" aria-label="${room.name}">
-        <img src="${room.image}" alt="${room.description}" />
+        <div class="scene-frame">
+          <img src="${room.image}" alt="${room.description}" />
+          <canvas class="scene-darkness-canvas" data-role="scene-darkness" aria-hidden="true"></canvas>
+          ${this.hotspotMarkup(room)}
+          <nav class="movement" aria-label="Movimentação">${exits.map(([direction, exit]) => this.movementButton(direction, exit)).join('')}</nav>
+        </div>
         <div class="scene-grade"></div><div class="scene-noise"></div>
-        <canvas class="scene-darkness-canvas" data-role="scene-darkness" aria-hidden="true"></canvas>
-        ${this.hotspotMarkup(room)}
       </section>
       <div class="blood-overlay" data-blood-level="${this.bloodLevel()}" aria-hidden="true"><i></i><i></i><i></i></div>
-      <header class="game-header">
+      ${hud ? `<header class="game-header">
         <div class="room-id"><small>${room.code}</small><strong>${room.name}</strong></div>
         <div class="survival-bars">
           ${this.statBar('anxiety', 'ANSIEDADE', this.game.stats.anxiety)}
@@ -395,12 +468,9 @@ export class GameApp {
           ${this.statBar('hunger', 'FOME', this.game.stats.hunger)}
           ${this.save.preferences.showHealthBar ? this.statBar('health', 'VIDA', this.game.stats.health) : ''}
         </div>
-      </header>
-      <nav class="movement" aria-label="Movimentação">
-        ${exits.map(([direction, exit]) => this.movementButton(direction, exit)).join('')}
-      </nav>
-      <div class="message-strip" role="status"><i></i><p>${this.game.message}</p></div>
-      <button class="inventory-button ${this.game.selectedItem ? 'item-selected' : ''}" data-action="inventory"><span>▦</span><b>Inventário</b><small>${this.itemCountLabel()}</small></button>
+      </header>` : ''}
+      ${hud && this.messageVisible() ? `<div class="message-strip" role="status"><i></i><p>${esc(this.game.message)}</p></div>` : ''}
+      ${hud && this.inventoryHintVisible() ? `<button class="inventory-button ${this.game.selectedItem ? 'item-selected' : ''}" data-action="inventory"><span>▦</span><b>Inventário</b><small>${this.itemCountLabel()}</small></button>` : ''}
       ${this.inventoryOpen ? this.inventoryTemplate() : ''}
       ${this.game.encounter ? this.encounterTemplate() : ''}
       ${this.game.status === 'cutscene' ? this.cutsceneTemplate() : ''}
@@ -418,7 +488,8 @@ export class GameApp {
     const x = exit.buttonX ?? fallback.x;
     const y = exit.buttonY ?? fallback.y;
     const rotation = exit.arrowRotation ?? this.defaultArrowRotation(direction);
-    return `<button class="move-btn ${locked ? 'locked' : ''}" data-action="move" data-direction="${direction}" aria-label="${exit.label}" style="left:${x}%;top:${y}%"><i style="--rotate:${rotation}deg">↑</i><span>${exit.label}</span></button>`;
+    // A classe `path-marker` é a mesma do editor: o caminho tem uma aparência só.
+    return `<button class="path-marker move-btn ${locked ? 'locked' : ''}" data-action="move" data-direction="${direction}" aria-label="${esc(exit.label)}" style="left:${x}%;top:${y}%"><i style="--rotate:${rotation}deg">↑</i><span>${esc(exit.label)}</span></button>`;
   }
 
   private defaultButtonPosition(direction: Direction): { x: number; y: number } {
@@ -439,18 +510,34 @@ export class GameApp {
       const invisible = hotspot.visibility === 'invisible' && !revealed;
       const indicator = hotspot.indicator ?? { x: 50, y: 50 };
       const label = labelAnchorOf(hotspot);
-      // "Mudar de sala" é um caminho, não um objeto: o jogador vê uma seta.
-      const arrow = hotspot.kind === 'move';
-      const marker = arrow
-        ? `<i class="hotspot-marker hotspot-arrow${invisible ? ' invisible-hotspot' : ''}" style="left:${indicator.x}%;top:${indicator.y}%;--rotate:${hotspot.arrowRotation ?? 0}deg">↑</i>`
-        : `<i class="hotspot-marker${invisible ? ' invisible-hotspot' : ''}" style="left:${indicator.x}%;top:${indicator.y}%"></i>`;
-      return `<div class="hotspot-group${invisible ? ' hotspot-invisible' : ''}${arrow ? ' hotspot-move' : ''}" style="--x:${hotspot.x}%;--y:${hotspot.y}%;--w:${hotspot.width}%;--h:${hotspot.height}%">
+      const marker = `<i class="hotspot-marker${invisible ? ' invisible-hotspot' : ''}" style="left:${indicator.x}%;top:${indicator.y}%"></i>`;
+      return `<div class="hotspot-group${invisible ? ' hotspot-invisible' : ''}" style="--x:${hotspot.x}%;--y:${hotspot.y}%;--w:${hotspot.width}%;--h:${hotspot.height}%">
         <button class="hotspot-hitbox" data-action="hotspot" data-hotspot="${hotspot.id}" style="${clip}" aria-label="${hotspot.label}"></button>
         ${marker}
         <span class="hotspot-label" style="left:${label.x}%;top:${label.y}%">${hotspot.label}</span>
       </div>`;
     }).join('');
   }
+
+  /**
+   * Legenda com prazo: ela entra quando o texto muda e some dez segundos depois.
+   * Guardar o instante aqui, no desenho, mantém o relógio preso ao que está na tela.
+   */
+  private trackMessage(): void {
+    const message = this.game?.message ?? '';
+    if (message === this.shownMessage) return;
+    this.shownMessage = message;
+    this.messageShownAt = message ? Date.now() : 0;
+  }
+
+  private messageVisible(): boolean {
+    return Boolean(this.game?.message) && Date.now() - this.messageShownAt < MESSAGE_LIFETIME_MS;
+  }
+
+  private inventoryHintVisible(): boolean { return Date.now() < this.inventoryHintUntil; }
+
+  /** A caixa do inventário aparece só nestes momentos, e por quatro segundos. */
+  private showInventoryHint(): void { this.inventoryHintUntil = Date.now() + INVENTORY_HINT_MS; }
 
   private itemCountLabel(): string {
     const total = this.game?.inventory.reduce((sum, item) => sum + item.quantity, 0) ?? 0;
@@ -592,7 +679,7 @@ export class GameApp {
     return `<div class="dev-voices">
       <span>Forçar vocalização</span>
       <div>${metrics.map(([metric, label]) => `<button data-action="dev-voice" data-metric="${metric}">${label}</button>`).join('')}</div>
-      <small data-role="dev-voice-status">Toca o som que a métrica dispararia agora.</small>
+      <small data-role="dev-voice-status">Toca em sequência os arquivos da métrica, um por clique.</small>
     </div>`;
   }
 
@@ -765,7 +852,7 @@ export class GameApp {
   private startCharacterCreation(index: number): void {
     if (!Number.isInteger(index) || index < 0 || index >= SAVE_SLOT_COUNT) return;
     this.activeSlot = index;
-    this.draft = { ...DEFAULT_CHARACTER, name: '' };
+    this.draft = emptyDraft();
     this.createStep = 'gender';
     this.screen = 'create';
     this.audio.play('click');
@@ -808,6 +895,8 @@ export class GameApp {
     this.activeSlot = null;
     this.inventoryOpen = false;
     this.confirm = null;
+    this.immersive = false;
+    this.inventoryHintUntil = 0;
     this.audio.stopAll();
     this.audio.play('click');
   }
@@ -818,11 +907,13 @@ export class GameApp {
     void this.audio.resumeGameplay().then(() => this.audio.play('click')).catch(() => undefined);
   }
 
+  /** Uma escolha por passo: marcar uma opção substitui a anterior, nunca soma. */
   private applyDraft(field: string, value: string): void {
     if (field === 'gender' && (value === 'male' || value === 'female')) this.draft.gender = value;
-    else if (field === 'classId') this.draft.classId = value as CharacterProfile['classId'];
-    else if (field === 'phobia') this.draft.phobia = value as CharacterProfile['phobia'];
+    else if (field === 'classId') this.draft.classId = value as CharacterClassId;
+    else if (field === 'phobia') this.draft.phobia = value as PhobiaId;
     else if (field === 'startingItem') this.draft.startingItem = value;
+    else if (field === 'mode' && (value === 'classic' || value === 'immersive')) this.draft.mode = value;
     this.audio.play('click');
   }
 
@@ -843,12 +934,22 @@ export class GameApp {
 
   private beginNewGame(): void {
     if (this.activeSlot === null) { this.openSlots('new'); return; }
-    const character: CharacterProfile = { ...this.draft, name: sanitizeCharacterName(this.draft.name) || DEFAULT_CHARACTER.name };
+    const character: CharacterProfile = {
+      name: sanitizeCharacterName(this.draft.name) || DEFAULT_CHARACTER.name,
+      gender: this.draft.gender ?? DEFAULT_CHARACTER.gender,
+      classId: this.draft.classId ?? DEFAULT_CHARACTER.classId,
+      phobia: this.draft.phobia ?? DEFAULT_CHARACTER.phobia,
+      startingItem: this.draft.startingItem ?? DEFAULT_CHARACTER.startingItem,
+      mode: this.draft.mode ?? DEFAULT_CHARACTER.mode,
+    };
     const data = this.currentGameData();
     this.items = data.items;
     this.levelName = data.levelName;
+    this.immersive = character.mode === 'immersive';
     this.game = new Game(undefined, Math.random, data.world, undefined, data.items, data.entities);
     this.game.grantStartingItem(character.startingItem);
+    // Receber o item inicial já é receber um item: a caixa aparece e some sozinha.
+    this.showInventoryHint();
     this.save.slots[this.activeSlot] = createSlot(character);
     this.save.activeSlot = this.activeSlot;
     this.screen = 'game';
@@ -873,6 +974,7 @@ export class GameApp {
     this.levelName = data.levelName;
     this.activeSlot = index;
     this.save.activeSlot = index;
+    this.immersive = slot.character.mode === 'immersive';
     this.game = new Game(slot.game, Math.random, data.world, undefined, data.items, data.entities);
     this.screen = 'game';
     this.inventoryOpen = false;
@@ -898,6 +1000,7 @@ export class GameApp {
     if (!this.game) return;
     const previousRoom = this.game.position;
     const result = this.game.interact(id);
+    this.showInventoryHint();
     this.audio.play(result.pickup ? 'pickup' : result.changed ? 'use' : 'click');
     if (this.game.status === 'hidden' && this.game.pursued) this.audio.playSample(FX_PANIC_ATTACK);
     if (this.game.position !== previousRoom) this.onRoomEntered();
@@ -992,14 +1095,20 @@ export class GameApp {
     }
   }
 
-  /** DEV: toca agora a vocalização da métrica e diz no painel o que saiu. */
+  /**
+   * DEV: toca agora a vocalização da métrica e diz no painel o que saiu. A escolha do
+   * arquivo é sequencial, nunca sorteada: cada clique avança um arquivo da pasta, de
+   * modo que apertar o botão várias vezes percorre a categoria inteira em ordem.
+   */
   private forceVocalization(metric: string): void {
     const category = this.vocalCategoryFor(metric);
     const status = this.root.querySelector<HTMLElement>('[data-role="dev-voice-status"]');
     if (!category) return;
-    const played = this.audio.forceSample(category);
+    const position = this.audio.sequencePosition(category);
+    const played = this.audio.forceSample(category, { sequential: true });
     const name = categoryLabel(category);
-    if (status) status.textContent = played ? `tocando ${name}` : `sem arquivo em ${name}`;
+    const order = position ? ` (${position.index + 1}/${position.total})` : '';
+    if (status) status.textContent = played ? `tocando ${name}${order}` : `sem arquivo em ${name}`;
   }
 
   /** Menu tem a música do menu; o nível 0 tem lobby_lights em todas as salas. */

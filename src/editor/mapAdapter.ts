@@ -13,8 +13,6 @@ const hotspotToRuntime = (hotspot: EditorHotspot): HotspotDefinition => ({
   message: hotspot.message,
   item: hotspot.item,
   requiresItem: hotspot.requiresItem,
-  targetRoom: hotspot.targetRoomId,
-  arrowRotation: hotspot.arrowRotation,
   event: hotspot.event === 'none' ? undefined : hotspot.event,
   grantsFlag: hotspot.grantsFlag,
   once: hotspot.once,

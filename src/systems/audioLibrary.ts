@@ -178,6 +178,10 @@ const CLIP_GAIN: ReadonlyArray<readonly [RegExp, number]> = [
   [/lobby_lights/i, 1.2],
   // A música do lobby soa 5% mais baixa.
   [/lobby_song/i, 0.95],
+  // A respiração inquieta masculina 1 soa 30% mais baixa.
+  [/^ANXIETY_MALE_BREATHING_UNEASY_1\./i, 0.7],
+  // O primeiro batimento de vida baixa soa 15% mais baixo.
+  [/^heartbeat_1\./i, 0.85],
 ];
 
 export const clipGain = (path: string): number => {

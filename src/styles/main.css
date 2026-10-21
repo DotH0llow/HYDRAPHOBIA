@@ -1,3 +1,5 @@
+@import './paths.css';
+
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #e8e6d8;
@@ -44,9 +46,17 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 /* Gameplay scene */
 .game-screen { position: relative; width: 100vw; height: 100vh; overflow: hidden; background: #020302; user-select: none; }
 .scene { position: absolute; inset: 0; overflow: hidden; background: #050604; animation: scene-enter .48s ease both; }
-.scene > img { width: 100%; height: 100%; object-fit: cover; display: block; transform: scale(1.015); }
+/*
+ * Moldura de referência da cena: o mesmo 16:9 do palco do editor, ampliado até cobrir
+ * a janela. A imagem, a escuridão, os interagíveis e os caminhos ficam todos dentro
+ * dela, então uma coordenada em % cai no mesmo ponto da imagem no editor e no jogo.
+ * Sem a moldura a janela do jogador recortava a imagem num enquadramento diferente e
+ * tudo o que foi posicionado no editor aparecia deslocado para baixo.
+ */
+.scene-frame { position: absolute; left: 50%; top: 50%; width: max(100vw, 177.7778vh); height: max(100vh, 56.25vw); transform: translate(-50%, -50%); }
+.scene-frame > img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .scene-grade { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 46%, transparent 35%, #010201a8 100%), linear-gradient(0deg, #0008, transparent 20% 75%, #0007); box-shadow: inset 0 0 7vw #000; }
-.scene-darkness-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+.scene-darkness-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
 .scene-noise { z-index: 2; }
 .hotspot-group { --x: 0%; --y: 0%; --w: 10%; --h: 10%; position: absolute; z-index: 5; left: var(--x); top: var(--y); width: var(--w); height: var(--h); }
 .hotspot-hitbox { position: absolute; inset: 0; padding: 0; border: 0; background: transparent; cursor: pointer; }
@@ -81,21 +91,21 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .stat.anx-terrified > b { color: #d0737f; }
 .stat.anx-terrified i { background: #d0737f; }
 .stat.anx-terrified { animation: critical 1.6s ease-in-out infinite; }
-.anxiety-terrified .scene > img { filter: saturate(.82) contrast(1.06); }
+.anxiety-terrified .scene-frame > img { filter: saturate(.82) contrast(1.06); }
 .stat.warning i { filter: brightness(.82) saturate(1.2); }
 .stat.danger { animation: critical 1.2s ease-in-out infinite; }
 
 /* Navigation */
-.movement .move-btn { position: absolute; z-index: 8; width: 58px; height: 58px; padding: 0; border: 0; background: transparent; cursor: pointer; filter: drop-shadow(0 4px 5px #000); transform: translate(-50%, -50%); }
-.movement .move-btn i { display: grid; place-items: center; width: 46px; height: 46px; margin: auto; border: 1px solid #8a896b; background: #0a0c0acb; color: #f0edc3; text-shadow: 0 2px 6px #000; font: normal 2rem "Courier New", monospace; font-style: normal; transform: rotate(var(--rotate, 0deg)); transition: color .18s, transform .18s, background .18s; }
-.movement .move-btn span { display: none; }
-.movement .move-btn:hover i { color: #000; background: var(--acid); transform: scale(1.1) rotate(var(--rotate, 0deg)); }
-.movement .move-btn.locked i { color: #c96a60; }
+/* A aparência do botão de caminho vem de paths.css, compartilhado com o editor. */
+.movement { position: absolute; inset: 0; pointer-events: none; }
+.movement .path-marker { pointer-events: auto; }
 
-.message-strip { position: absolute; z-index: 10; left: 50%; bottom: 1.1rem; width: min(680px, calc(100vw - 360px)); min-height: 58px; transform: translateX(-50%); display: flex; align-items: center; gap: .8rem; padding: .7rem 1rem; border-top: 1px solid #686851; border-bottom: 1px solid #39392f; background: #070907e8; backdrop-filter: blur(6px); }
+/* A legenda vive dez segundos: entra, fica e sai sozinha. */
+.message-strip { position: absolute; z-index: 10; left: 50%; bottom: 1.1rem; width: min(680px, calc(100vw - 360px)); min-height: 58px; transform: translateX(-50%); display: flex; align-items: center; gap: .8rem; padding: .7rem 1rem; border-top: 1px solid #686851; border-bottom: 1px solid #39392f; background: #070907e8; backdrop-filter: blur(6px); pointer-events: none; animation: legend-life 10s linear forwards; }
 .message-strip i { flex: 0 0 7px; width: 7px; height: 7px; background: var(--acid); box-shadow: 0 0 9px var(--acid); }
 .message-strip p { margin: 0; color: #bab9a6; font: .68rem/1.55 Georgia, serif; }
-.inventory-button { position: absolute; z-index: 11; right: 1.2rem; bottom: 1.1rem; width: 150px; min-height: 58px; border: 1px solid #676754; background: #0a0c0ae8; cursor: pointer; display: grid; grid-template-columns: 35px 1fr; text-align: left; padding: .55rem .7rem; }
+/* A caixa do inventário só aparece depois de uma interação, e por quatro segundos. */
+.inventory-button { position: absolute; z-index: 11; right: 1.2rem; bottom: 1.1rem; width: 150px; min-height: 58px; border: 1px solid #676754; background: #0a0c0ae8; cursor: pointer; display: grid; grid-template-columns: 35px 1fr; text-align: left; padding: .55rem .7rem; animation: hint-life 4s linear forwards; }
 .inventory-button > span { grid-row: 1 / 3; align-self: center; color: var(--acid); font-size: 1.5rem; }
 .inventory-button b { align-self: end; font-size: .66rem; text-transform: uppercase; }
 .inventory-button small { align-self: start; color: #777767; font-size: .6rem; }
@@ -118,8 +128,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .item-slot > em { position: absolute; right: .35rem; top: .35rem; color: #0a0c08; background: var(--acid); padding: .12rem .28rem; font: normal .6rem "Courier New", monospace; }
 .item-slot.empty { cursor: default; background: #080a0880; }
 .item-slot.empty small { color: #34362f; }
-.item-details { min-height: 210px; display: grid; grid-template-columns: 110px 1fr; gap: 1.4rem; align-items: center; padding: 1.4rem; border: 1px solid #4b4b3e; background: #090b09; }
-.item-large { color: var(--acid); text-align: center; font: 4.5rem Georgia, serif; }
+.item-details { min-height: 210px; display: grid; grid-template-columns: 76px 1fr; gap: 1.4rem; align-items: center; padding: 1.4rem; border: 1px solid #4b4b3e; background: #090b09; }
+.item-large { display: grid; place-items: center; width: 76px; height: 76px; color: var(--acid); text-align: center; font: 2.6rem Georgia, serif; }
+/* A arte do item selecionado fica presa ao quadro: antes ela saía no tamanho original. */
+.item-large img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .item-details h3 { margin: .35rem 0; font-size: 1.2rem; }
 .item-details p { color: #8f8f82; font: .72rem/1.6 Georgia, serif; }
 .empty-details { grid-column: 1 / -1; align-self: center; text-align: center; }
@@ -167,8 +179,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .blood-overlay[data-blood-level="2"] i:nth-child(3) { display: none; }
 .blood-overlay[data-blood-level="3"] { opacity: .52; }
 /* Único borrão por sede: a partir de 10 ou menos, e de apenas 2px. */
-.scene > img { transition: filter .8s; }
-.thirst-critical .scene > img { filter: blur(2px); }
+.scene-frame > img { transition: filter .8s; }
+.thirst-critical .scene-frame > img { filter: blur(2px); }
 .hunger-low .scene { animation: scene-enter .48s ease both, hunger-shake 7s ease-in-out 1s infinite; }
 .hunger-critical .scene { animation: scene-enter .48s ease both, hunger-shake 3s ease-in-out .5s infinite; }
 
@@ -225,6 +237,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 
 @keyframes noise { to { transform: translate(3px, -2px); } }
 @keyframes scene-enter { from { opacity: .15; filter: blur(5px) brightness(2); transform: scale(1.035); } to { opacity: 1; filter: none; transform: scale(1); } }
+@keyframes legend-life { from { opacity: 0; } 4% , 90% { opacity: 1; } to { opacity: 0; } }
+@keyframes hint-life { from { opacity: 0; } 10%, 82% { opacity: 1; } to { opacity: 0; } }
 @keyframes inventory-in { from { transform: translateX(100%); } }
 @keyframes critical { 50% { opacity: .55; } }
 @keyframes entity-drift { from { transform: scale(1.02); } to { transform: scale(1.07) translateX(.5%); } }
@@ -243,14 +257,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
   .room-id { min-width: 0; width: 44%; }
   .survival-bars { left: .7rem; right: auto; bottom: 5.3rem; gap: .35rem; }
   .stat { width: 132px; padding: 0; }
-  .movement .move-btn { width: 52px; height: 52px; }
-  .movement .move-btn i { width: 39px; height: 39px; }
   .message-strip { left: .6rem; bottom: .6rem; width: calc(100vw - 150px); min-height: 62px; transform: none; }
   .message-strip p { font-size: .66rem; }
   .inventory-button { right: .6rem; bottom: .6rem; width: 130px; min-height: 62px; }
   .inventory-grid { grid-template-columns: repeat(3, 1fr); }
-  .item-details { grid-template-columns: 70px 1fr; padding: .8rem; }
-  .item-large { font-size: 3rem; }
+  .item-details { grid-template-columns: 58px 1fr; padding: .8rem; }
+  .item-large { width: 58px; height: 58px; font-size: 2rem; }
   .encounter-card { margin-top: 34vh; padding: 1rem; }
   .encounter-card h2 { font-size: 1.6rem; }
   .escaped section { margin-left: 0; }
@@ -273,10 +285,26 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
 
+/* Modo imersivo: nada de interface sobre a cena. */
+.game-screen.immersive .game-header,
+.game-screen.immersive .survival-bars,
+.game-screen.immersive .message-strip,
+.game-screen.immersive .inventory-button { display: none; }
+
 /* Registros de save e criação de personagem */
-.slots-panel, .create-panel { position: relative; z-index: 2; width: min(1040px, 94vw); max-height: 88vh; margin: 6vh auto 0; padding: clamp(1.2rem, 3.5vw, 2.6rem); overflow-y: auto; border: 1px solid #565645; background: #0b0d0be8; scrollbar-color: #4a4e41 #0b0d0b; }
-.slots-panel > small, .create-panel > small { color: #909168; font-size: .64rem; }
-.slots-panel h1, .create-panel h1 { margin: .4rem 0 .6rem; font-size: clamp(1.8rem, 4vw, 3.2rem); font-weight: 300; line-height: 1.05; }
+.slots-panel { position: relative; z-index: 2; width: min(1040px, 94vw); max-height: 88vh; margin: 6vh auto 0; padding: clamp(1.2rem, 3.5vw, 2.6rem); overflow-y: auto; border: 1px solid #565645; background: #0b0d0be8; scrollbar-color: #4a4e41 #0b0d0b; }
+.slots-panel > small { color: #909168; font-size: .64rem; }
+.slots-panel h1 { margin: .4rem 0 .6rem; font-size: clamp(1.8rem, 4vw, 3.2rem); font-weight: 300; line-height: 1.05; }
+
+/*
+ * Criação de personagem: nenhuma caixa. O cabeçalho flutua no canto superior esquerdo,
+ * as opções ocupam toda a área livre e só "Voltar" e "Continuar" ficam no meio da base.
+ */
+.create-panel { position: absolute; z-index: 2; inset: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: clamp(.6rem, 1.6vh, 1.4rem); padding: clamp(1rem, 2.6vw, 2.2rem) clamp(1rem, 3vw, 2.6rem) clamp(.9rem, 2vh, 1.6rem); }
+.create-head { justify-self: start; max-width: min(760px, 92vw); text-shadow: 0 2px 14px #000a; }
+.create-head > small { display: block; color: #b4b584; font-size: .64rem; }
+.create-head h1 { margin: .35rem 0 .55rem; font-size: clamp(1.7rem, 3.6vw, 2.9rem); font-weight: 300; line-height: 1.05; }
+.create-rule { margin: .5rem 0 0; color: #93947f; font: .68rem/1.5 "Courier New", monospace; letter-spacing: .06em; }
 .slot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .9rem; margin: 1.4rem 0; }
 .slot-card { display: flex; flex-direction: column; gap: .75rem; padding: 1.1rem; border: 1px solid #4b4b3e; background: #0a0c0a; }
 .slot-card.empty { border-style: dashed; background: #080a0888; }
@@ -308,16 +336,18 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .slot-actions button.discard { border-color: #6b3b36; color: #d99a93; background: #1a0f0e; }
 .slot-actions button.discard:hover { color: #fff; background: #762f2b; }
 .slot-actions button:disabled { opacity: .3; cursor: not-allowed; }
-.slots-panel > button, .create-nav button { min-height: 44px; border: 1px solid #5d5d4b; background: #0d0f0ce6; cursor: pointer; text-transform: uppercase; font: .68rem "Courier New", monospace; letter-spacing: .1em; }
-.slots-panel > button.primary, .create-nav button.primary { color: #11130d; background: var(--acid); font-weight: 700; }
+.slots-panel > button { min-height: 44px; border: 1px solid #5d5d4b; background: #0d0f0ce6; cursor: pointer; text-transform: uppercase; font: .68rem "Courier New", monospace; letter-spacing: .1em; }
+.slots-panel > button.primary { color: #11130d; background: var(--acid); font-weight: 700; }
 .slots-panel > button { width: 100%; }
 
-.create-steps { display: flex; gap: .4rem; margin: 0 0 1.2rem; padding: 0; list-style: none; }
-.create-steps li { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid #45483a; color: #6d7064; font: .6rem "Courier New", monospace; }
+.create-steps { display: flex; gap: .4rem; margin: 0; padding: 0; list-style: none; }
+.create-steps li { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid #45483a; color: #6d7064; background: #0a0c0a8c; font: .6rem "Courier New", monospace; }
 .create-steps li.done { border-color: #6e7347; color: #9ba170; }
 .create-steps li.active { border-color: var(--acid); color: #11130d; background: var(--acid); font-weight: 700; }
-.create-body { min-height: 230px; }
+.create-body { min-height: 0; display: grid; }
 .option-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .55rem; }
+/* As opções esticam até preencher a tela: a arte de cada card cresce com elas. */
+.create-body > .option-grid { height: 100%; grid-auto-rows: minmax(0, 1fr); overflow: auto; scrollbar-color: #4a4e41 transparent; }
 .option-card { display: grid; grid-template-rows: auto auto 1fr; gap: .3rem; padding: 1rem .9rem; border: 1px solid #48483d; background: #0a0c0a; cursor: pointer; text-align: left; transition: border-color .18s, background .18s; }
 .option-card:hover { border-color: #8f9463; background: #15180f; }
 .option-card.selected { border-color: var(--acid); background: #1b1e14; box-shadow: inset 0 0 0 1px var(--acid); }
@@ -327,7 +357,19 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .option-card small { color: #83837a; font: .64rem/1.45 Georgia, serif; letter-spacing: 0; }
 /* Grade ilustrada: a arte ocupa o card inteiro e o texto fica por cima, no rodapé. */
 .option-grid.illustrated { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
-.option-grid.illustrated .option-card { position: relative; display: flex; flex-direction: column; justify-content: flex-end; gap: .2rem; min-height: clamp(260px, 38vh, 420px); padding: .9rem; overflow: hidden; background: #050605; }
+.option-grid.illustrated .option-card { position: relative; display: flex; flex-direction: column; justify-content: flex-end; gap: .2rem; min-height: clamp(180px, 26vh, 420px); padding: .9rem; overflow: hidden; background: #050605; }
+/* Gênero e classe são painéis de tela cheia: dois ou quatro, lado a lado. */
+.create-step-gender .option-grid.illustrated { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.create-step-class .option-grid.illustrated { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+/* Fobias e itens mantêm a caixa de cada opção, com a arte maior. */
+.create-step-phobia .option-grid.illustrated { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.create-step-item .option-grid.illustrated { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+/* O último passo tem duas opções de texto: elas ficam centradas, sem esticar a tela. */
+.create-step-mode .create-body > .option-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: auto; align-content: center; justify-self: center; width: min(1040px, 100%); overflow: visible; }
+.create-step-mode .option-card { align-content: center; gap: .5rem; min-height: clamp(170px, 26vh, 300px); padding: 1.6rem; }
+.create-step-mode .option-card i { font-size: 2.4rem; }
+.create-step-mode .option-card b { font-size: 1.1rem; }
+.create-step-mode .option-card small { font-size: .74rem; }
 .option-card .option-art { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; filter: saturate(.85) contrast(1.05) brightness(.92); transition: transform .3s, filter .3s; }
 .option-grid.illustrated .option-card::after { content: ''; position: absolute; z-index: 1; inset: 0; background: linear-gradient(180deg, #05060500 38%, #050605cc 72%, #050605f2 100%); }
 .option-grid.illustrated .option-card > i, .option-grid.illustrated .option-card > b, .option-grid.illustrated .option-card > small { position: relative; z-index: 2; }
@@ -336,17 +378,17 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .option-grid.illustrated .option-card.selected .option-art { filter: saturate(1) contrast(1.1) brightness(1.04); }
 
 /* Etapa do nome: campo à esquerda, retrato do gênero escolhido à direita. */
-.create-name-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 420px); gap: clamp(1rem, 4vw, 3rem); align-items: start; }
-.create-portrait { overflow: hidden; aspect-ratio: 1; border: 1px solid #40432f; background: #050605; }
-.create-portrait img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center 22%; }
-.create-name { display: block; max-width: 420px; }
+.create-name-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 46vh); gap: clamp(1rem, 4vw, 3rem); align-items: center; height: 100%; }
+.create-name-field { align-self: center; }
+.create-portrait { justify-self: center; align-self: center; overflow: hidden; height: 100%; max-height: 100%; aspect-ratio: 3 / 4; background: #05060500; }
+.create-portrait img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center bottom; filter: drop-shadow(0 12px 32px #000c); }
+.create-name { display: block; max-width: 620px; }
 .create-name span { display: block; margin-bottom: .5rem; color: #b3b2a0; font-size: .72rem; }
-.create-name input { width: 100%; min-height: 48px; padding: .6rem .8rem; border: 1px solid #5b5b48; background: #0d100d; color: #e8e6d8; font-size: 1rem; }
-.create-nav { display: grid; grid-template-columns: 1fr 2fr; gap: .5rem; margin-top: 1.5rem; }
-
-/* Interagíveis de "Mudar de sala": seta em vez do círculo dos objetos */
-.hotspot-marker.hotspot-arrow { display: grid; place-items: center; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 0; border: 1px solid #8a896b; background: #0a0c0acb; color: #f0edc3; text-shadow: 0 2px 6px #000; font: normal 2rem "Courier New", monospace; font-style: normal; transform: rotate(var(--rotate, 0deg)); }
-.hotspot-group.hotspot-move:hover .hotspot-marker.hotspot-arrow { color: #000; background: var(--acid); transform: scale(1.1) rotate(var(--rotate, 0deg)); }
+.create-name input { width: 100%; min-height: 74px; padding: .7rem 1rem; border: 0; border-bottom: 2px solid #8f9463; background: #0a0c0a66; color: #f1efdd; font-size: clamp(1.3rem, 2.4vw, 2rem); letter-spacing: .02em; }
+.create-name input:focus-visible { outline: 0; border-bottom-color: var(--acid); background: #10130f99; }
+.create-nav { justify-self: center; display: grid; grid-template-columns: minmax(150px, 1fr) minmax(190px, 1.4fr); gap: .5rem; width: min(560px, 92vw); }
+.create-nav button { min-height: 44px; border: 1px solid #5d5d4b; background: #0d0f0ce6; cursor: pointer; text-transform: uppercase; font: .68rem "Courier New", monospace; letter-spacing: .1em; }
+.create-nav button.primary { color: #11130d; background: var(--acid); font-weight: 700; }
 
 /* Medidores do DEV sempre à vista */
 .dev-live { position: absolute; z-index: 20; right: .65rem; top: .65rem; display: grid; justify-items: end; gap: .3rem; pointer-events: none; }
@@ -365,14 +407,20 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .dev-panel .dev-meters { width: auto; margin-bottom: .6rem; }
 
 @media (max-width: 760px) {
-  .slots-panel, .create-panel { margin-top: 2vh; max-height: 96vh; padding: 1rem; }
+  .slots-panel { margin-top: 2vh; max-height: 96vh; padding: 1rem; }
+  .create-panel { padding: .9rem; }
   .slot-grid { grid-template-columns: 1fr; }
   .slot-body { grid-template-columns: 84px 1fr; }
   .option-grid { grid-template-columns: 1fr; }
-  .option-grid.illustrated .option-card { min-height: 220px; }
-  .create-name-row { grid-template-columns: 1fr; }
-  .create-portrait { max-width: 260px; }
-  .create-nav { grid-template-columns: 1fr; }
+  .option-grid.illustrated .option-card { min-height: 150px; }
+  .create-step-gender .option-grid.illustrated,
+  .create-step-mode .option-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .create-step-class .option-grid.illustrated,
+  .create-step-item .option-grid.illustrated { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .create-step-phobia .option-grid.illustrated { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .create-name-row { grid-template-columns: 1fr; align-content: center; }
+  .create-portrait { display: none; }
+  .create-nav { grid-template-columns: 1fr 1fr; }
   .dev-meters { width: 124px; }
 }
 .create-nav button:disabled { opacity: .32; cursor: not-allowed; }

@@ -1,3 +1,5 @@
+@import './paths.css';
+
 :root {
   font-size: 18px;
   color: #ecebdc;
@@ -125,6 +127,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .hotspot-summary span { overflow: hidden; font-size: .62rem; text-overflow: ellipsis; white-space: nowrap; }
 .hotspot-summary small { color: #707469; font: .58rem "Courier New", monospace; }
 
+/* Confirmação do próprio editor: window.confirm não aparece em todo navegador. */
+.editor-confirm-layer { position: fixed; z-index: 140; inset: 0; display: grid; place-items: center; padding: 2rem; background: #020303d9; backdrop-filter: blur(6px); }
+.editor-confirm { width: min(460px, 92vw); padding: 1.3rem 1.4rem; border: 1px solid #5a5f49; background: #11140f; box-shadow: 0 24px 70px #000; }
+.editor-confirm small { color: #9aa06c; font: .6rem "Courier New", monospace; letter-spacing: .14em; }
+.editor-confirm h2 { margin: .4rem 0 .5rem; font: 400 1.25rem Georgia, serif; }
+.editor-confirm p { margin: 0 0 1.1rem; color: #a7a899; font: .74rem/1.6 Georgia, serif; }
+.editor-confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.editor-confirm-actions button { min-height: 40px; border: 1px solid #4a4e3f; background: #181c16; color: #d5d6c6; font: .66rem "Courier New", monospace; text-transform: uppercase; letter-spacing: .08em; cursor: pointer; }
+.editor-confirm-actions button:hover { border-color: #8c9164; color: #fff; }
+.editor-confirm-actions button.danger { border-color: #7a3c35; color: #e9b6ae; background: #22100e; }
+.editor-confirm-actions button.danger:hover { color: #fff; background: #7a2f28; }
+
 .hotspot-editor-layer { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 2rem; background: #030403e8; backdrop-filter: blur(8px); }
 .hotspot-editor-window { display: grid; grid-template-rows: 66px 1fr; width: min(1500px, 96vw); height: min(900px, 94vh); border: 1px solid #4f5444; background: #10130f; box-shadow: 0 30px 100px #000; }
 .hotspot-editor-window > header { display: flex; justify-content: space-between; align-items: center; padding: .8rem 1rem; border-bottom: 1px solid #34382f; }
@@ -147,11 +161,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .editable-hotspot .shape-point:active { cursor: grabbing; }
 .editable-hotspot .indicator-point { right: auto; bottom: auto; width: 16px; height: 16px; margin: -8px 0 0 -8px; border: 2px solid #fff; border-radius: 50%; background: var(--hotspot-color); box-shadow: 0 0 0 2px #000a, 0 0 10px #000c; cursor: grab; z-index: 3; }
 .editable-hotspot .indicator-point:active { cursor: grabbing; }
-.scene-connection { position: absolute; z-index: 8; min-width: 48px; min-height: 48px; transform: translate(-50%, -50%); padding: 0; border: 1px solid #8b8f65; border-radius: 50%; background: #0a0c0ad9; box-shadow: 0 5px 18px #000b; }
-.scene-connection i { display: grid; place-items: center; font: normal 1.5rem "Courier New", monospace; transform: rotate(var(--rotate, 0deg)); }
-.scene-connection span { position: absolute; left: 50%; top: calc(100% + 7px); width: max-content; max-width: 170px; transform: translateX(-50%); padding: .28rem .45rem; background: var(--acid); color: #000; font: 700 .6rem "Courier New", monospace; }
-.scene-connection:hover, .scene-connection.selected { border-color: var(--acid); background: #30351d; box-shadow: 0 0 0 3px #d7df773b, 0 0 24px #d7df7755; }
+/* O resto da aparência do caminho vem de paths.css, compartilhado com o jogo. */
+.scene-connection { cursor: grab; }
+.scene-connection:active { cursor: grabbing; }
 .stage-darkness-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+/* O que a janela do jogador mostra: fora deste contorno a cena é cortada. */
+.stage-crop-guide { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border: 1px dashed #74c1c4a8; box-shadow: 0 0 0 100vmax #0205054d; pointer-events: none; z-index: 7; }
+.stage-crop-guide span { position: absolute; right: 2px; bottom: 2px; padding: .1rem .3rem; background: #74c1c4; color: #04100f; font: 700 .52rem "Courier New", monospace; letter-spacing: .06em; }
 .light-marker { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border: 2px solid var(--light-color, #ffd77a); border-radius: 50%; background: color-mix(in srgb, var(--light-color, #ffd77a) 35%, transparent); box-shadow: 0 0 8px color-mix(in srgb, var(--light-color, #ffd77a) 55%, transparent); cursor: grab; z-index: 6; transform: none; }
 .light-marker:active { cursor: grabbing; }
 .light-marker.selected { border-color: #fff; box-shadow: 0 0 0 2px var(--light-color, #ffd77a), 0 0 16px var(--light-color, #ffd77a); }
@@ -175,8 +191,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 /* Teste integrado */
 .editor-playtest { position: relative; width: 100%; height: 100%; overflow: hidden; background: #020302; user-select: none; }
-.test-scene, .test-scene > img, .test-grade { position: absolute; inset: 0; width: 100%; height: 100%; }
-.test-scene > img { object-fit: cover; }
+.test-scene, .test-grade { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* A mesma moldura 16:9 do palco e do jogo: o teste recorta a cena igual ao jogador. */
+.test-scene-frame { position: absolute; left: 50%; top: 50%; width: max(100vw, 177.7778vh); height: max(100vh, 56.25vw); transform: translate(-50%, -50%); }
+.test-scene-frame > img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .test-grade { background: radial-gradient(circle, transparent 28%, #000b 100%), linear-gradient(0deg, #000a, transparent 30% 76%, #0009); pointer-events: none; }
 .test-header { position: absolute; z-index: 8; left: 0; right: 0; top: 0; display: flex; justify-content: space-between; align-items: flex-start; padding: 1rem 1.2rem; background: linear-gradient(#050705e8, transparent); }
 .test-header > div { padding-left: .7rem; border-left: 3px solid var(--acid); }
@@ -208,7 +226,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .test-cutscene-progress i { display: block; height: 100%; background: var(--acid); transition: width .15s linear; }
 
 .editor-topbar button.primary, .wide-button.primary, .room-list em, .panel-title b,
-.editable-hotspot > span, .scene-connection span, .test-hotspot-label, .test-item-grid b { color: #000; }
+.editable-hotspot > span, .test-hotspot-label, .test-item-grid b { color: #000; }
 .test-exits { position: absolute; z-index: 7; left: 50%; bottom: 88px; display: flex; justify-content: center; gap: .55rem; width: min(900px, 85vw); transform: translateX(-50%); }
 .test-exits button { min-width: 130px; padding: .6rem; border: 1px solid #777b64; background: #0b0e0bdd; box-shadow: 0 8px 20px #0008; }
 .test-exits button:hover { border-color: var(--acid); }
@@ -291,7 +309,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 /* Teste: "Mudar de sala" aparece como seta, igual ao jogo */
 .test-hotspot-marker.test-hotspot-arrow { display: grid; place-items: center; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 0; border: 1px solid #8a896b; background: #0a0c0acb; color: #f0edc3; font: normal 1.8rem "Courier New", monospace; font-style: normal; transform: rotate(var(--rotate, 0deg)); }
-.test-hotspot-group:hover .test-hotspot-marker.test-hotspot-arrow { color: #000; background: var(--highlight); box-shadow: 0 0 22px color-mix(in srgb, var(--highlight) 55%, transparent); }
 
 /* --- níveis: renomear, criar e excluir --- */
 .level-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .25rem; }
@@ -311,10 +328,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .clipboard-toast.inside { bottom: auto; top: 4.2rem; }
 
 /* --- interagível de "Mudar de sala": a mesma seta que o jogador vê --- */
-.hotspot-move-preview { right: auto; bottom: auto; display: grid; place-items: center; width: 42px; height: 42px; margin: -21px 0 0 -21px; border: 1px solid #8a896b; border-radius: 0; background: #0a0c0acb; color: #f0edc3; font: normal 1.7rem "Courier New", monospace; font-style: normal; cursor: move; transform: rotate(var(--rotate, 0deg)); }
 .hotspot-indicator-preview { right: auto; bottom: auto; width: 30px; height: 30px; margin: -15px 0 0 -15px; border: 1px solid #f2ef74b0; border-radius: 50%; background: #e7e15c40; cursor: move; }
-.editable-hotspot.move-mode { border-style: dashed; }
-.editable-hotspot.selected .hotspot-move-preview { border-color: var(--acid); }
 
 /* --- trilha presa à sala --- */
 .room-audio-modes { display: grid; gap: .35rem; margin: .5rem 0; }

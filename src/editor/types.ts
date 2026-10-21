@@ -2,7 +2,11 @@ import type { ItemEffect, RoomAudioMode } from '../config/world';
 import type { LightShape } from '../systems/lighting';
 import type { CutsceneMediaType, EncounterAction, EntityId, HotspotVisibility, ItemId } from '../types';
 
-export type EditorHotspotAction = 'examine' | 'collect' | 'use' | 'move' | 'event' | 'cutscene' | 'hideout';
+/**
+ * O que um interagível faz. Mudar de sala não está aqui: o único caminho entre salas
+ * é uma conexão, desenhada igual no editor e no jogo (a seta com a etiqueta do lugar).
+ */
+export type EditorHotspotAction = 'examine' | 'collect' | 'use' | 'event' | 'cutscene' | 'hideout';
 export type EditorEvent = 'none' | 'jumpscare' | EntityId;
 
 export interface EditorPosition { x: number; y: number }
@@ -40,11 +44,6 @@ export interface EditorHotspot {
   item?: ItemId;
   requiresItem?: ItemId;
   grantsFlag?: string;
-  targetRoomId?: string;
-  /** Nível da sala de destino, para caminhos que levam a outro nível. */
-  targetLevelId?: string;
-  /** Para a ação "Mudar de sala": rotação da seta mostrada ao jogador, em graus. */
-  arrowRotation?: number;
   event?: EditorEvent;
   once: boolean;
   highlightColor: string;

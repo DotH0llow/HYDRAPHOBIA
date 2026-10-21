@@ -1,4 +1,4 @@
-import type { CharacterClassId, CharacterGender, CharacterProfile, ItemId, PhobiaId } from '../types';
+import type { CharacterClassId, CharacterGender, CharacterMode, CharacterProfile, ItemId, PhobiaId } from '../types';
 
 export interface CharacterOption<Id extends string> {
   id: Id;
@@ -25,7 +25,35 @@ export const CLASSES: ReadonlyArray<CharacterOption<CharacterClassId>> = [
   { id: 'explorador', label: 'Explorador', description: 'Conhece corredores vazios melhor do que ruas cheias.', icon: '◈', image: `${ART}/explorador.webp` },
   { id: 'tecnico', label: 'Técnico', description: 'Entende painéis, fusíveis e o que não deveria estar ligado.', icon: '⌁', image: `${ART}/tecnico.webp` },
   { id: 'adolescente', label: 'Adolescente', description: 'Chegou aqui sem querer e ainda não aceitou isso.', icon: '✦', image: `${ART}/adolescente.webp` },
-  { id: 'cavaleiro', label: 'Cavaleiro', description: 'Veste uma armadura que ninguém sabe explicar.', icon: '✚', image: `${ART}/cavaleiro.webp` },
+  { id: 'cavaleiro', label: 'Cavaleiro', description: 'Carrega um escudo surrado e nenhuma explicação.', icon: '✚', image: `${ART}/cavaleiro.webp` },
+];
+
+/**
+ * Arte feminina de cada classe, usada quando o jogador escolhe "Feminino".
+ * Enquanto um arquivo não existir, `classArtFor` devolve a arte comum da classe —
+ * a tela nunca fica com um card vazio no meio dos outros.
+ */
+const FEMALE_CLASS_ART: Readonly<Record<CharacterClassId, string>> = {
+  explorador: `${ART}/explorador_feminino.webp`,
+  tecnico: `${ART}/tecnico_feminino.webp`,
+  adolescente: `${ART}/adolescente_feminino.webp`,
+  cavaleiro: `${ART}/cavaleiro_feminino.webp`,
+};
+
+/** Artes femininas que já existem em `public/assets/characters`. */
+const FEMALE_CLASS_ART_READY: ReadonlySet<CharacterClassId> = new Set<CharacterClassId>([]);
+
+/** Arte da classe para o gênero escolhido. */
+export const classArtFor = (classId: CharacterClassId, gender: CharacterGender): string | undefined => {
+  const base = CLASSES.find((option) => option.id === classId)?.image;
+  if (gender !== 'female') return base;
+  return FEMALE_CLASS_ART_READY.has(classId) ? FEMALE_CLASS_ART[classId] : base;
+};
+
+/** O último passo da criação: com interface ou sem nenhuma. */
+export const MODES: ReadonlyArray<CharacterOption<CharacterMode>> = [
+  { id: 'classic', label: 'Modo clássico', description: 'Barras, legendas e inventário à vista, como em um registro anotado.', icon: '▤' },
+  { id: 'immersive', label: 'Modo imersivo', description: 'Nenhuma interface sobre a cena: só o lugar, o que há nele e você.', icon: '◌' },
 ];
 
 export const PHOBIAS: ReadonlyArray<CharacterOption<PhobiaId>> = [
@@ -52,15 +80,19 @@ export const DEFAULT_CHARACTER: CharacterProfile = {
   classId: 'explorador',
   phobia: 'nictofobia',
   startingItem: 'almondWater',
+  mode: 'classic',
 };
 
-export const MAX_CHARACTER_NAME = 18;
+export const MAX_CHARACTER_NAME = 26;
+/** Nome curto demais não passa da criação. */
+export const MIN_CHARACTER_NAME = 3;
 
 const ids = <Id extends string>(options: ReadonlyArray<CharacterOption<Id>>): Set<string> => new Set(options.map((option) => option.id));
 
 const GENDER_IDS = ids(GENDERS);
 const CLASS_IDS = ids(CLASSES);
 const PHOBIA_IDS = ids(PHOBIAS);
+const MODE_IDS = ids(MODES);
 
 export const labelOf = <Id extends string>(options: ReadonlyArray<CharacterOption<Id>>, id: Id): string =>
   options.find((option) => option.id === id)?.label ?? String(id);
@@ -79,5 +111,7 @@ export const validateCharacter = (value: unknown): CharacterProfile => {
     classId: CLASS_IDS.has(String(raw.classId)) ? raw.classId as CharacterClassId : DEFAULT_CHARACTER.classId,
     phobia: PHOBIA_IDS.has(String(raw.phobia)) ? raw.phobia as PhobiaId : DEFAULT_CHARACTER.phobia,
     startingItem: typeof raw.startingItem === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(raw.startingItem) ? raw.startingItem : DEFAULT_CHARACTER.startingItem,
+    // Campanhas criadas antes do modo imersivo existir continuam no modo clássico.
+    mode: MODE_IDS.has(String(raw.mode)) ? raw.mode as CharacterMode : DEFAULT_CHARACTER.mode,
   };
 };

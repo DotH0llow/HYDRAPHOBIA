@@ -10,6 +10,8 @@ export type EntityId = string;
 export type HotspotVisibility = 'visible' | 'hidden' | 'invisible';
 
 export type CharacterGender = 'male' | 'female';
+/** Clássico mostra a interface do jogo; imersivo deixa a tela só com a cena. */
+export type CharacterMode = 'classic' | 'immersive';
 export type CharacterClassId = 'explorador' | 'tecnico' | 'adolescente' | 'cavaleiro';
 export type PhobiaId =
   | 'nictofobia' | 'claustrofobia' | 'hemofobia' | 'monofobia'
@@ -39,6 +41,8 @@ export interface CharacterProfile {
   classId: CharacterClassId;
   phobia: PhobiaId;
   startingItem: ItemId;
+  /** Escolhido no último passo da criação e fixo para aquela campanha. */
+  mode: CharacterMode;
 }
 
 export interface Encounter {

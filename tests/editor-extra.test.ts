@@ -68,14 +68,41 @@ describe('níveis', () => {
     const targetRoom = target.rooms[0]!;
     const origin = project.data.levels[0]!;
     project.setActiveLevel(origin.id);
-    const hotspot = project.addHotspot(origin.rooms[0]!.id)!;
-    hotspot.action = 'move';
-    hotspot.targetLevelId = target.id;
-    hotspot.targetRoomId = targetRoom.id;
+    const connection = project.addConnection(origin.rooms[0]!.id, origin.rooms[1]!.id)!;
+    connection.toLevelId = target.id;
+    connection.to = targetRoom.id;
 
     expect(project.deleteLevel(target.id)).toBe(true);
-    expect(hotspot.targetRoomId).toBeUndefined();
-    expect(hotspot.targetLevelId).toBeUndefined();
+    expect(origin.connections.some((entry) => entry.id === connection.id)).toBe(false);
+  });
+
+  it('converte um interagível antigo de "Mudar de sala" em caminho', () => {
+    const storage = new MemoryStorage();
+    const first = new EditorProject(storage);
+    const level = first.activeLevel;
+    const room = level.rooms[0]!;
+    const destination = level.rooms[1]!;
+    const hotspots = room.hotspots as unknown as Array<Record<string, unknown>>;
+    hotspots.length = 0;
+    hotspots.push({
+      id: 'porta-antiga', label: 'Porta esquecida', x: 20, y: 40, width: 20, height: 20,
+      action: 'move', message: '', once: false, highlightColor: '#d7df77', highlightOpacity: 0.22,
+      visibility: 'visible', revealSeconds: 25, indicator: { x: 50, y: 50 },
+      cutsceneMedia: 'image', cutscenePath: '', cutsceneHoldSeconds: 4, cutsceneRepeatCount: 1,
+      targetRoomId: destination.id, arrowRotation: 270,
+    });
+    first.save();
+
+    const reloaded = new EditorProject(storage);
+    const reloadedRoom = reloaded.findRoom(room.id)!;
+    expect(reloadedRoom.hotspots.some((entry) => entry.id === 'porta-antiga')).toBe(false);
+    const path = reloaded.activeLevel.connections.find((entry) => entry.label === 'Porta esquecida')!;
+    expect(path.from).toBe(room.id);
+    expect(path.to).toBe(destination.id);
+    // O botão nasce onde estava o círculo do interagível: 20% + 50% de 20%.
+    expect(path.buttonX).toBe(30);
+    expect(path.buttonY).toBe(50);
+    expect(path.arrowRotation).toBe(270);
   });
 
   it('não deixa o projeto ficar sem nenhum nível', () => {

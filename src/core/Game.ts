@@ -37,7 +37,8 @@ export class Game {
   elapsed = 0;
   encounter: Encounter | null = null;
   selectedItem: ItemId | null = null;
-  message = 'Você desperta no carpete úmido. Não há portas atrás de você.';
+  /** A legenda começa vazia: nada comenta o início nem a retomada da exploração. */
+  message = '';
   attackNonce = 0;
   invincible = false;
   roomTime: Record<RoomId, number> = {};
@@ -254,15 +255,6 @@ export class Game {
       };
       this.status = 'cutscene';
       this.message = hotspot.message;
-      return { changed: true, message: this.message };
-    }
-    if (hotspot.kind === 'move' && hotspot.targetRoom && this.world.rooms[hotspot.targetRoom]) {
-      this.position = hotspot.targetRoom;
-      this.discovered.add(hotspot.targetRoom);
-      this.selectedItem = null;
-      this.onRoomChanged();
-      if (hotspot.once) this.flags[usedFlag] = true;
-      this.message = hotspot.message || this.room.description;
       return { changed: true, message: this.message };
     }
     if (hotspot.kind === 'hideout') {
@@ -513,7 +505,7 @@ export class Game {
     this.elapsed = save.elapsed;
     this.danger = save.danger ?? 0;
     this.roomTime = { ...(save.roomTime ?? {}) };
-    this.message = `Você retoma a exploração em ${this.world.rooms[this.position]?.name ?? this.position}.`;
+    this.message = '';
   }
 
   private clamp(value: number): number { return Math.max(0, Math.min(100, value)); }

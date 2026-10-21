@@ -1,0 +1,64 @@
+/*
+ * Caminho entre salas — o único interagível que leva o jogador a outra sala.
+ *
+ * Este arquivo é importado pelo jogo e pelo editor de propósito: a aparência do
+ * caminho é exatamente a mesma nos dois lugares, a seta redonda com a etiqueta do
+ * destino embaixo. Mexer aqui muda os dois juntos; não duplique estas regras.
+ */
+.path-marker {
+  position: absolute;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border: 1px solid #8b8f65;
+  border-radius: 50%;
+  background: #0a0c0ad9;
+  color: #f0edc3;
+  box-shadow: 0 5px 18px #000b;
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  transition: border-color .18s, background .18s, box-shadow .18s;
+}
+.path-marker > i {
+  display: grid;
+  place-items: center;
+  font: normal 1.5rem/1 "Courier New", monospace;
+  font-style: normal;
+  text-shadow: 0 2px 6px #000;
+  transform: rotate(var(--rotate, 0deg));
+  transition: transform .18s;
+}
+.path-marker > span {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 7px);
+  width: max-content;
+  max-width: 170px;
+  padding: .28rem .45rem;
+  transform: translateX(-50%);
+  background: var(--acid, #d7df77);
+  color: #000;
+  font: 700 .6rem "Courier New", monospace;
+  letter-spacing: .04em;
+  pointer-events: none;
+}
+.path-marker:hover,
+.path-marker.selected {
+  border-color: var(--acid, #d7df77);
+  background: #30351d;
+  box-shadow: 0 0 0 3px #d7df773b, 0 0 24px #d7df7755;
+}
+.path-marker.locked {
+  border-color: #8a4a43;
+  color: #c96a60;
+}
+.path-marker.locked > span { background: #8a4a43; color: #f6e9e6; }
+
+@media (max-width: 760px) {
+  .path-marker { width: 46px; height: 46px; }
+  .path-marker > i { font-size: 1.3rem; }
+  .path-marker > span { max-width: 120px; font-size: .55rem; }
+}
