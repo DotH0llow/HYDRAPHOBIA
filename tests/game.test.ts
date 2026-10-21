@@ -406,3 +406,41 @@ describe('leitura de ambiente para o áudio', () => {
     expect(game.anxietyLevel).toBe('terrified');
   });
 });
+
+describe('estados que não se atropelam', () => {
+  it('um encontro aberto pela batida de perigo tem prioridade sobre a cutscene do interagível', () => {
+    const hotspots: WorldDefinition['rooms']['start']['hotspots'] = [
+      { id: 'photo', label: 'Foto', x: 0, y: 0, width: 10, height: 10, kind: 'cutscene', message: 'Uma lembrança.', cutsceneMedia: 'image', cutscenePath: '/x.jpg', cutsceneHoldSeconds: 1, once: true },
+    ];
+    const game = new Game(undefined, () => 1, simpleWorld(hotspots));
+    game.debugSetDanger(99);
+    game.interact('photo');
+
+    expect(game.status).toBe('encounter');
+    expect(game.encounter).not.toBeNull();
+    expect(game.cutscene).toBeNull();
+    // O interagível não foi consumido: ele continua disponível depois da ameaça.
+    expect(game.flags['hotspot:start:photo']).toBeUndefined();
+
+    game.respondToEncounter(game.encounter!.solution);
+    expect(game.status).toBe('exploring');
+    expect(game.encounter).toBeNull();
+  });
+
+  it('o esconderijo não pode ser pausado, para não desaparecer na retomada', () => {
+    const hotspots: WorldDefinition['rooms']['start']['hotspots'] = [
+      { id: 'locker', label: 'Armário', x: 0, y: 0, width: 10, height: 10, kind: 'hideout', message: 'Você se encolhe.' },
+    ];
+    const game = new Game(undefined, () => 1, simpleWorld(hotspots));
+    game.interact('locker');
+    expect(game.status).toBe('hidden');
+
+    game.pause(true);
+    expect(game.status).toBe('hidden');
+    expect(game.hideout?.hotspotId).toBe('locker');
+
+    game.exitHideout();
+    expect(game.status).toBe('exploring');
+    expect(game.hideout).toBeNull();
+  });
+});

@@ -10,6 +10,7 @@ import {
   isLevelZero, MUSIC_LOBBY, MUSIC_MENU,
 } from '../systems/audioLibrary';
 import { HUNGER_LOW_THRESHOLD, HUNGER_THRESHOLD, THIRST_LOW_THRESHOLD, THIRST_THRESHOLD } from '../config/thresholds';
+import { defaultArrowRotation, defaultPathPosition } from '../config/paths';
 import { drawRoomLighting, hasFlicker } from '../systems/lighting';
 import { labelAnchorOf } from '../systems/hotspots';
 import { createSlot, SaveSystem } from '../systems/SaveSystem';
@@ -93,6 +94,10 @@ export class GameApp {
   private draft: CharacterDraft = emptyDraft();
   /** Modo imersivo: o jogo roda sem nenhuma peça de interface sobre a cena. */
   private immersive = false;
+  /** A pausa foi o navegador escondendo a aba, não o jogador: só essa volta sozinha. */
+  private autoPaused = false;
+  /** Quantas salas o mapa em jogo tem, para o resumo do fim da campanha. */
+  private worldRoomCount = 0;
   /** Até quando a caixa do inventário fica visível; ela só aparece por um tempo. */
   private inventoryHintUntil = 0;
   /** Quando a legenda atual entrou na tela, para ela sair sozinha depois. */
@@ -484,20 +489,12 @@ export class GameApp {
 
   private movementButton(direction: Direction, exit: { to: string; label: string; requires?: string; buttonX?: number; buttonY?: number; arrowRotation?: number }): string {
     const locked = exit.requires && !this.game!.flags[exit.requires];
-    const fallback = this.defaultButtonPosition(direction);
+    const fallback = defaultPathPosition(direction);
     const x = exit.buttonX ?? fallback.x;
     const y = exit.buttonY ?? fallback.y;
-    const rotation = exit.arrowRotation ?? this.defaultArrowRotation(direction);
+    const rotation = exit.arrowRotation ?? defaultArrowRotation(direction);
     // A classe `path-marker` é a mesma do editor: o caminho tem uma aparência só.
     return `<button class="path-marker move-btn ${locked ? 'locked' : ''}" data-action="move" data-direction="${direction}" aria-label="${esc(exit.label)}" style="left:${x}%;top:${y}%"><i style="--rotate:${rotation}deg">↑</i><span>${esc(exit.label)}</span></button>`;
-  }
-
-  private defaultButtonPosition(direction: Direction): { x: number; y: number } {
-    return ({ forward: { x: 50, y: 16 }, back: { x: 50, y: 82 }, left: { x: 3, y: 50 }, right: { x: 97, y: 50 } } as Record<string, { x: number; y: number }>)[direction] ?? { x: 50, y: 50 };
-  }
-
-  private defaultArrowRotation(direction: Direction): number {
-    return ({ forward: 0, back: 180, left: 270, right: 90 } as Record<string, number>)[direction] ?? 45;
   }
 
   private hotspotMarkup(room: RoomDefinition): string {
@@ -739,7 +736,10 @@ export class GameApp {
 
   private escapedTemplate(): string {
     const time = this.game ? this.formatTime(this.game.elapsed) : '—';
-    return `<main class="end-screen escaped"><img src="/assets/scenes/maintenance.jpg" alt="Saída de manutenção" /><div class="escape-light"></div><section><small>ROTA NÃO CATALOGADA</small><h1>AR DE FORA</h1><p>Você encontrou uma passagem. Atrás de você, as lâmpadas continuam zumbindo.</p><div class="summary"><span>Tempo <b>${time}</b></span><span>Salas descobertas <b>${this.game?.discovered.size ?? 0}/7</b></span><span>Vida restante <b>${Math.round(this.game?.stats.health ?? 0)}%</b></span></div><button class="primary" data-action="menu">Encerrar registro</button></section></main>`;
+    // O total vem do mapa jogado: o número de salas muda com o projeto do editor.
+    const discovered = this.game?.discovered.size ?? 0;
+    const total = this.worldRoomCount || discovered;
+    return `<main class="end-screen escaped"><img src="/assets/scenes/maintenance.jpg" alt="Saída de manutenção" /><div class="escape-light"></div><section><small>ROTA NÃO CATALOGADA</small><h1>AR DE FORA</h1><p>Você encontrou uma passagem. Atrás de você, as lâmpadas continuam zumbindo.</p><div class="summary"><span>Tempo <b>${time}</b></span><span>Salas descobertas <b>${discovered}/${total}</b></span><span>Vida restante <b>${Math.round(this.game?.stats.health ?? 0)}%</b></span></div><button class="primary" data-action="menu">Encerrar registro</button></section></main>`;
   }
 
   private exitTemplate(): string {
@@ -758,9 +758,12 @@ export class GameApp {
     window.addEventListener('keydown', (event) => this.handleKey(event));
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.game?.status === 'exploring') {
+        this.autoPaused = true;
         this.game.pause(true);
         void this.audio.pauseGameplay().catch(() => undefined);
-      } else if (!document.hidden && this.game?.status === 'paused') {
+      } else if (!document.hidden && this.autoPaused && this.game?.status === 'paused') {
+        // Só a pausa automática volta sozinha: a pausa do jogador espera o jogador.
+        this.autoPaused = false;
         this.game.pause(false);
         void this.audio.resumeGameplay().catch(() => undefined);
       }
@@ -903,6 +906,7 @@ export class GameApp {
 
   /** Sai da pausa: o áudio congelado volta de onde parou. */
   private resumeFromPause(): void {
+    this.autoPaused = false;
     this.game?.pause(false);
     void this.audio.resumeGameplay().then(() => this.audio.play('click')).catch(() => undefined);
   }
@@ -945,6 +949,7 @@ export class GameApp {
     const data = this.currentGameData();
     this.items = data.items;
     this.levelName = data.levelName;
+    this.worldRoomCount = Object.keys(data.world.rooms).length;
     this.immersive = character.mode === 'immersive';
     this.game = new Game(undefined, Math.random, data.world, undefined, data.items, data.entities);
     this.game.grantStartingItem(character.startingItem);
@@ -956,6 +961,8 @@ export class GameApp {
     this.inventoryOpen = false;
     this.focusedItem = null;
     this.seenAttackNonce = 0;
+    this.jumpscareUntil = 0;
+    this.autoPaused = false;
     this.dangerSoundTier = 0;
     this.nextDangerSoundAt = 0;
     this.audio.resetScheduling();
@@ -972,12 +979,19 @@ export class GameApp {
     const data = this.currentGameData();
     this.items = data.items;
     this.levelName = data.levelName;
+    this.worldRoomCount = Object.keys(data.world.rooms).length;
     this.activeSlot = index;
     this.save.activeSlot = index;
     this.immersive = slot.character.mode === 'immersive';
     this.game = new Game(slot.game, Math.random, data.world, undefined, data.items, data.entities);
     this.screen = 'game';
     this.inventoryOpen = false;
+    this.focusedItem = null;
+    // A partida é nova para a tela: sem zerar isto, um ataque da campanha anterior
+    // ainda contado disparava um susto no instante em que o registro abria.
+    this.seenAttackNonce = 0;
+    this.jumpscareUntil = 0;
+    this.autoPaused = false;
     this.dangerSoundTier = 0;
     this.nextDangerSoundAt = 0;
     this.audio.resetScheduling();
@@ -1190,6 +1204,7 @@ export class GameApp {
       if (this.screen === 'game' && this.game && (this.game.status === 'exploring' || this.game.status === 'paused')) {
         if (this.game.status === 'paused') { this.resumeFromPause(); }
         else {
+          this.autoPaused = false;
           this.game.pause(true);
           this.audio.play('click');
           // O som do jogo congela junto com ele e volta exatamente daqui.
@@ -1227,7 +1242,9 @@ export class GameApp {
     this.updateDevMeters();
     this.updateNowPlaying();
     const screen = this.root.querySelector<HTMLElement>('.game-screen');
-    if (screen) screen.className = `game-screen ${this.conditionClasses()}`;
+    // O modo imersivo é parte da classe da tela: reescrevê-la sem ele tirava a marca
+    // que esconde a interface até o próximo redesenho estrutural.
+    if (screen) screen.className = `game-screen ${this.conditionClasses()}${this.immersive ? ' immersive' : ''}`;
     const blood = this.root.querySelector<HTMLElement>('.blood-overlay');
     if (blood) blood.dataset.bloodLevel = String(this.bloodLevel());
     if (this.game.encounter) {
@@ -1336,11 +1353,12 @@ export class GameApp {
     const audio = room.audio;
     if (!audio?.path) { this.audio.stopRoomTrack(); return; }
     const flag = `audio:${room.id}`;
-    if (audio.mode === 'once') {
-      if (game.flags[flag]) { this.audio.stopRoomTrack(); return; }
-      game.flags[flag] = true;
-    }
-    void this.audio.playRoomTrack(audio.path, { loop: audio.mode === 'loop', volume: audio.volume }).catch(() => undefined);
+    if (audio.mode === 'once' && game.flags[flag]) { this.audio.stopRoomTrack(); return; }
+    // A bandeira do "uma vez" só queima quando a faixa realmente entra: marcá-la antes
+    // gastava a única execução quando o volume estava em zero ou o arquivo não carregou.
+    void this.audio.playRoomTrack(audio.path, { loop: audio.mode === 'loop', volume: audio.volume })
+      .then((started) => { if (started && audio.mode === 'once') game.flags[flag] = true; })
+      .catch(() => undefined);
   }
 
   private bloodLevel(): number {

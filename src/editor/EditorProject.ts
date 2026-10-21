@@ -214,8 +214,12 @@ export class EditorProject {
 
   addConnection(from: string, to: string): EditorConnection | null {
     if (from === to || !this.findRoom(from) || !this.findRoom(to)) return null;
+    // A direção sai do id, que é único: contar as conexões existentes repetia o nome
+    // depois de qualquer exclusão, e dois caminhos da mesma sala com o mesmo nome
+    // viravam um só no jogo.
+    const id = createId('conexao');
     const connection: EditorConnection = {
-      id: createId('conexao'), from, to, label: 'Frente', direction: `caminho-${this.activeLevel.connections.length + 1}`, bidirectional: false,
+      id, from, to, label: 'Frente', direction: `caminho-${id}`, bidirectional: false,
     };
     this.activeLevel.connections.push(connection);
     this.save();

@@ -122,18 +122,51 @@ describe('iluminação das salas', () => {
 
   it('leva a rotação da seta de um caminho até a engine', () => {
     const project = new EditorProject(null);
-    const level = project.activeLevel;
+    const level = project.addLevel('Teste de rotação');
     const room = level.rooms[0]!;
-    const connection = project.addConnection(room.id, level.rooms[1]!.id)!;
+    const destination = project.addRoom();
+    const connection = project.addConnection(room.id, destination.id)!;
     connection.direction = 'left';
     connection.arrowRotation = 270;
     connection.buttonX = 18;
     connection.buttonY = 62;
     const exit = levelToWorld(level).rooms[room.id]!.exits.left!;
-    expect(exit.to).toBe(level.rooms[1]!.id);
+    expect(exit.to).toBe(destination.id);
     expect(exit.arrowRotation).toBe(270);
     expect(exit.buttonX).toBe(18);
     expect(exit.buttonY).toBe(62);
+  });
+
+  it('dois caminhos da mesma sala com a mesma direção continuam existindo', () => {
+    const project = new EditorProject(null);
+    const level = project.addLevel('Teste de direções repetidas');
+    const room = level.rooms[0]!;
+    const first = project.addRoom();
+    const second = project.addRoom();
+    project.addConnection(room.id, first.id)!.direction = 'custom';
+    project.addConnection(room.id, second.id)!.direction = 'custom';
+
+    const exits = Object.values(levelToWorld(level).rooms[room.id]!.exits);
+    expect(exits).toHaveLength(2);
+    expect(exits.map((exit) => exit.to).sort()).toEqual([first.id, second.id].sort());
+  });
+
+  it('a direção de um caminho novo não repete a de um caminho excluído', () => {
+    const project = new EditorProject(null);
+    const level = project.addLevel('Teste de direções após exclusão');
+    const room = level.rooms[0]!;
+    const first = project.addRoom();
+    const second = project.addRoom();
+    const third = project.addRoom();
+
+    const removed = project.addConnection(room.id, first.id)!;
+    const kept = project.addConnection(room.id, second.id)!;
+    project.deleteConnection(removed.id);
+    const added = project.addConnection(room.id, third.id)!;
+
+    expect(added.direction).not.toBe(kept.direction);
+    const exits = Object.values(levelToWorld(level).rooms[room.id]!.exits);
+    expect(exits.map((exit) => exit.to).sort()).toEqual([second.id, third.id].sort());
   });
 });
 

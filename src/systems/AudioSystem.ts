@@ -279,7 +279,8 @@ export class AudioSystem {
   async playRoomTrack(path: string, options: RoomTrackOptions): Promise<boolean> {
     const context = this.context;
     // Sem contexto o navegador ainda não liberou o áudio: a sala espera a liberação.
-    if (!context) { this.pendingRoomTrack = { path, options }; return false; }
+    // A faixa fica aceita (e toca em `unlock`), então isto conta como execução.
+    if (!context) { this.pendingRoomTrack = { path, options }; return true; }
     if (this.gameplayPaused || this.preferences.masterVolume === 0 || this.preferences.musicVolume === 0) return false;
     if (this.roomTrack?.path === path && options.loop) return true;
     this.stopRoomTrack();

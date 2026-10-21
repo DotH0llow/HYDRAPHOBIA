@@ -233,6 +233,10 @@ export class Game {
     }
     if (hotspot.visibility === 'invisible') this.flags[revealKey] = true;
     this.addDanger(hotspot.kind === 'examine' ? 2 : 1);
+    // A batida de perigo pode ter estourado o medidor e aberto um encontro: ele tem
+    // prioridade. Seguir daqui sobrescreveria o status e deixaria a carta da ameaça
+    // na tela sem cronômetro e sem resposta possível.
+    if (this.encounter) return { changed: true, message: this.message };
 
     if (hotspot.kind === 'collect' && hotspot.item) {
       this.addItem(hotspot.item);
@@ -327,7 +331,9 @@ export class Game {
   }
 
   pause(value?: boolean): void {
-    if (this.status === 'gameover' || this.status === 'escaped' || this.status === 'encounter' || this.status === 'cutscene') return;
+    // Esconderijo também não pausa: sair da pausa devolveria o jogador a 'exploring'
+    // com o esconderijo ainda aberto, um estado que a tela não sabe desenhar.
+    if (this.status === 'gameover' || this.status === 'escaped' || this.status === 'encounter' || this.status === 'cutscene' || this.status === 'hidden') return;
     const shouldPause = value ?? this.status !== 'paused';
     this.status = shouldPause ? 'paused' : 'exploring';
   }

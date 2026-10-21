@@ -3,6 +3,7 @@ import type { RoomDefinition } from '../config/world';
 import { AudioSystem } from '../systems/AudioSystem';
 import { isLevelZero, MUSIC_LOBBY } from '../systems/audioLibrary';
 import { drawRoomLighting, hasFlicker, isLightShape, LIGHT_SHAPES } from '../systems/lighting';
+import { DEFAULT_PATH_POSITIONS, defaultArrowRotation } from '../config/paths';
 import { DEFAULT_PREFERENCES } from '../systems/SaveSystem';
 import { labelAnchorOf } from '../systems/hotspots';
 import type { EncounterAction, ItemId } from '../types';
@@ -56,9 +57,6 @@ const circlePoints = (count = DEFAULT_SHAPE_POINT_COUNT): Array<{ x: number; y: 
 
 /** Proporção do palco, a mesma moldura que o jogo usa para enquadrar a cena. */
 const STAGE_ASPECT = 16 / 9;
-
-const DEFAULT_POSITIONS: Record<string, { x: number; y: number }> = { forward: { x: 50, y: 5 }, back: { x: 50, y: 95 }, left: { x: 5, y: 50 }, right: { x: 95, y: 50 } };
-const defaultArrowRotation = (direction: string): number => ({ forward: 0, back: 180, left: 270, right: 90 } as Record<string, number>)[direction] ?? 45;
 
 export class EditorApp {
   private readonly project = new EditorProject();
@@ -336,7 +334,7 @@ export class EditorApp {
   }
 
   private sceneConnectionMarker(connection: EditorConnection, index: number, total: number): string {
-    const fallback = DEFAULT_POSITIONS[connection.direction] ?? { x: 15 + (index + 1) * (70 / (total + 1)), y: 95 };
+    const fallback = DEFAULT_PATH_POSITIONS[connection.direction] ?? { x: 15 + (index + 1) * (70 / (total + 1)), y: 95 };
     const x = connection.buttonX ?? fallback.x;
     const y = connection.buttonY ?? fallback.y;
     const rotation = connection.arrowRotation ?? defaultArrowRotation(connection.direction);
@@ -346,7 +344,7 @@ export class EditorApp {
 
   private sceneConnectionFields(connection: EditorConnection): string {
     const destination = this.project.findRoom(connection.to);
-    const fallback = DEFAULT_POSITIONS[connection.direction] ?? { x: 50, y: 95 };
+    const fallback = DEFAULT_PATH_POSITIONS[connection.direction] ?? { x: 50, y: 95 };
     return `<div class="properties-heading"><div><small>CAMINHO</small><h3>${esc(connection.label)}</h3></div><button class="danger" data-action="delete-connection" data-connection="${esc(connection.id)}">Excluir</button></div>
       <label><span>Etiqueta no jogo</span><input data-connection-field="label" data-connection="${esc(connection.id)}" value="${esc(connection.label)}" /></label>
       <label><span>Direção / ação</span><select data-connection-field="direction" data-connection="${esc(connection.id)}"><option value="forward" ${connection.direction === 'forward' ? 'selected' : ''}>Frente</option><option value="back" ${connection.direction === 'back' ? 'selected' : ''}>Trás</option><option value="left" ${connection.direction === 'left' ? 'selected' : ''}>Esquerda</option><option value="right" ${connection.direction === 'right' ? 'selected' : ''}>Direita</option><option value="custom" ${!['forward', 'back', 'left', 'right'].includes(connection.direction) ? 'selected' : ''}>Personalizada</option></select></label>
@@ -1424,7 +1422,9 @@ export class EditorApp {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url; link.download = `${this.project.data.name.toLowerCase().replace(/\s+/g, '-') || 'mapa'}.json`; link.click();
-    URL.revokeObjectURL(url);
+    // Revogar na mesma volta do laço cancelava o download antes de ele começar em
+    // alguns navegadores: o endereço só é liberado depois que o arquivo foi pedido.
+    window.setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
 
   private async importJSON(file?: File): Promise<void> {
@@ -1466,11 +1466,10 @@ export class EditorApp {
     const audio = (game.room as RoomDefinition).audio;
     if (!audio?.path) { this.audio.stopRoomTrack(); return; }
     const flag = `audio:${game.position}`;
-    if (audio.mode === 'once') {
-      if (game.flags[flag]) { this.audio.stopRoomTrack(); return; }
-      game.flags[flag] = true;
-    }
-    void this.audio.playRoomTrack(audio.path, { loop: audio.mode === 'loop', volume: audio.volume }).catch(() => undefined);
+    if (audio.mode === 'once' && game.flags[flag]) { this.audio.stopRoomTrack(); return; }
+    void this.audio.playRoomTrack(audio.path, { loop: audio.mode === 'loop', volume: audio.volume })
+      .then((started) => { if (started && audio.mode === 'once') game.flags[flag] = true; })
+      .catch(() => undefined);
   }
 
   private async handleTestAction(action: string, data: DOMStringMap): Promise<void> {

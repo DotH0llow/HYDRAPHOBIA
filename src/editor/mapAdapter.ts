@@ -41,12 +41,24 @@ const roomToRuntime = (room: EditorLevel['rooms'][number]): RoomDefinition => ({
   audio: room.audio ? { path: room.audio.path, mode: room.audio.mode, volume: room.audio.volume } : undefined,
 });
 
+/**
+ * Chave da saída na sala de origem. A direção escolhida no editor é só um nome e dois
+ * caminhos da mesma sala podem acabar com o mesmo ("Personalizada" duas vezes, por
+ * exemplo). Como a chave é única por sala, o segundo apagava o primeiro e o caminho
+ * desaparecia do jogo mesmo continuando desenhado no editor: quando o nome já está
+ * ocupado o caminho recebe o próprio id, que nunca repete.
+ */
+const exitKeyFor = (source: RoomDefinition, connection: EditorLevel['connections'][number]): string => {
+  const preferred = connection.direction || connection.id;
+  return Object.prototype.hasOwnProperty.call(source.exits, preferred) ? `${preferred}-${connection.id}` : preferred;
+};
+
 const applyConnections = (level: EditorLevel, rooms: Record<string, RoomDefinition>): void => {
   level.connections.forEach((connection) => {
     const source = rooms[connection.from];
     const destination = rooms[connection.to];
     if (!source || !destination) return;
-    source.exits[connection.direction || connection.id] = {
+    source.exits[exitKeyFor(source, connection)] = {
       to: connection.to,
       label: connection.label,
       requires: connection.requiresFlag,
