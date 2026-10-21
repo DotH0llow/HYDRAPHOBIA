@@ -113,9 +113,12 @@ A tela não tem caixas: o título, os numerais e a regra da etapa ficam no canto
 esquerdo, as opções ocupam o resto da tela e "Voltar" e "Continuar" ficam no meio da base.
 
 **Gênero e classe** vão mais longe: as duas etapas ficam sobre o preto, sem cenário atrás
-e sem caixa nenhuma em volta das artes. A arte flutua no escuro, com as bordas dissolvidas
-para não virar um retângulo, e só o nome aparece embaixo, em letra grande. A escolha se vê
-no brilho — as opções não escolhidas ficam apagadas e a escolhida acende.
+e sem caixa nenhuma em volta das artes. Cada arte preenche a altura da coluna — presa pela
+altura, e não por `object-fit`, para a figura ter o mesmo tamanho com duas ou com quatro
+opções — e o texto flutua sobre o pé dela, no canto inferior esquerdo: o símbolo, o nome
+em letra grande e, quando existe, a linha de explicação. As laterais da coluna vão a preto,
+que é o que separa uma opção da outra. A escolha se vê no brilho: as opções não escolhidas
+ficam apagadas e a escolhida acende. As classes não têm linha de explicação nenhuma.
 
 Classe e fobia ficam gravadas no registro e aparecem na lista de campanhas; por enquanto
 não alteram as mecânicas. Gênero, item inicial e modo já têm efeito no jogo.
