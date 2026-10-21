@@ -70,7 +70,12 @@ const pushData = async (message) => {
   const staged = await git('diff --cached --quiet -- data');
   // `--quiet` sai com 1 quando há diferença: é esse o caso em que há o que commitar.
   if (staged.ok) return { ok: true, pushed: false, output: 'Nada novo em data/ para enviar.' };
-  const subject = (message || 'chore(editor): sincroniza o mapa e o progresso locais').replace(/["\n\r]/g, ' ').slice(0, 120);
+  // Aspas e crases iriam para dentro do `-m "..."` e quebrariam o comando: saem fora.
+  const subject = (message || 'chore(editor): sincroniza o mapa e o progresso locais')
+    .replace(/["`$\\]/g, '')
+    .replace(/[\n\r]+/g, ' ')
+    .trim()
+    .slice(0, 120);
   const commit = await git(`commit -m "${subject}" -- data`);
   if (!commit.ok) return { ok: false, step: 'commit', output: commit.output };
   const push = await git('push origin HEAD:main');
