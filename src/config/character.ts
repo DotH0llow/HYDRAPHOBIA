@@ -30,24 +30,20 @@ export const CLASSES: ReadonlyArray<CharacterOption<CharacterClassId>> = [
 
 /**
  * Arte feminina de cada classe, usada quando o jogador escolhe "Feminino".
- * Enquanto um arquivo não existir, `classArtFor` devolve a arte comum da classe —
- * a tela nunca fica com um card vazio no meio dos outros.
+ * Uma classe sem arquivo aqui cai de volta na arte comum da classe, para a tela
+ * nunca ficar com um card vazio no meio dos outros.
  */
-const FEMALE_CLASS_ART: Readonly<Record<CharacterClassId, string>> = {
+const FEMALE_CLASS_ART: Readonly<Partial<Record<CharacterClassId, string>>> = {
   explorador: `${ART}/explorador_feminino.webp`,
   tecnico: `${ART}/tecnico_feminino.webp`,
   adolescente: `${ART}/adolescente_feminino.webp`,
   cavaleiro: `${ART}/cavaleiro_feminino.webp`,
 };
 
-/** Artes femininas que já existem em `public/assets/characters`. */
-const FEMALE_CLASS_ART_READY: ReadonlySet<CharacterClassId> = new Set<CharacterClassId>([]);
-
 /** Arte da classe para o gênero escolhido. */
 export const classArtFor = (classId: CharacterClassId, gender: CharacterGender): string | undefined => {
   const base = CLASSES.find((option) => option.id === classId)?.image;
-  if (gender !== 'female') return base;
-  return FEMALE_CLASS_ART_READY.has(classId) ? FEMALE_CLASS_ART[classId] : base;
+  return gender === 'female' ? FEMALE_CLASS_ART[classId] ?? base : base;
 };
 
 /** O último passo da criação: com interface ou sem nenhuma. */

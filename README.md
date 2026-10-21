@@ -91,9 +91,10 @@ esquerdo, as opções ocupam o resto da tela e "Voltar" e "Continuar" ficam no m
 Classe e fobia ficam gravadas no registro e aparecem na lista de campanhas; por enquanto
 não alteram as mecânicas. Gênero, item inicial e modo já têm efeito no jogo.
 
-> As artes femininas das classes ainda não existem em `public/assets/characters`. Assim
-> que os arquivos `<classe>_feminino.webp` forem adicionados, basta incluir o id da classe
-> em `FEMALE_CLASS_ART_READY` (`src/config/character.ts`) para a tela passar a usá-los.
+Cada classe tem duas artes em `public/assets/characters`: `<classe>.webp` e
+`<classe>_feminino.webp`. A tela escolhe a arte pelo gênero já selecionado e cai de volta
+na arte comum se o arquivo feminino não existir (`classArtFor`, em
+`src/config/character.ts`).
 
 ## Sistemas implementados
 
