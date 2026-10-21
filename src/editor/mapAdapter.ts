@@ -1,6 +1,6 @@
 import type { EntityDefinition, HotspotDefinition, ItemDefinition, RoomDefinition, WorldDefinition } from '../config/world';
 import type { EntityId, ItemId } from '../types';
-import type { EditorEntity, EditorHotspot, EditorItem, EditorLevel } from './types';
+import { isFullRoomView, type EditorEntity, type EditorHotspot, type EditorItem, type EditorLevel } from './types';
 
 const hotspotToRuntime = (hotspot: EditorHotspot): HotspotDefinition => ({
   id: hotspot.id,
@@ -39,6 +39,12 @@ const roomToRuntime = (room: EditorLevel['rooms'][number]): RoomDefinition => ({
   darknessLevel: room.darknessLevel,
   lights: room.lights?.map((l) => ({ x: l.x, y: l.y, radius: l.radius, intensity: l.intensity, color: l.color, angle: l.angle, shape: l.shape, flicker: l.flicker, aperture: l.aperture })),
   audio: room.audio ? { path: room.audio.path, mode: room.audio.mode, volume: room.audio.volume } : undefined,
+  // Mídia sem arquivo é um bloco vazio que o editor ainda está preenchendo.
+  media: room.media?.filter((entry) => entry.path).map((entry) => ({
+    path: entry.path, kind: entry.kind, x: entry.x, y: entry.y, width: entry.width, height: entry.height,
+    opacity: entry.opacity, rotation: entry.rotation, loop: entry.loop, onTop: entry.onTop,
+  })),
+  view: isFullRoomView(room.view) ? undefined : { ...room.view! },
 });
 
 /**

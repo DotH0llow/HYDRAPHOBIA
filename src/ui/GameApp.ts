@@ -1,5 +1,5 @@
 import { ITEMS, type ItemDefinition, type RoomDefinition } from '../config/world';
-import { allIllustrated, CLASSES, classArtFor, DEFAULT_CHARACTER, GENDERS, labelOf, MAX_CHARACTER_NAME, MIN_CHARACTER_NAME, MODES, PHOBIAS, sanitizeCharacterName, STARTING_ITEMS } from '../config/character';
+import { allIllustrated, CLASSES, classArtFor, classLabelFor, DEFAULT_CHARACTER, GENDERS, labelOf, MAX_CHARACTER_NAME, MIN_CHARACTER_NAME, MODES, PHOBIAS, sanitizeCharacterName, STARTING_ITEMS } from '../config/character';
 import { Game } from '../core/Game';
 import { EditorProject } from '../editor/EditorProject';
 import { entitiesToRuntime, itemsToRuntime, projectToWorld } from '../editor/mapAdapter';
@@ -13,6 +13,9 @@ import { HUNGER_LOW_THRESHOLD, HUNGER_THRESHOLD, THIRST_LOW_THRESHOLD, THIRST_TH
 import { defaultArrowRotation, defaultPathPosition } from '../config/paths';
 import { drawRoomLighting, hasFlicker } from '../systems/lighting';
 import { labelAnchorOf } from '../systems/hotspots';
+import { checkCharacterName } from '../config/nameFilter';
+import { legendTimings, SOLO_LEGEND_MS, splitLegend } from '../systems/legends';
+import { roomMediaMarkup, sceneFrameStyle } from '../systems/roomView';
 import { createSlot, endCampaign, SaveSystem } from '../systems/SaveSystem';
 import { SAVE_SLOT_COUNT, type CampaignEnding, type CharacterClassId, type CharacterGender, type CharacterMode, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type PhobiaId, type Preferences, type RoomId, type SaveData, type SaveSlot, type Screen } from '../types';
 
@@ -47,8 +50,6 @@ const emptyDraft = (): CharacterDraft => ({ name: '', gender: null, classId: nul
 
 /** Quanto tempo a caixa do inventário fica à vista depois de uma interação. */
 const INVENTORY_HINT_MS = 4000;
-/** Quanto tempo uma legenda fica na tela antes de desaparecer. */
-const MESSAGE_LIFETIME_MS = 10000;
 
 const DANGER_CUES: Record<number, Cue[]> = {
   1: ['discomfort'],
@@ -100,9 +101,13 @@ export class GameApp {
   private worldRoomCount = 0;
   /** Até quando a caixa do inventário fica visível; ela só aparece por um tempo. */
   private inventoryHintUntil = 0;
-  /** Quando a legenda atual entrou na tela, para ela sair sozinha depois. */
-  private messageShownAt = 0;
+  /** A legenda atual: o texto cru que a gerou, os pedaços dela e onde a fila está. */
   private shownMessage = '';
+  private legendParts: string[] = [];
+  private legendTimes: number[] = [];
+  private legendIndex = 0;
+  /** Quando o pedaço atual sai da tela. */
+  private legendUntil = 0;
   /** Confirmação dentro do jogo; `window.confirm` não aparece em todos os navegadores. */
   private confirm: ConfirmRequest | null = null;
   /** Salas do projeto inteiro, para a miniatura de cada registro na tela de campanhas. */
@@ -197,7 +202,8 @@ export class GameApp {
       devPanelOpen: this.devPanelOpen,
       flags: this.game.flags,
       immersive: this.immersive,
-      message: this.messageVisible() ? this.game.message : '',
+      // O índice entra na chave para que duas legendas iguais em sequência redesenhem.
+      message: this.messageVisible() ? `${this.legendIndex}:${this.currentLegend()}` : '',
       inventoryHint: this.inventoryHintVisible(),
       showHealthBar: this.save.preferences.showHealthBar,
       anxietyTier: this.game.anxietyLevel,
@@ -319,7 +325,7 @@ export class GameApp {
         <div class="slot-info">
           <h2>${esc(character.name)}</h2>
           <dl class="slot-facts">
-            <div><dt>Classe</dt><dd>${esc(labelOf(CLASSES, character.classId))}</dd></div>
+            <div><dt>Classe</dt><dd>${esc(classLabelFor(character.classId, character.gender))}</dd></div>
             <div><dt>Gênero</dt><dd>${esc(labelOf(GENDERS, character.gender))}</dd></div>
             <div><dt>Fobia</dt><dd>${esc(labelOf(PHOBIAS, character.phobia))}</dd></div>
             <div><dt>Tempo</dt><dd>${this.formatTime(progress?.elapsed ?? ending?.elapsed ?? 0)}</dd></div>
@@ -369,9 +375,10 @@ export class GameApp {
     const step = this.createStep;
     const index = CREATE_STEPS.indexOf(step);
     const last = index === CREATE_STEPS.length - 1;
-    return `<main class="create-screen">
-      <img src="/assets/scenes/reception.jpg" alt="" />
-      <div class="settings-shade"></div>
+    // Gênero e classe ficam sobre o preto, sem cenário e sem caixa em volta das artes.
+    const dark = step === 'gender' || step === 'class';
+    return `<main class="create-screen${dark ? ' on-black' : ''}">
+      ${dark ? '' : '<img src="/assets/scenes/reception.jpg" alt="" /><div class="settings-shade"></div>'}
       <section class="create-panel create-step-${step}">
         <div class="create-head">
           <small>CRIAÇÃO DE PERSONAGEM · REGISTRO ${String((this.activeSlot ?? 0) + 1).padStart(2, '0')}</small>
@@ -416,8 +423,19 @@ export class GameApp {
       case 'phobia': return this.draft.phobia !== null;
       case 'item': return this.draft.startingItem !== null;
       case 'mode': return this.draft.mode !== null;
-      case 'name': return sanitizeCharacterName(this.draft.name).length >= MIN_CHARACTER_NAME;
+      case 'name': {
+        const name = sanitizeCharacterName(this.draft.name);
+        return name.length >= MIN_CHARACTER_NAME && checkCharacterName(name).ok;
+      }
     }
+  }
+
+  /** O que há de errado com o nome digitado, ou nada quando ele serve. */
+  private nameProblem(): string {
+    const name = sanitizeCharacterName(this.draft.name);
+    if (!name.length) return '';
+    if (name.length < MIN_CHARACTER_NAME) return `O nome precisa de pelo menos ${MIN_CHARACTER_NAME} letras.`;
+    return checkCharacterName(name).reason ?? '';
   }
 
   private createStepBody(step: CreateStep): string {
@@ -426,7 +444,7 @@ export class GameApp {
       case 'class': return this.optionGrid(this.classOptions(), this.draft.classId, 'classId');
       case 'phobia': return this.optionGrid(PHOBIAS, this.draft.phobia, 'phobia');
       case 'item': return this.startingItemGrid();
-      case 'mode': return this.optionGrid(MODES, this.draft.mode, 'mode');
+      case 'mode': return this.modeGrid();
       case 'name': {
         // O retrato é a arte da classe escolhida: quem está sendo batizado fica à vista.
         const portrait = this.draft.classId ? classArtFor(this.draft.classId, this.draft.gender ?? 'male') : undefined;
@@ -434,6 +452,7 @@ export class GameApp {
           <div class="create-name-field">
             <label class="create-name"><span>Nome do personagem</span>
               <input type="text" maxlength="${MAX_CHARACTER_NAME}" value="${esc(this.draft.name)}" data-draft="name" placeholder="${MIN_CHARACTER_NAME} a ${MAX_CHARACTER_NAME} caracteres" /></label>
+            <p class="name-warning" role="alert" data-role="name-warning" ${this.nameProblem() ? '' : 'hidden'}>${esc(this.nameProblem())}</p>
             <p class="setting-help">O nome aparece na lista de registros e nas anotações do jogo.</p>
           </div>
           ${portrait ? `<div class="create-portrait"><img src="${esc(portrait)}" alt="" /></div>` : ''}
@@ -442,10 +461,10 @@ export class GameApp {
     }
   }
 
-  /** As classes com a arte do gênero já escolhido. */
+  /** As classes com a arte e o nome do gênero já escolhido. */
   private classOptions(): ReadonlyArray<{ id: CharacterClassId; label: string; description: string; icon: string; image?: string }> {
     const gender = this.draft.gender ?? 'male';
-    return CLASSES.map((option) => ({ ...option, image: classArtFor(option.id, gender) }));
+    return CLASSES.map((option) => ({ ...option, label: classLabelFor(option.id, gender), image: classArtFor(option.id, gender) }));
   }
 
   private optionGrid<Id extends string>(options: ReadonlyArray<{ id: Id; label: string; description: string; icon: string; image?: string }>, selected: Id | null, field: string): string {
@@ -454,8 +473,40 @@ export class GameApp {
     return `<div class="option-grid ${illustrated ? 'illustrated' : ''}" role="radiogroup">${options.map((option) => `
       <button class="option-card ${option.id === selected ? 'selected' : ''}" role="radio" aria-checked="${option.id === selected}" data-action="draft-set" data-field="${field}" data-value="${esc(option.id)}">
         ${illustrated ? `<img class="option-art" src="${esc(option.image!)}" alt="" loading="lazy" />` : ''}
+        <i>${esc(option.icon)}</i><b>${esc(option.label)}</b>${option.description ? `<small>${esc(option.description)}</small>` : ''}
+      </button>`).join('')}</div>`;
+  }
+
+  /**
+   * O último passo mostra, em cada opção, um exemplo do que o jogador vai ver: a
+   * mesma cena com a interface por cima e sem nada por cima. O exemplo é montado com
+   * as peças reais da tela de jogo em miniatura, e não com uma foto guardada, para
+   * nunca envelhecer em relação ao jogo.
+   */
+  private modeGrid(): string {
+    return `<div class="option-grid mode-grid" role="radiogroup">${MODES.map((option) => `
+      <button class="option-card ${option.id === this.draft.mode ? 'selected' : ''}" role="radio" aria-checked="${option.id === this.draft.mode}" data-action="draft-set" data-field="mode" data-value="${esc(option.id)}">
+        ${this.modeShotTemplate(option.id)}
         <i>${esc(option.icon)}</i><b>${esc(option.label)}</b><small>${esc(option.description)}</small>
       </button>`).join('')}</div>`;
+  }
+
+  /** A miniatura de exemplo de um modo: a cena, e a interface só no modo clássico. */
+  private modeShotTemplate(mode: CharacterMode): string {
+    const hud = mode === 'classic';
+    const bars: Array<[string, string, number]> = [['anxiety', 'ANSIEDADE', 62], ['thirst', 'SEDE', 74], ['hunger', 'FOME', 48]];
+    return `<span class="mode-shot" aria-hidden="true">
+      <img src="/assets/scenes/corridor.jpg" alt="" loading="lazy" />
+      <i class="mode-shot-hotspot"></i>
+      <i class="mode-shot-path">↑</i>
+      ${hud ? `<span class="mode-shot-header">
+        <span class="mode-shot-room"><em>NÍVEL 0 — 02</em><b>Corredor longo</b></span>
+        <span class="mode-shot-bars">${bars.map(([key, label, value]) => `<span class="mode-shot-bar mode-shot-${key}"><em>${label}</em><i><u style="width:${value}%"></u></i></span>`).join('')}</span>
+      </span>
+      <span class="mode-shot-legend">As lâmpadas zumbem acima de você.</span>
+      <span class="mode-shot-inventory">▦ Inventário</span>` : ''}
+      <span class="mode-shot-tag">${hud ? 'com interface' : 'só a cena'}</span>
+    </span>`;
   }
 
   private startingItemGrid(): string {
@@ -477,10 +528,12 @@ export class GameApp {
     const hud = !this.immersive;
     return `<main class="game-screen ${condition}${hud ? '' : ' immersive'}">
       <section class="scene" aria-label="${room.name}">
-        <div class="scene-frame">
+        <div class="scene-frame" style="${sceneFrameStyle((room as RoomDefinition).view)}">
           <img src="${room.image}" alt="${room.description}" />
+          ${roomMediaMarkup((room as RoomDefinition).media, false, esc)}
           <canvas class="scene-darkness-canvas" data-role="scene-darkness" aria-hidden="true"></canvas>
           ${this.hotspotMarkup(room)}
+          ${roomMediaMarkup((room as RoomDefinition).media, true, esc)}
           <nav class="movement" aria-label="Movimentação">${exits.map(([direction, exit]) => this.movementButton(direction, exit)).join('')}</nav>
         </div>
         <div class="scene-grade"></div><div class="scene-noise"></div>
@@ -495,7 +548,7 @@ export class GameApp {
           ${this.save.preferences.showHealthBar ? this.statBar('health', 'VIDA', this.game.stats.health) : ''}
         </div>
       </header>` : ''}
-      ${hud && this.messageVisible() ? `<div class="message-strip" role="status"><i></i><p>${esc(this.game.message)}</p></div>` : ''}
+      ${hud && this.messageVisible() ? `<div class="message-strip" role="status" style="--legend-life:${this.legendTimes[this.legendIndex] ?? SOLO_LEGEND_MS}ms"><i></i><p>${esc(this.currentLegend())}</p></div>` : ''}
       ${hud && this.inventoryHintVisible() ? `<button class="inventory-button ${this.game.selectedItem ? 'item-selected' : ''}" data-action="inventory"><span>▦</span><b>Inventário</b><small>${this.itemCountLabel()}</small></button>` : ''}
       ${this.inventoryOpen ? this.inventoryTemplate() : ''}
       ${this.game.encounter ? this.encounterTemplate() : ''}
@@ -538,19 +591,33 @@ export class GameApp {
   }
 
   /**
-   * Legenda com prazo: ela entra quando o texto muda e some dez segundos depois.
-   * Guardar o instante aqui, no desenho, mantém o relógio preso ao que está na tela.
+   * Legenda com prazo. Um texto curto entra inteiro e fica oito segundos; um texto
+   * longo vira uma sequência de legendas, cada uma com o tempo do próprio tamanho, e
+   * a fila anda sozinha. Guardar o relógio aqui, no desenho, prende o tempo ao que
+   * está de fato na tela.
    */
   private trackMessage(): void {
     const message = this.game?.message ?? '';
-    if (message === this.shownMessage) return;
-    this.shownMessage = message;
-    this.messageShownAt = message ? Date.now() : 0;
+    const now = Date.now();
+    if (message !== this.shownMessage) {
+      this.shownMessage = message;
+      this.legendParts = splitLegend(message);
+      this.legendTimes = legendTimings(this.legendParts);
+      this.legendIndex = 0;
+      this.legendUntil = this.legendParts.length ? now + this.legendTimes[0]! : 0;
+      return;
+    }
+    // A fila anda sozinha: cada pedaço sai quando o tempo dele acaba e o próximo entra.
+    while (this.legendIndex < this.legendParts.length && now >= this.legendUntil) {
+      this.legendIndex += 1;
+      if (this.legendIndex < this.legendParts.length) this.legendUntil = now + this.legendTimes[this.legendIndex]!;
+    }
   }
 
-  private messageVisible(): boolean {
-    return Boolean(this.game?.message) && Date.now() - this.messageShownAt < MESSAGE_LIFETIME_MS;
-  }
+  private messageVisible(): boolean { return this.legendIndex < this.legendParts.length; }
+
+  /** O pedaço da legenda que está na tela agora. */
+  private currentLegend(): string { return this.legendParts[this.legendIndex] ?? ''; }
 
   private inventoryHintVisible(): boolean { return Date.now() < this.inventoryHintUntil; }
 
@@ -1168,6 +1235,14 @@ export class GameApp {
       this.draft.name = input.value.slice(0, MAX_CHARACTER_NAME);
       const next = this.root.querySelector<HTMLButtonElement>('[data-action="create-next"]');
       if (next) next.disabled = !this.createStepReady('name');
+      // O aviso é atualizado à mão pelo mesmo motivo do botão: redesenhar a tela a
+      // cada letra tirava o foco do campo.
+      const warning = this.root.querySelector<HTMLElement>('[data-role="name-warning"]');
+      if (warning) {
+        const problem = this.nameProblem();
+        warning.textContent = problem;
+        warning.hidden = !problem;
+      }
       return;
     }
     const debugStat = input.dataset.devStat as 'health' | 'hunger' | 'thirst' | 'anxiety' | undefined;

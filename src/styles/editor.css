@@ -148,7 +148,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .hotspot-editor-layout { min-height: 0; display: grid; grid-template-columns: minmax(520px, 1fr) 320px; }
 .hotspot-stage { position: relative; align-self: center; width: calc(100% - 3rem); aspect-ratio: 16 / 9; margin: 1.5rem; overflow: hidden; border: 1px solid #555a48; background: #050605; box-shadow: 0 18px 50px #0009; }
 .hotspot-stage > img { display: block; width: 100%; height: 100%; object-fit: cover; user-select: none; pointer-events: none; }
-.editable-hotspot { position: absolute; border: 1px dashed var(--hotspot-color); cursor: move; background: transparent; border-radius: 0; }
+.editable-hotspot { position: absolute; z-index: 3; border: 1px dashed var(--hotspot-color); cursor: move; background: transparent; border-radius: 0; }
 .editable-hotspot.selected { border-style: solid; box-shadow: 0 0 0 2px #fff3, 0 0 20px var(--hotspot-color); }
 .editable-hotspot.muted-visibility { border-style: dotted; opacity: .68; }
 .editable-hotspot.shape-mode { border-color: transparent !important; box-shadow: none !important; }
@@ -165,9 +165,20 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .scene-connection { cursor: grab; }
 .scene-connection:active { cursor: grabbing; }
 .stage-darkness-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
-/* O que a janela do jogador mostra: fora deste contorno a cena é cortada. */
-.stage-crop-guide { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border: 1px dashed #74c1c4a8; box-shadow: 0 0 0 100vmax #0205054d; pointer-events: none; z-index: 7; }
-.stage-crop-guide span { position: absolute; right: 2px; bottom: 2px; padding: .1rem .3rem; background: #74c1c4; color: #04100f; font: 700 .52rem "Courier New", monospace; letter-spacing: .06em; }
+/* Fotos, GIFs e vídeos soltos sobre a cena. */
+.scene-media { position: absolute; z-index: 2; display: grid; place-items: center; outline: 1px dashed #6f8fd27a; cursor: move; }
+.scene-media.on-top { z-index: 6; }
+.scene-media.selected { outline: 1px solid #8fb4ff; box-shadow: 0 0 0 2px #fff3, 0 0 20px #4b73c8; z-index: 8; }
+.scene-media img, .scene-media video { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.scene-media em { padding: .2rem .4rem; background: #121a28d9; color: #8fa6c9; font: .58rem "Courier New", monospace; font-style: normal; }
+.scene-media > i { position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px; border: 1px solid #0b0d0a; background: #8fb4ff; cursor: nwse-resize; }
+/* O campo de visão da sala: o jogo enquadra exatamente este retângulo. */
+.stage-view-window { position: absolute; z-index: 7; border: 1px solid #74c1c4; box-shadow: 0 0 0 100vmax #02050566; pointer-events: none; }
+.stage-view-window.full { border-style: dashed; border-color: #74c1c47a; box-shadow: none; }
+.stage-view-window.editing { pointer-events: auto; cursor: move; border-color: #9ff0f3; border-style: solid; }
+.stage-view-window > span { position: absolute; right: 2px; bottom: 2px; padding: .1rem .3rem; background: #74c1c4; color: #04100f; font: 700 .52rem "Courier New", monospace; letter-spacing: .06em; }
+.stage-view-window .stage-crop-guide { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border: 1px dashed #74c1c4a8; pointer-events: none; }
+.stage-view-window .view-resize { position: absolute; right: -7px; bottom: -7px; width: 14px; height: 14px; border: 1px solid #04100f; background: #9ff0f3; cursor: nwse-resize; }
 .light-marker { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border: 2px solid var(--light-color, #ffd77a); border-radius: 50%; background: color-mix(in srgb, var(--light-color, #ffd77a) 35%, transparent); box-shadow: 0 0 8px color-mix(in srgb, var(--light-color, #ffd77a) 55%, transparent); cursor: grab; z-index: 6; transform: none; }
 .light-marker:active { cursor: grabbing; }
 .light-marker.selected { border-color: #fff; box-shadow: 0 0 0 2px var(--light-color, #ffd77a), 0 0 16px var(--light-color, #ffd77a); }
@@ -235,7 +246,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .test-exits span { margin-top: .2rem; font-size: .62rem; }
 .test-exits small { margin-top: .18rem; color: #9a675e; font: .58rem "Courier New", monospace; }
 .dead-end { padding: .7rem 1rem; background: #090b09dd; color: #8f9285; font: .62rem "Courier New", monospace; }
-.test-message { position: absolute; z-index: 8; left: 50%; bottom: 1rem; width: min(720px, 70vw); padding: .8rem 1rem; transform: translateX(-50%); border-top: 1px solid #666a55; background: #070907e8; color: #c4c3b4; text-align: center; font: .72rem Georgia, serif; }
+.test-message { position: absolute; z-index: 8; left: 50%; bottom: 1rem; width: min(720px, 70vw); padding: .8rem 1rem; transform: translateX(-50%); border-top: 1px solid #666a55; background: #070907d9; color: #c4c3b4; text-align: center; font: .72rem Georgia, serif; }
 .test-badge { position: absolute; z-index: 8; right: 1rem; bottom: 1rem; color: #7f826f; font: .58rem "Courier New", monospace; }
 .test-inventory { position: absolute; z-index: 20; inset: 0; display: grid; place-items: center; background: #020302b8; backdrop-filter: blur(6px); }
 .test-inventory > section { width: min(620px, 90vw); padding: 1.3rem; border: 1px solid #555a49; background: #0d100df5; box-shadow: 0 24px 80px #000; }

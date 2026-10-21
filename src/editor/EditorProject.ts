@@ -2,11 +2,13 @@ import { DEFAULT_WORLD } from '../config/world';
 import type { ItemEffect } from '../config/world';
 import type { RoomAudioMode } from '../config/world';
 import type { CutsceneMediaType, EncounterAction, HotspotVisibility } from '../types';
+import { EDITOR_STORAGE_KEY } from '../config/storage';
 import { isLightShape } from '../systems/lighting';
-import { DEFAULT_ENTITIES, DEFAULT_ITEM_IMAGES, DEFAULT_ITEMS } from './types';
-import type { EditorConnection, EditorEntity, EditorHotspot, EditorHotspotAction, EditorItem, EditorLevel, EditorLight, EditorProjectData, EditorRoom } from './types';
+import { syncToDisk } from '../systems/localSync';
+import { DEFAULT_ENTITIES, DEFAULT_ITEM_IMAGES, DEFAULT_ITEMS, detectMediaType, isFullRoomView } from './types';
+import type { EditorConnection, EditorEntity, EditorHotspot, EditorHotspotAction, EditorItem, EditorLevel, EditorLight, EditorProjectData, EditorRoom, EditorRoomMedia, EditorRoomView } from './types';
 
-export const EDITOR_STORAGE_KEY = 'limiar:room-editor:v1';
+export { EDITOR_STORAGE_KEY } from '../config/storage';
 
 type EditorStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
@@ -196,6 +198,8 @@ export class EditorProject {
     room.name = `${source.name} — cópia`;
     room.position = { x: source.position.x + 48, y: source.position.y + 48 };
     room.hotspots = room.hotspots.map((hotspot) => ({ ...hotspot, id: createId('hotspot') }));
+    room.lights = room.lights?.map((light) => ({ ...light, id: createId('luz') }));
+    room.media = room.media?.map((media) => ({ ...media, id: createId('midia') }));
     this.activeLevel.rooms.push(room);
     this.save();
     return room;
@@ -288,6 +292,8 @@ export class EditorProject {
 
   save(): boolean {
     this.data.updatedAt = new Date().toISOString();
+    // A cópia local em disco acompanha o mapa; em produção isto não faz nada.
+    syncToDisk('project', this.data);
     try { this.storage?.setItem(EDITOR_STORAGE_KEY, JSON.stringify(this.data)); return this.storage !== null; }
     catch { return false; }
   }
@@ -456,7 +462,52 @@ export class EditorProject {
       darknessLevel: typeof room.darknessLevel === 'number' && Number.isFinite(room.darknessLevel) ? Math.max(0, Math.min(1, room.darknessLevel)) : undefined,
       lights: Array.isArray(room.lights) ? room.lights.flatMap((light, lightIndex) => this.validateLight(light, lightIndex)) : undefined,
       audio: this.validateRoomAudio(room.audio),
+      media: Array.isArray(room.media) ? room.media.flatMap((entry, mediaIndex) => this.validateRoomMedia(entry, mediaIndex)) : undefined,
+      view: this.validateRoomView(room.view),
     };
+  }
+
+  /** Fotos, GIFs e vídeos soltos sobre a cena. Sem caminho a mídia não existe. */
+  private validateRoomMedia(value: unknown, index: number): EditorRoomMedia[] {
+    if (!value || typeof value !== 'object') return [];
+    const raw = value as Partial<EditorRoomMedia>;
+    const path = typeof raw.path === 'string' ? raw.path.trim() : '';
+    if (!path) return [];
+    const number = (candidate: unknown, fallback: number, min: number, max: number): number =>
+      typeof candidate === 'number' && Number.isFinite(candidate) ? Math.max(min, Math.min(max, candidate)) : fallback;
+    return [{
+      id: cleanId(String(raw.id ?? `midia-${index + 1}`)) || createId('midia'),
+      path,
+      kind: CUTSCENE_MEDIA_TYPES.has(raw.kind as CutsceneMediaType) ? raw.kind as CutsceneMediaType : detectMediaType(path),
+      x: number(raw.x, 30, -100, 200),
+      y: number(raw.y, 30, -100, 200),
+      width: number(raw.width, 40, 1, 400),
+      height: number(raw.height, 40, 1, 400),
+      opacity: number(raw.opacity, 1, 0.05, 1),
+      rotation: ((Math.round(number(raw.rotation, 0, -3600, 3600)) % 360) + 360) % 360,
+      loop: raw.loop !== false,
+      onTop: raw.onTop === true,
+    }];
+  }
+
+  /**
+   * Campo de visão da sala. Uma janela degenerada (largura ou altura em zero) não
+   * mostraria nada: nesses casos ela volta a ser a cena inteira, ou seja, nenhuma.
+   */
+  private validateRoomView(value: unknown): EditorRoomView | undefined {
+    if (!value || typeof value !== 'object') return undefined;
+    const raw = value as Partial<EditorRoomView>;
+    const number = (candidate: unknown, fallback: number, min: number, max: number): number =>
+      typeof candidate === 'number' && Number.isFinite(candidate) ? Math.max(min, Math.min(max, candidate)) : fallback;
+    const width = number(raw.width, 100, 5, 100);
+    const height = number(raw.height, 100, 5, 100);
+    const view: EditorRoomView = {
+      x: number(raw.x, 0, 0, 100 - width),
+      y: number(raw.y, 0, 0, 100 - height),
+      width,
+      height,
+    };
+    return isFullRoomView(view) ? undefined : view;
   }
 
   /** Trilha presa à sala: sem caminho de arquivo não existe configuração nenhuma. */

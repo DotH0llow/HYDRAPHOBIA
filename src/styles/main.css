@@ -101,7 +101,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .movement .path-marker { pointer-events: auto; }
 
 /* A legenda vive dez segundos: entra, fica e sai sozinha. */
-.message-strip { position: absolute; z-index: 10; left: 50%; bottom: 1.1rem; width: min(680px, calc(100vw - 360px)); min-height: 58px; transform: translateX(-50%); display: flex; align-items: center; gap: .8rem; padding: .7rem 1rem; border-top: 1px solid #686851; border-bottom: 1px solid #39392f; background: #070907e8; backdrop-filter: blur(6px); pointer-events: none; animation: legend-life 10s linear forwards; }
+.message-strip { position: absolute; z-index: 10; left: 50%; bottom: 1.1rem; width: min(680px, calc(100vw - 360px)); min-height: 58px; transform: translateX(-50%); display: flex; align-items: center; gap: .8rem; padding: .7rem 1rem; border-top: 1px solid #686851; border-bottom: 1px solid #39392f; background: #070907d9; backdrop-filter: blur(6px); pointer-events: none; animation: legend-life var(--legend-life, 8s) linear forwards; }
 .message-strip i { flex: 0 0 7px; width: 7px; height: 7px; background: var(--acid); box-shadow: 0 0 9px var(--acid); }
 .message-strip p { margin: 0; color: #bab9a6; font: .68rem/1.55 Georgia, serif; }
 /* A caixa do inventário só aparece depois de uma interação, e por quatro segundos. */
@@ -371,10 +371,34 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .create-step-item .option-grid.illustrated { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 /* O último passo tem duas opções de texto: elas ficam centradas, sem esticar a tela. */
 .create-step-mode .create-body > .option-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: auto; align-content: center; justify-self: center; width: min(1040px, 100%); overflow: visible; }
-.create-step-mode .option-card { align-content: center; gap: .5rem; min-height: clamp(170px, 26vh, 300px); padding: 1.6rem; }
-.create-step-mode .option-card i { font-size: 2.4rem; }
+.create-step-mode .option-card { align-content: start; justify-items: stretch; gap: .45rem; min-height: 0; padding: 1rem; }
+.create-step-mode .option-card i { font-size: 1.5rem; }
 .create-step-mode .option-card b { font-size: 1.1rem; }
 .create-step-mode .option-card small { font-size: .74rem; }
+/*
+ * Exemplo do modo: a cena em miniatura com — ou sem — as peças da interface por cima.
+ * Tudo aqui é desenho, não há jogo rodando dentro do card.
+ */
+.mode-grid .option-card { grid-template-rows: auto auto auto 1fr; }
+.mode-shot { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; margin-bottom: .55rem; overflow: hidden; border: 1px solid #3c4034; background: #050605; }
+.mode-shot > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: saturate(.7) contrast(1.1) brightness(.9); }
+.mode-shot-hotspot { position: absolute; left: 34%; top: 56%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 1px solid #f2ef74d9; border-radius: 50%; background: #e7e15c66; }
+.mode-shot-path { position: absolute; left: 50%; top: 20%; display: grid; place-items: center; width: 20px; height: 20px; margin: -10px 0 0 -10px; border: 1px solid #d7df77b0; border-radius: 50%; color: var(--acid); background: #0a0c0a99; font-size: .6rem; font-style: normal; }
+.mode-shot-header { position: absolute; left: 0; right: 0; top: 0; display: flex; justify-content: space-between; gap: .4rem; padding: .3rem .4rem; }
+.mode-shot-room { display: grid; }
+.mode-shot-room em { color: #9ba170; font: .4rem "Courier New", monospace; font-style: normal; letter-spacing: .08em; }
+.mode-shot-room b { color: #d8d7c4; font: 400 .52rem Georgia, serif; }
+.mode-shot-bars { display: grid; gap: 2px; align-content: start; width: 38%; }
+.mode-shot-bar { display: grid; gap: 1px; }
+.mode-shot-bar em { color: #8b8f78; font: .36rem "Courier New", monospace; font-style: normal; letter-spacing: .1em; }
+.mode-shot-bar i { display: block; height: 3px; background: #2a2d24; }
+.mode-shot-bar u { display: block; height: 100%; background: var(--acid); text-decoration: none; }
+.mode-shot-anxiety u { background: #c98a5f; }
+.mode-shot-thirst u { background: #6fa8bd; }
+.mode-shot-legend { position: absolute; left: 50%; right: auto; bottom: 8%; width: 66%; padding: .25rem .35rem; transform: translateX(-50%); border-top: 1px solid #686851; border-bottom: 1px solid #39392f; background: #070907d9; color: #bab9a6; font: .42rem/1.4 Georgia, serif; text-align: left; }
+.mode-shot-inventory { position: absolute; right: 3%; bottom: 8%; padding: .25rem .35rem; border: 1px solid #676754; background: #0a0c0ae8; color: #cfd0bb; font: .4rem "Courier New", monospace; }
+.mode-shot-tag { position: absolute; left: 0; bottom: 0; padding: .12rem .3rem; background: #d7df77; color: #11130d; font: 700 .4rem "Courier New", monospace; letter-spacing: .08em; opacity: 0; transition: opacity .18s; }
+.option-card.selected .mode-shot-tag, .option-card:hover .mode-shot-tag { opacity: 1; }
 .option-card .option-art { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; filter: saturate(.85) contrast(1.05) brightness(.92); transition: transform .3s, filter .3s; }
 .option-grid.illustrated .option-card::after { content: ''; position: absolute; z-index: 1; inset: 0; background: linear-gradient(180deg, #05060500 38%, #050605cc 72%, #050605f2 100%); }
 .option-grid.illustrated .option-card > i, .option-grid.illustrated .option-card > b, .option-grid.illustrated .option-card > small { position: relative; z-index: 2; }
@@ -382,9 +406,39 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .option-grid.illustrated .option-card:hover .option-art { transform: scale(1.04); filter: saturate(.95) contrast(1.08) brightness(1); }
 .option-grid.illustrated .option-card.selected .option-art { filter: saturate(1) contrast(1.1) brightness(1.04); }
 
+/*
+ * Gênero e classe sobre o preto: sem cenário atrás, sem caixa em volta e sem parede
+ * nenhuma entre as opções. A arte flutua no escuro — ela já nasce em fundo preto, e
+ * `contain` a deixa inteira, sem borda. A escolha aparece no brilho: as opções não
+ * escolhidas ficam apagadas e a escolhida acende, com o nome em destaque.
+ */
+.create-screen.on-black { background: #000; }
+.create-screen.on-black .create-panel { background: transparent; }
+.on-black .option-grid.illustrated { gap: 0; }
+.on-black .option-grid.illustrated .option-card { display: grid; grid-template-rows: minmax(0, 1fr) auto auto; justify-items: center; gap: .3rem; min-height: 0; padding: .6rem .4rem 1.1rem; border: 0; background: transparent; text-align: center; }
+/* Nesta tela a arte e o nome bastam: a linha de explicação sairia de lugar nenhum. */
+.on-black .option-grid.illustrated .option-card > small { display: none; }
+.on-black .option-grid.illustrated .option-card::after { content: none; }
+.on-black .option-grid.illustrated .option-card:hover, .on-black .option-grid.illustrated .option-card.selected { border: 0; background: transparent; box-shadow: none; }
+.on-black .option-grid.illustrated .option-card .option-art { position: static; inset: auto; width: 100%; height: 100%; min-height: 0; object-fit: contain; filter: brightness(.5) saturate(.55) contrast(1.18); }
+/* As artes não nascem em preto puro: as bordas são dissolvidas para não virarem caixa. */
+.on-black .option-grid.illustrated .option-card .option-art { -webkit-mask-image: linear-gradient(to right, #0000, #000 13%, #000 87%, #0000), linear-gradient(to bottom, #0000, #000 9%, #000 91%, #0000); mask-image: linear-gradient(to right, #0000, #000 13%, #000 87%, #0000), linear-gradient(to bottom, #0000, #000 9%, #000 91%, #0000); -webkit-mask-composite: source-in; mask-composite: intersect; }
+.on-black .option-grid.illustrated .option-card:hover .option-art { transform: none; filter: brightness(.88) saturate(.9) contrast(1.18); }
+.on-black .option-grid.illustrated .option-card.selected .option-art { transform: none; filter: brightness(1.04) saturate(1.05) contrast(1.22); }
+.on-black .option-grid.illustrated .option-card > i { color: #5d6050; font-size: 1.5rem; transition: color .18s; }
+.on-black .option-grid.illustrated .option-card:hover > i { color: #9a9f74; }
+.on-black .option-grid.illustrated .option-card.selected > i { color: var(--acid); }
+/* O nome da opção é a única legenda: por isso ele é grande. */
+.on-black .option-grid.illustrated .option-card > b { position: relative; z-index: 2; color: #7e8172; font-size: clamp(1.05rem, 2vw, 1.6rem); font-weight: 400; letter-spacing: .02em; transition: color .18s; }
+.on-black .option-grid.illustrated .option-card:hover > b { color: #cfd0bb; }
+.on-black .option-grid.illustrated .option-card.selected > b { color: var(--acid); }
+
 /* Etapa do nome: campo à esquerda, retrato do gênero escolhido à direita. */
 .create-name-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 46vh); gap: clamp(1rem, 4vw, 3rem); align-items: center; height: 100%; }
 .create-name-field { align-self: center; }
+/* Aviso do filtro de linguagem: fica entre o campo e a ajuda, só quando há problema. */
+.name-warning { margin: -.6rem 0 .8rem; padding: .5rem .7rem; border-left: 2px solid #c9704f; background: #1a0f0ba8; color: #e0a98f; font: .68rem/1.5 Georgia, serif; }
+.name-warning[hidden] { display: none; }
 .create-portrait { justify-self: center; align-self: center; overflow: hidden; height: 100%; max-height: 100%; aspect-ratio: 3 / 4; background: #05060500; }
 .create-portrait img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center bottom; filter: drop-shadow(0 12px 32px #000c); }
 .create-name { display: block; max-width: 620px; }

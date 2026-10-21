@@ -7,6 +7,8 @@ export interface CharacterOption<Id extends string> {
   icon: string;
   /** Arte da opção. A tela só troca para o modo ilustrado quando todas as opções têm uma. */
   image?: string;
+  /** Nome da opção no feminino, quando ele existe. Sem isto o nome serve aos dois. */
+  femaleLabel?: string;
 }
 
 /** Pasta das artes de criação de personagem. */
@@ -21,11 +23,15 @@ export const GENDERS: ReadonlyArray<CharacterOption<CharacterGender>> = [
   { id: 'female', label: 'Feminino', description: 'A voz e as reações do personagem são femininas.', icon: '♀', image: `${ART}/feminino.webp` },
 ];
 
+/**
+ * As quatro classes. A descrição é vazia de propósito: a tela de classes mostra só a
+ * arte e o nome, em letra grande, sem nenhuma linha de explicação por baixo.
+ */
 export const CLASSES: ReadonlyArray<CharacterOption<CharacterClassId>> = [
-  { id: 'explorador', label: 'Explorador', description: 'Conhece corredores vazios melhor do que ruas cheias.', icon: '◈', image: `${ART}/explorador.webp` },
-  { id: 'tecnico', label: 'Técnico', description: 'Entende painéis, fusíveis e o que não deveria estar ligado.', icon: '⌁', image: `${ART}/tecnico.webp` },
-  { id: 'adolescente', label: 'Adolescente', description: 'Chegou aqui sem querer e ainda não aceitou isso.', icon: '✦', image: `${ART}/adolescente.webp` },
-  { id: 'cavaleiro', label: 'Cavaleiro', description: 'Carrega um escudo surrado e nenhuma explicação.', icon: '✚', image: `${ART}/cavaleiro.webp` },
+  { id: 'explorador', label: 'Explorador', femaleLabel: 'Exploradora', description: '', icon: '◈', image: `${ART}/explorador.webp` },
+  { id: 'tecnico', label: 'Técnico', femaleLabel: 'Técnica', description: '', icon: '⌁', image: `${ART}/tecnico.webp` },
+  { id: 'adolescente', label: 'Adolescente', description: '', icon: '✦', image: `${ART}/adolescente.webp` },
+  { id: 'cavaleiro', label: 'Cavaleiro', femaleLabel: 'Cavaleira', description: '', icon: '⛉', image: `${ART}/cavaleiro.webp` },
 ];
 
 /**
@@ -44,6 +50,16 @@ const FEMALE_CLASS_ART: Readonly<Partial<Record<CharacterClassId, string>>> = {
 export const classArtFor = (classId: CharacterClassId, gender: CharacterGender): string | undefined => {
   const base = CLASSES.find((option) => option.id === classId)?.image;
   return gender === 'female' ? FEMALE_CLASS_ART[classId] ?? base : base;
+};
+
+/**
+ * Nome da classe no gênero do personagem: "Exploradora" no lugar de "Explorador".
+ * Classes de nome comum aos dois — adolescente — ficam como estão.
+ */
+export const classLabelFor = (classId: CharacterClassId, gender: CharacterGender): string => {
+  const option = CLASSES.find((entry) => entry.id === classId);
+  if (!option) return String(classId);
+  return gender === 'female' ? option.femaleLabel ?? option.label : option.label;
 };
 
 /** O último passo da criação: com interface ou sem nenhuma. */

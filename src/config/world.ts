@@ -69,6 +69,27 @@ export interface RoomAudio {
   volume?: number;
 }
 
+/** Foto, GIF ou vídeo colocado sobre a cena de uma sala. Decoração, nunca clicável. */
+export interface RoomMedia {
+  path: string;
+  kind: CutsceneMediaType;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  opacity?: number;
+  rotation?: number;
+  loop?: boolean;
+  /** Acima dos interagíveis em vez de atrás deles. */
+  onTop?: boolean;
+}
+
+/**
+ * O pedaço da cena que a janela do jogador mostra nesta sala, em % da cena 16:9.
+ * Ausente significa a cena inteira, o enquadramento padrão.
+ */
+export interface RoomView { x: number; y: number; width: number; height: number }
+
 export interface RoomDefinition {
   id: RoomId;
   name: string;
@@ -80,6 +101,8 @@ export interface RoomDefinition {
   darknessLevel?: number;
   lights?: RoomLight[];
   audio?: RoomAudio;
+  media?: RoomMedia[];
+  view?: RoomView;
 }
 
 export interface WorldDefinition {

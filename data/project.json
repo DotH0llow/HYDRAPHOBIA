@@ -1,0 +1,655 @@
+{
+  "version": 1,
+  "name": "Mapa HYDRAPHOBIA",
+  "activeLevelId": "nivel-0",
+  "updatedAt": "2026-10-21T20:39:11.938Z",
+  "levels": [
+    {
+      "id": "nivel-0",
+      "name": "Nível 0 - Lobby",
+      "startRoomId": "reception",
+      "escapeRoomId": "threshold",
+      "rooms": [
+        {
+          "id": "reception",
+          "name": "Recepção vazia",
+          "code": "NÍVEL 0 — R.01",
+          "description": "O zumbido das lâmpadas preenche o lugar onde deveria haver vozes.",
+          "image": "/assets/scenes/reception.jpg",
+          "position": {
+            "x": 100,
+            "y": 89
+          },
+          "hotspots": [
+            {
+              "id": "receptionNote",
+              "label": "Examinar bilhete",
+              "x": 60.12099644128116,
+              "y": 52.27046263345197,
+              "width": 9,
+              "height": 9,
+              "action": "examine",
+              "message": "“NÃO SIGA O SOM. AS LUZES MENTEM.” A tinta ainda está úmida.",
+              "once": false,
+              "highlightColor": "#d7df77",
+              "highlightOpacity": 0.22,
+              "visibility": "visible",
+              "revealSeconds": 25,
+              "shapePoints": [
+                {
+                  "x": 146.7409470752089,
+                  "y": -54.02203856749313
+                },
+                {
+                  "x": 73.76973073351903,
+                  "y": 144.6831955922865
+                },
+                {
+                  "x": -20,
+                  "y": 79.97245179063361
+                },
+                {
+                  "x": -9.424326833797608,
+                  "y": -85.23415977961432
+                }
+              ],
+              "indicator": {
+                "x": 46.03837821108016,
+                "y": 67.63085399449035
+              },
+              "cutsceneMedia": "image",
+              "cutscenePath": "",
+              "cutsceneHoldSeconds": 4,
+              "cutsceneRepeatCount": 1
+            },
+            {
+              "id": "receptionDrawer",
+              "label": "Abrir gaveta",
+              "x": 40,
+              "y": 39,
+              "width": 12,
+              "height": 17,
+              "action": "collect",
+              "message": "Dentro da gaveta há um cartão magnético sem identificação.",
+              "item": "accessCard",
+              "once": true,
+              "highlightColor": "#d7df77",
+              "highlightOpacity": 0.22,
+              "visibility": "visible",
+              "revealSeconds": 25,
+              "indicator": {
+                "x": 50,
+                "y": 50
+              },
+              "cutsceneMedia": "image",
+              "cutscenePath": "",
+              "cutsceneHoldSeconds": 4,
+              "cutsceneRepeatCount": 1
+            }
+          ],
+          "darknessLevel": 0,
+          "lights": [
+            {
+              "id": "luz-c884ce34",
+              "x": 83.54092526690394,
+              "y": 14.25464610517991,
+              "radius": 20,
+              "intensity": 0.9,
+              "color": "#fffbe8",
+              "angle": 172,
+              "shape": "circle",
+              "flicker": 0.1,
+              "aperture": 150
+            },
+            {
+              "id": "luz-0bed78cf",
+              "x": 18.768683274021374,
+              "y": 11.928034796362198,
+              "radius": 20,
+              "intensity": 0.9,
+              "color": "#fffbe8",
+              "angle": 190,
+              "shape": "circle",
+              "flicker": 0.1,
+              "aperture": 150
+            },
+            {
+              "id": "luz-d3cb0780",
+              "x": 47.14946619217085,
+              "y": 13.035191775405295,
+              "radius": 20,
+              "intensity": 0.9,
+              "color": "#fffbe8",
+              "angle": 182,
+              "shape": "circle",
+              "flicker": 0.1,
+              "aperture": 150
+            }
+          ],
+          "media": []
+        },
+        {
+          "id": "mainCorridor",
+          "name": "Corredor interminável",
+          "code": "NÍVEL 0 — C.12",
+          "description": "Cada passo parece alongar o corredor. Uma porta vermelha espera ao fundo.",
+          "image": "/assets/scenes/corridor.jpg",
+          "position": {
+            "x": 420,
+            "y": 90
+          },
+          "hotspots": [
+            {
+              "id": "cardReader",
+              "label": "Usar leitor de cartão",
+              "x": 46,
+              "y": 37,
+              "width": 9,
+              "height": 24,
+              "action": "use",
+              "message": "O leitor aceita o cartão. A fechadura pesada recua com um estalo.",
+              "requiresItem": "accessCard",
+              "grantsFlag": "maintenanceUnlocked",
+              "once": true,
+              "highlightColor": "#d7df77",
+              "highlightOpacity": 0.22,
+              "visibility": "visible",
+              "revealSeconds": 25,
+              "indicator": {
+                "x": 50,
+                "y": 50
+              },
+              "cutsceneMedia": "image",
+              "cutscenePath": "",
+              "cutsceneHoldSeconds": 4,
+              "cutsceneRepeatCount": 1
+            },
+            {
+              "id": "wallMarks",
+              "label": "Examinar riscos",
+              "x": 15,
+              "y": 31,
+              "width": 15,
+              "height": 29,
+              "action": "examine",
+              "message": "Marcas de unhas contam grupos de sete. A contagem termina abruptamente.",
+              "once": false,
+              "highlightColor": "#d7df77",
+              "highlightOpacity": 0.22,
+              "visibility": "visible",
+              "revealSeconds": 25,
+              "indicator": {
+                "x": 50,
+                "y": 50
+              },
+              "cutsceneMedia": "image",
+              "cutscenePath": "",
+              "cutsceneHoldSeconds": 4,
+              "cutsceneRepeatCount": 1
+            }
+          ]
+        },
+        {
+          "id": "westWing",
+          "name": "Ala oeste",
+          "code": "NÍVEL 0 — W.04",
+          "description": "A mesma recepção, vista de outro ângulo. Você tem certeza de que ela não estava aqui antes.",
+          "image": "/assets/scenes/reception.jpg",
+          "position": {
+            "x": 740,
+            "y": 90
+          },
+          "hotspots": [
+            {
+              "id": "vendingMachine",
+              "label": "Forçar compartimento",
+              "x": 8,
+              "y": 30,
+              "width": 17,
+              "height": 39,
+              "action": "collect",
+              "message": "Atrás de uma placa solta, você encontra uma ração de emergência.",
+              "item": "ration",
+              "once": true,
+              "highlightColor": "#d7df77",
+              "highlightOpacity": 0.22,
+              "visibility": "visible",
+              "revealSeconds": 25,
+              "indicator": {
+                "x": 50,
+                "y": 50
+              },
+              "cutsceneMedia": "image",
+              "cutscenePath": "",
+              "cutsceneHoldSeconds": 4,
+              "cutsceneRepeatCount": 1
+            }
+          ]
+        },
+        {
+          "id": "quietMaze",
+          "name": "Galeria muda",
+          "code": "NÍVEL 0 — ??.??",
+          "description": "As lâmpadas continuam acesas, mas o zumbido desapareceu. Isso é pior.",
+          "image": "/assets/scenes/corridor.jpg",
+          "position": {
+            "x": 100,
+            "y": 320
+          },
+          "hotspots": [
+            {
+              "id": "wallMarks",
+              "label": "Ouvir a parede",
+              "x": 65,
+              "y": 23,
+              "width": 20,
+              "height": 45,
+              "action": "examine",
+              "message": "Algo se move do outro lado, acompanhando sua respiração.",
+              "once": false,
+              "highlightColor": "#d7df77",
+              "highlightOpacity": 0.22,
+              "visibility": "visible",
+              "revealSeconds": 25,
+              "indicator": {
+                "x": 50,
+                "y": 50
+              },
+              "cutsceneMedia": "image",
+              "cutscenePath": "",
+              "cutsceneHoldSeconds": 4,
+              "cutsceneRepeatCount": 1
+            }
+          ]
+        },
+        {
+          "id": "floodedRoom",
+          "name": "Setor alagado",
+          "code": "SUBNÍVEL — H.02",
+          "description": "A água gelada cobre seus tornozelos. Ondas pequenas chegam de um corredor vazio.",
+          "image": "/assets/scenes/flooded.jpg",
+          "position": {
+            "x": 420,
+            "y": 320
+          },
+          "hotspots": [
+            {
+              "id": "waterBottle",
+              "label": "Coletar garrafa",
+              "x": 7,
+              "y": 76,
+              "width": 16,
+              "height": 13,
+              "action": "collect",
+              "message": "A garrafa está lacrada: água de amêndoas.",
+              "item": "almondWater",
+              "once": true,
+              "highlightColor": "#d7df77",
+              "highlightOpacity": 0.22,
+              "visibility": "visible",
+              "revealSeconds": 25,
+              "indicator": {
+                "x": 50,
+                "y": 50
+              },
+              "cutsceneMedia": "image",
+              "cutscenePath": "",
+              "cutsceneHoldSeconds": 4,
+              "cutsceneRepeatCount": 1
+            },
+            {
+              "id": "looseFuse",
+              "label": "Retirar fusível",
+              "x": 83,
+              "y": 31,
+              "width": 12,
+              "height": 26,
+              "action": "collect",
+              "message": "Um fusível intacto estava preso atrás da válvula.",
+              "item": "fuse",
+              "once": true,
+              "highlightColor": "#d7df77",
+              "highlightOpacity": 0.22,
+              "visibility": "visible",
+              "revealSeconds": 25,
+              "indicator": {
+                "x": 50,
+                "y": 50
+              },
+              "cutsceneMedia": "image",
+              "cutscenePath": "",
+              "cutsceneHoldSeconds": 4,
+              "cutsceneRepeatCount": 1
+            },
+            {
+              "id": "vendingMachine",
+              "label": "Examinar máquina",
+              "x": 13,
+              "y": 20,
+              "width": 17,
+              "height": 45,
+              "action": "examine",
+              "message": "A máquina está ligada, mas todos os produtos viraram o rótulo para a parede.",
+              "once": false,
+              "highlightColor": "#d7df77",
+              "highlightOpacity": 0.22,
+              "visibility": "visible",
+              "revealSeconds": 25,
+              "indicator": {
+                "x": 50,
+                "y": 50
+              },
+              "cutsceneMedia": "image",
+              "cutscenePath": "",
+              "cutsceneHoldSeconds": 4,
+              "cutsceneRepeatCount": 1
+            }
+          ]
+        },
+        {
+          "id": "maintenance",
+          "name": "Manutenção",
+          "code": "ACESSO TÉCNICO — M.01",
+          "description": "O concreto pulsa com o ritmo dos geradores. Uma saída de serviço está sem energia.",
+          "image": "/assets/scenes/maintenance.jpg",
+          "position": {
+            "x": 740,
+            "y": 320
+          },
+          "hotspots": [
+            {
+              "id": "toolbox",
+              "label": "Revistar caixa",
+              "x": 2,
+              "y": 49,
+              "width": 22,
+              "height": 26,
+              "action": "collect",
+              "message": "Sob as ferramentas enferrujadas há um kit médico intacto.",
+              "item": "medkit",
+              "once": true,
+              "highlightColor": "#d7df77",
+              "highlightOpacity": 0.22,
+              "visibility": "visible",
+              "revealSeconds": 25,
+              "indicator": {
+                "x": 50,
+                "y": 50
+              },
+              "cutsceneMedia": "image",
+              "cutscenePath": "",
+              "cutsceneHoldSeconds": 4,
+              "cutsceneRepeatCount": 1
+            },
+            {
+              "id": "breaker",
+              "label": "Reparar painel",
+              "x": 52,
+              "y": 35,
+              "width": 12,
+              "height": 24,
+              "action": "use",
+              "message": "O fusível encaixa. As luzes da saída acendem uma a uma.",
+              "requiresItem": "fuse",
+              "grantsFlag": "exitPowered",
+              "once": true,
+              "highlightColor": "#d7df77",
+              "highlightOpacity": 0.22,
+              "visibility": "visible",
+              "revealSeconds": 25,
+              "indicator": {
+                "x": 50,
+                "y": 50
+              },
+              "cutsceneMedia": "image",
+              "cutscenePath": "",
+              "cutsceneHoldSeconds": 4,
+              "cutsceneRepeatCount": 1
+            }
+          ]
+        },
+        {
+          "id": "threshold",
+          "name": "O limiar",
+          "code": "ROTA NÃO CATALOGADA",
+          "description": "Além das cortinas, uma corrente de ar real toca seu rosto. Talvez seja uma saída.",
+          "image": "/assets/scenes/maintenance.jpg",
+          "position": {
+            "x": 100,
+            "y": 550
+          },
+          "hotspots": []
+        }
+      ],
+      "connections": [
+        {
+          "id": "conexao-reception-forward-0",
+          "from": "reception",
+          "to": "mainCorridor",
+          "label": "Corredor central",
+          "direction": "forward",
+          "bidirectional": false
+        },
+        {
+          "id": "conexao-reception-left-1",
+          "from": "reception",
+          "to": "mainCorridor",
+          "label": "Ala oeste",
+          "direction": "left",
+          "bidirectional": false
+        },
+        {
+          "id": "conexao-mainCorridor-back-0",
+          "from": "mainCorridor",
+          "to": "reception",
+          "label": "Recepção",
+          "direction": "back",
+          "bidirectional": false
+        },
+        {
+          "id": "conexao-mainCorridor-right-1",
+          "from": "mainCorridor",
+          "to": "floodedRoom",
+          "label": "Sala lateral",
+          "direction": "right",
+          "bidirectional": false
+        },
+        {
+          "id": "conexao-mainCorridor-forward-2",
+          "from": "mainCorridor",
+          "to": "maintenance",
+          "label": "Porta vermelha",
+          "direction": "forward",
+          "bidirectional": false,
+          "requiresFlag": "maintenanceUnlocked",
+          "lockedMessage": "A porta não cede. O leitor ao lado pisca em vermelho."
+        },
+        {
+          "id": "conexao-westWing-back-0",
+          "from": "westWing",
+          "to": "reception",
+          "label": "Voltar à recepção",
+          "direction": "back",
+          "bidirectional": false
+        },
+        {
+          "id": "conexao-westWing-forward-1",
+          "from": "westWing",
+          "to": "quietMaze",
+          "label": "Passagem escura",
+          "direction": "forward",
+          "bidirectional": false
+        },
+        {
+          "id": "conexao-quietMaze-back-0",
+          "from": "quietMaze",
+          "to": "westWing",
+          "label": "Ala oeste",
+          "direction": "back",
+          "bidirectional": false
+        },
+        {
+          "id": "conexao-quietMaze-right-1",
+          "from": "quietMaze",
+          "to": "floodedRoom",
+          "label": "Reflexo azulado",
+          "direction": "right",
+          "bidirectional": false
+        },
+        {
+          "id": "conexao-floodedRoom-back-0",
+          "from": "floodedRoom",
+          "to": "mainCorridor",
+          "label": "Corredor central",
+          "direction": "back",
+          "bidirectional": false
+        },
+        {
+          "id": "conexao-floodedRoom-left-1",
+          "from": "floodedRoom",
+          "to": "quietMaze",
+          "label": "Galeria muda",
+          "direction": "left",
+          "bidirectional": false
+        },
+        {
+          "id": "conexao-maintenance-back-0",
+          "from": "maintenance",
+          "to": "mainCorridor",
+          "label": "Corredor central",
+          "direction": "back",
+          "bidirectional": false
+        },
+        {
+          "id": "conexao-maintenance-right-1",
+          "from": "maintenance",
+          "to": "threshold",
+          "label": "Cortinas de contenção",
+          "direction": "right",
+          "bidirectional": false,
+          "requiresFlag": "exitPowered",
+          "lockedMessage": "A trava da saída está morta. Falta energia no painel."
+        },
+        {
+          "id": "conexao-threshold-back-0",
+          "from": "threshold",
+          "to": "maintenance",
+          "label": "Voltar",
+          "direction": "back",
+          "bidirectional": false
+        }
+      ]
+    },
+    {
+      "id": "nivel-af31350c",
+      "name": "Nível 1",
+      "startRoomId": "sala-361a759c",
+      "rooms": [
+        {
+          "id": "sala-361a759c",
+          "name": "Sala 1",
+          "code": "NÍVEL 0 — 01",
+          "description": "Descreva o que o jogador percebe ao entrar nesta perspectiva.",
+          "image": "/assets/scenes/reception.jpg",
+          "position": {
+            "x": 120,
+            "y": 120
+          },
+          "hotspots": []
+        }
+      ],
+      "connections": []
+    },
+    {
+      "id": "nivel-577d161d",
+      "name": "Nível 2",
+      "startRoomId": "sala-9a7ee16d",
+      "rooms": [
+        {
+          "id": "sala-9a7ee16d",
+          "name": "Sala 1",
+          "code": "NÍVEL 0 — 01",
+          "description": "Descreva o que o jogador percebe ao entrar nesta perspectiva.",
+          "image": "/assets/scenes/reception.jpg",
+          "position": {
+            "x": 120,
+            "y": 120
+          },
+          "hotspots": []
+        }
+      ],
+      "connections": []
+    }
+  ],
+  "items": [
+    {
+      "id": "accessCard",
+      "name": "Cartão sem nome",
+      "icon": "▣",
+      "description": "Um cartão magnético amarelado. A tarja ainda parece intacta.",
+      "useText": "Ele deve abrir algum leitor próximo.",
+      "effect": "none",
+      "effectAmount": 0,
+      "image": "/assets/items/accessCard.webp"
+    },
+    {
+      "id": "almondWater",
+      "name": "Água de amêndoas",
+      "icon": "◒",
+      "description": "Uma garrafa lacrada. O líquido tem um cheiro doce e vagamente familiar.",
+      "useText": "A sede recua. Por enquanto.",
+      "effect": "hydrate",
+      "effectAmount": 58,
+      "image": "/assets/items/almondWater.webp"
+    },
+    {
+      "id": "ration",
+      "name": "Ração selada",
+      "icon": "▰",
+      "description": "Uma barra de emergência dura, mas ainda comestível.",
+      "useText": "Sem gosto. Ainda assim, alimento.",
+      "effect": "feed",
+      "effectAmount": 48,
+      "image": "/assets/items/ration.webp"
+    },
+    {
+      "id": "fuse",
+      "name": "Fusível industrial",
+      "icon": "⌁",
+      "description": "Pesado demais para o tamanho. Os contatos não estão oxidados.",
+      "useText": "Talvez pertença a um painel elétrico.",
+      "effect": "none",
+      "effectAmount": 0
+    },
+    {
+      "id": "medkit",
+      "name": "Kit de primeiros socorros",
+      "icon": "✚",
+      "description": "Gaze, antisséptico e analgésicos dentro do prazo.",
+      "useText": "Os ferimentos foram tratados.",
+      "effect": "heal",
+      "effectAmount": 52,
+      "image": "/assets/items/medkit.webp"
+    }
+  ],
+  "entities": [
+    {
+      "id": "watcher",
+      "name": "O Observador",
+      "prompt": "Uma silhueta bloqueia o corredor. Ela reage a movimento.",
+      "hint": "Talvez seja melhor desaparecer da visão.",
+      "solution": "hide",
+      "timeLimit": 5,
+      "image": "/assets/entities/watcher.jpg"
+    },
+    {
+      "id": "crawler",
+      "name": "O Rastejante",
+      "prompt": "Unhas batem no concreto atrás de você. Está se aproximando.",
+      "hint": "Ficar parado significa ser alcançado.",
+      "solution": "run",
+      "timeLimit": 4.2,
+      "image": "/assets/entities/crawler.jpg"
+    }
+  ]
+}

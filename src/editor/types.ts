@@ -79,6 +79,44 @@ export const createLight = (id: string): EditorLight => ({
   id, x: 50, y: 50, radius: 20, intensity: 0.9, color: '#fffbe8', angle: 0, shape: 'circle', flicker: 0, aperture: 360,
 });
 
+/**
+ * Uma mídia solta sobre a cena: foto, GIF ou vídeo colocado dentro da sala, acima da
+ * imagem de fundo e abaixo dos interagíveis. É decoração — nada nela é clicável.
+ */
+export interface EditorRoomMedia {
+  id: string;
+  path: string;
+  kind: CutsceneMediaType;
+  /** Canto superior esquerdo e tamanho, em % da cena, como um interagível. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  opacity: number;
+  /** Rotação em graus (0-359). */
+  rotation: number;
+  /** Vídeo e GIF repetem sem parar; desligado, o vídeo toca uma vez e congela. */
+  loop: boolean;
+  /** Acima dos interagíveis em vez de atrás deles. */
+  onTop: boolean;
+}
+
+export const createRoomMedia = (id: string, path = '', kind: CutsceneMediaType = 'image'): EditorRoomMedia => ({
+  id, path, kind, x: 30, y: 30, width: 40, height: 40, opacity: 1, rotation: 0, loop: true, onTop: false,
+});
+
+/**
+ * O pedaço da cena que a janela do jogador mostra nesta sala — o campo de visão.
+ * Em % da cena 16:9. A janela inteira (0,0,100,100) é o enquadramento de sempre.
+ */
+export interface EditorRoomView { x: number; y: number; width: number; height: number }
+
+export const FULL_ROOM_VIEW: Readonly<EditorRoomView> = { x: 0, y: 0, width: 100, height: 100 };
+
+/** Uma janela igual à cena inteira não precisa ser gravada nem enviada ao jogo. */
+export const isFullRoomView = (view?: EditorRoomView): boolean =>
+  !view || (view.x <= 0.05 && view.y <= 0.05 && view.width >= 99.95 && view.height >= 99.95);
+
 /** Trilha presa a uma sala, configurada no editor. */
 export interface EditorRoomAudio {
   path: string;
@@ -103,6 +141,10 @@ export interface EditorRoom {
   darknessLevel?: number;
   lights?: EditorLight[];
   audio?: EditorRoomAudio;
+  /** Fotos, GIFs e vídeos colocados sobre a cena desta sala. */
+  media?: EditorRoomMedia[];
+  /** Campo de visão do jogador nesta sala; ausente significa a cena inteira. */
+  view?: EditorRoomView;
 }
 
 export interface EditorLevel {

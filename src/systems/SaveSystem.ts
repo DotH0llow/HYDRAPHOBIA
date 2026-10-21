@@ -1,9 +1,10 @@
 import { validateCharacter } from '../config/character';
+import { LEGACY_SAVE_STORAGE_KEY, SAVE_STORAGE_KEY } from '../config/storage';
+import { syncToDisk } from './localSync';
 import { SAVE_SLOT_COUNT, type CampaignEnding, type CharacterProfile, type GameSave, type InventoryEntry, type Preferences, type RoomId, type SaveData, type SaveSlot } from '../types';
 
-const STORAGE_KEY = 'limiar:save:v3';
-/** Chave da versão anterior, lida uma única vez para migrar o progresso antigo. */
-const LEGACY_STORAGE_KEY = 'limiar:save:v2';
+const STORAGE_KEY = SAVE_STORAGE_KEY;
+const LEGACY_STORAGE_KEY = LEGACY_SAVE_STORAGE_KEY;
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const INTEGRITY_SEED = 'limiar:v3:integrity:f4k3r$';
 export const DEFAULT_PREFERENCES: Preferences = { masterVolume: 0.72, musicVolume: 0.34, effectsVolume: 0.78, voiceVolume: 0.8, jumpscareIntensity: 0.8, showHealthBar: false };
@@ -73,6 +74,8 @@ export class SaveSystem {
       const validated = this.validate(data);
       const persisted: PersistedSave = { ...validated, _ic: computeIntegrity(validated) };
       this.storage?.setItem(STORAGE_KEY, JSON.stringify(persisted));
+      // A cópia local em disco acompanha o progresso; em produção isto não faz nada.
+      syncToDisk('progress', persisted);
       return this.storage !== null;
     }
     catch { return false; }
@@ -82,6 +85,8 @@ export class SaveSystem {
     try {
       if (this.storage?.removeItem) { this.storage.removeItem(STORAGE_KEY); this.storage.removeItem(LEGACY_STORAGE_KEY); }
       else this.storage?.setItem(STORAGE_KEY, '');
+      // Apagar o save aqui apaga também a cópia em disco: um save vazio é um save.
+      syncToDisk('progress', structuredClone(DEFAULT_SAVE));
       return this.storage !== null;
     } catch { return false; }
   }

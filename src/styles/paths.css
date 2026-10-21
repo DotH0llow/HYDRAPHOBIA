@@ -62,3 +62,23 @@
   .path-marker > i { font-size: 1.3rem; }
   .path-marker > span { max-width: 120px; font-size: .55rem; }
 }
+
+/*
+ * Mídia da sala — foto, GIF ou vídeo colocado sobre a cena no editor. Também está
+ * aqui porque o jogo e o modo de teste do editor desenham a mesma coisa; no editor
+ * da perspectiva a mídia é arrastável e usa `.scene-media`, não esta regra.
+ */
+.scene-media-layer {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+}
+/* Acima dos interagíveis, mas ainda atrás dos botões de caminho. */
+.scene-media-layer.on-top { z-index: 6; }
+.scene-media-layer img,
+.scene-media-layer video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}

@@ -6,22 +6,25 @@ import { drawRoomLighting, hasFlicker, isLightShape, LIGHT_SHAPES } from '../sys
 import { DEFAULT_PATH_POSITIONS, defaultArrowRotation } from '../config/paths';
 import { DEFAULT_PREFERENCES } from '../systems/SaveSystem';
 import { labelAnchorOf } from '../systems/hotspots';
+import { localSyncAvailable, pushToRepository } from '../systems/localSync';
+import { roomMediaMarkup, sceneFrameStyle } from '../systems/roomView';
 import type { EncounterAction, ItemId } from '../types';
 import { EditorProject } from './EditorProject';
 import { entitiesToRuntime, itemsToRuntime, projectToWorld } from './mapAdapter';
-import { createLight, DEFAULT_SHAPE_POINT_COUNT, ENTITY_IMAGE_LIBRARY, IMAGE_LIBRARY, ROOM_AUDIO_MODES, detectMediaType, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorLight, type EditorRoom } from './types';
+import { createLight, createRoomMedia, DEFAULT_SHAPE_POINT_COUNT, ENTITY_IMAGE_LIBRARY, FULL_ROOM_VIEW, IMAGE_LIBRARY, isFullRoomView, ROOM_AUDIO_MODES, detectMediaType, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorLight, type EditorRoom, type EditorRoomMedia, type EditorRoomView } from './types';
 import type { RoomAudioMode } from '../config/world';
 
 /** O que a área de transferência do editor está guardando. */
 type ClipboardEntry =
   | { kind: 'hotspot'; data: EditorHotspot }
   | { kind: 'light'; data: EditorLight }
+  | { kind: 'media'; data: EditorRoomMedia }
   | { kind: 'room'; data: EditorRoom }
   | { kind: 'item'; data: EditorItem }
   | { kind: 'entity'; data: EditorEntity };
 
 const CLIPBOARD_LABELS: Record<ClipboardEntry['kind'], string> = {
-  hotspot: 'interagível', light: 'foco de luz', room: 'sala', item: 'item', entity: 'entidade',
+  hotspot: 'interagível', light: 'foco de luz', media: 'mídia', room: 'sala', item: 'item', entity: 'entidade',
 };
 
 type Panel = 'map' | 'items' | 'entities';
@@ -45,7 +48,9 @@ type Gesture =
   | { type: 'shapePoint'; roomId: string; hotspotId: string; pointIndex: number; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect }
   | { type: 'indicator'; roomId: string; hotspotId: string; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect }
   | { type: 'connectionButton'; connectionId: string; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect }
-  | { type: 'lightSpot'; roomId: string; lightId: string; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect };
+  | { type: 'lightSpot'; roomId: string; lightId: string; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect }
+  | { type: 'media'; roomId: string; mediaId: string; resize: boolean; startX: number; startY: number; origin: { x: number; y: number; width: number; height: number }; rect: DOMRect }
+  | { type: 'view'; roomId: string; resize: boolean; startX: number; startY: number; origin: EditorRoomView; rect: DOMRect };
 
 const esc = (value: unknown): string => String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]!);
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
@@ -69,6 +74,9 @@ export class EditorApp {
   private selectedEntityId: string | null = this.project.data.entities[0]?.id ?? null;
   private hotspotEditorOpen = false;
   private selectedLightId: string | null = null;
+  private selectedMediaId: string | null = null;
+  /** Com a janela do jogador em edição o retângulo dela fica arrastável sobre a cena. */
+  private viewEditing = false;
   private pan = { x: 80, y: 60 };
   private zoom = 0.82;
   private gesture: Gesture | null = null;
@@ -89,6 +97,8 @@ export class EditorApp {
   private audioFiles: string[] = [];
   /** Confirmação aberta; a ação só roda quando o editor diz que sim. */
   private confirm: EditorConfirm | null = null;
+  /** Um envio para a main em andamento; o botão fica desligado enquanto isso. */
+  private pushing = false;
 
   constructor(private readonly root: HTMLElement) {
     this.bindEvents();
@@ -145,7 +155,7 @@ export class EditorApp {
           <button data-action="panel-items" class="${this.activePanel === 'items' ? 'primary' : ''}">Itens</button>
           <button data-action="panel-entities" class="${this.activePanel === 'entities' ? 'primary' : ''}">Entidades</button>
           ${this.activePanel === 'map' ? '<button data-action="new-level">Novo nível</button><button data-action="new-room">Nova sala</button>' : ''}
-          <button data-action="save">Salvar</button><button data-action="export">Exportar JSON</button><button data-action="import">Importar</button><button class="primary" data-action="test">Testar</button>
+          <button data-action="save">Salvar</button><button data-action="export">Exportar JSON</button><button data-action="import">Importar</button>${localSyncAvailable() ? `<button data-action="push-repo" ${this.pushing ? 'disabled' : ''}>${this.pushing ? 'Enviando…' : 'Enviar à main'}</button>` : ''}<button class="primary" data-action="test">Testar</button>
         </nav>
         <input class="visually-hidden" type="file" accept="application/json,.json" data-role="import-file" />
         <input class="visually-hidden" type="file" accept="image/*" data-role="browse-image" />
@@ -275,6 +285,7 @@ export class EditorApp {
       <div class="image-preview"><img src="${esc(room.image)}" alt="Prévia de ${esc(room.name)}" /><span>${esc(room.image)}</span></div>
       <section class="property-section"><div class="panel-title"><span>Conexões</span><b>${connections.length}</b></div>
         ${connections.length ? connections.map((connection) => this.connectionEditorTemplate(connection, room.id)).join('') : '<p class="empty-note">Arraste o ponto ◉ deste bloco até outra sala para criar um caminho.</p>'}
+        <button class="wide-button" data-action="add-connection">+ Novo caminho a partir desta sala</button>
       </section>
       <section class="property-section"><div class="panel-title"><span>Interações</span><b>${room.hotspots.length}</b></div>
         <button class="wide-button primary" data-action="open-hotspots">Editar hotspots na imagem</button>
@@ -301,14 +312,77 @@ export class EditorApp {
     const hotspot = room.hotspots.find((entry) => entry.id === this.selectedHotspotId) ?? null;
     const connections = this.project.activeLevel.connections.filter((connection) => connection.from === room.id);
     const connection = connections.find((entry) => entry.id === this.selectedConnectionId) ?? null;
+    const media = room.media?.find((entry) => entry.id === this.selectedMediaId) ?? null;
+    const sceneSelected = !hotspot && !connection && !media;
+    const settings = connection ? this.sceneConnectionFields(connection)
+      : hotspot ? this.hotspotFieldsTemplate(hotspot)
+        : media ? this.mediaFieldsTemplate(media)
+          : this.sceneLightingTemplate(room);
     return `<div class="hotspot-editor-layer"><section class="hotspot-editor-window">
-      <header><div><small>EDITOR DA PERSPECTIVA · SEM MECÂNICAS DE JOGO</small><h2>${esc(room.name)}</h2></div><nav><button data-action="scene-lighting" class="${!hotspot && !connection ? 'primary' : ''}">☀ Luz da cena</button><button data-action="add-hotspot">+ Novo interagível</button><button data-action="close-hotspots">Concluir</button></nav></header>
+      <header><div><small>EDITOR DA PERSPECTIVA · SEM MECÂNICAS DE JOGO</small><h2>${esc(room.name)}</h2></div><nav><button data-action="scene-lighting" class="${sceneSelected ? 'primary' : ''}">☀ Cena</button><button data-action="add-hotspot">+ Interagível</button><button data-action="add-connection">+ Caminho</button><button data-action="add-media">+ Mídia</button><button data-action="close-hotspots">Concluir</button></nav></header>
       ${this.clipboardNote ? `<div class="clipboard-toast inside" role="status">${esc(this.clipboardNote)}</div>` : ''}
       <div class="hotspot-editor-layout">
-        <div class="hotspot-stage" data-role="hotspot-stage"><img src="${esc(room.image)}" alt="${esc(room.description)}" />${room.hotspots.map((entry) => this.editableHotspotTemplate(entry, connection)).join('')}${connections.map((entry, index) => this.sceneConnectionMarker(entry, index, connections.length)).join('')}${this.lightMarkersTemplate(room)}<canvas class="stage-darkness-canvas" data-role="darkness-canvas" aria-hidden="true"></canvas>${this.cropGuideTemplate()}</div>
-        <aside class="hotspot-settings">${connection ? this.sceneConnectionFields(connection) : hotspot ? this.hotspotFieldsTemplate(hotspot) : this.sceneLightingTemplate(room)}</aside>
+        <div class="hotspot-stage" data-role="hotspot-stage"><img src="${esc(room.image)}" alt="${esc(room.description)}" />${this.mediaLayerTemplate(room, false)}${room.hotspots.map((entry) => this.editableHotspotTemplate(entry, connection)).join('')}${connections.map((entry, index) => this.sceneConnectionMarker(entry, index, connections.length)).join('')}${this.lightMarkersTemplate(room)}${this.mediaLayerTemplate(room, true)}<canvas class="stage-darkness-canvas" data-role="darkness-canvas" aria-hidden="true"></canvas>${this.viewWindowTemplate(room)}</div>
+        <aside class="hotspot-settings">${settings}</aside>
       </div>
     </section></div>`;
+  }
+
+  /** As mídias da sala desenhadas sobre a cena, na camada de baixo ou na de cima. */
+  private mediaLayerTemplate(room: EditorRoom, onTop: boolean): string {
+    return (room.media ?? []).filter((entry) => entry.onTop === onTop).map((entry) => {
+      const selected = entry.id === this.selectedMediaId;
+      const body = entry.path
+        ? entry.kind === 'video'
+          ? `<video src="${esc(entry.path)}" autoplay muted playsinline ${entry.loop ? 'loop' : ''}></video>`
+          : `<img src="${esc(entry.path)}" alt="" />`
+        : '<em>sem arquivo</em>';
+      return `<div class="scene-media ${selected ? 'selected' : ''} ${onTop ? 'on-top' : ''}" data-role="scene-media" data-media="${esc(entry.id)}" style="left:${entry.x}%;top:${entry.y}%;width:${entry.width}%;height:${entry.height}%;opacity:${entry.opacity};transform:rotate(${entry.rotation}deg)" title="${esc(entry.path || 'mídia sem arquivo')}">
+        ${body}
+        ${selected ? '<i data-role="media-resize"></i>' : ''}
+      </div>`;
+    }).join('');
+  }
+
+  /**
+   * A janela do jogador desta sala: o retângulo que o jogo vai enquadrar e ampliar até
+   * cobrir a tela. Arrastar o retângulo move o campo de visão; o canto redimensiona —
+   * quanto menor, mais perto a cena fica. O tracejado interno é o que a janela real
+   * deste computador ainda corta desse recorte, por causa da proporção dela.
+   */
+  private viewWindowTemplate(room: EditorRoom): string {
+    const view = room.view ?? FULL_ROOM_VIEW;
+    const full = isFullRoomView(room.view);
+    const width = typeof window === 'undefined' ? 0 : window.innerWidth;
+    const height = typeof window === 'undefined' ? 0 : window.innerHeight;
+    // A proporção do recorte contra a da janela diz qual lado sobra e acaba cortado.
+    const viewAspect = (view.width / view.height) * STAGE_ASPECT;
+    const ratio = width > 0 && height > 0 ? (width / height) / viewAspect : 1;
+    const safeWidth = Math.min(100, ratio * 100);
+    const safeHeight = Math.min(100, (1 / ratio) * 100);
+    const safe = safeWidth >= 99.5 && safeHeight >= 99.5
+      ? ''
+      : `<i class="stage-crop-guide" aria-hidden="true" style="width:${safeWidth.toFixed(2)}%;height:${safeHeight.toFixed(2)}%"></i>`;
+    return `<div class="stage-view-window ${this.viewEditing ? 'editing' : ''} ${full ? 'full' : ''}" data-role="view-window" style="left:${view.x}%;top:${view.y}%;width:${view.width}%;height:${view.height}%">
+      ${safe}
+      <span>janela do jogador${width > 0 ? ` · tela ${width}×${height}` : ''}</span>
+      ${this.viewEditing ? '<i class="view-resize" data-role="view-resize"></i>' : ''}
+    </div>`;
+  }
+
+  private mediaFieldsTemplate(media: EditorRoomMedia): string {
+    const id = esc(media.id);
+    return `<div class="properties-heading"><div><small>MÍDIA DA SALA</small><h3>${esc(media.path.split('/').pop() || 'Sem arquivo')}</h3></div><button class="danger" data-action="delete-media" data-media="${id}">Excluir</button></div>
+      <label><span>Arquivo (jpg, png, webp, gif, webm…)</span><div class="input-with-browse"><input data-media-field="path" data-media="${id}" value="${esc(media.path)}" placeholder="/assets/scenes/minha-arte.webp" /><button type="button" data-action="browse-file" data-target-field="media-path" data-accept="image/*,.gif,video/webm,video/*">Procurar</button></div></label>
+      <label><span>Tipo</span><select data-media-field="kind" data-media="${id}"><option value="image" ${media.kind === 'image' ? 'selected' : ''}>Imagem</option><option value="gif" ${media.kind === 'gif' ? 'selected' : ''}>GIF animado</option><option value="video" ${media.kind === 'video' ? 'selected' : ''}>Vídeo (webm/mp4)</option></select></label>
+      ${media.path ? `<div class="image-preview">${media.kind === 'video' ? `<video src="${esc(media.path)}" autoplay muted loop playsinline></video>` : `<img src="${esc(media.path)}" alt="" />`}<span>${esc(media.path)}</span></div>` : '<p class="panel-hint">Escolha um arquivo para a mídia aparecer na cena.</p>'}
+      <div class="field-row"><label><span>X %</span><input type="number" step="0.5" data-media-field="x" data-media="${id}" value="${media.x.toFixed(1)}" /></label><label><span>Y %</span><input type="number" step="0.5" data-media-field="y" data-media="${id}" value="${media.y.toFixed(1)}" /></label></div>
+      <div class="field-row"><label><span>Largura %</span><input type="number" min="1" max="400" step="0.5" data-media-field="width" data-media="${id}" value="${media.width.toFixed(1)}" /></label><label><span>Altura %</span><input type="number" min="1" max="400" step="0.5" data-media-field="height" data-media="${id}" value="${media.height.toFixed(1)}" /></label></div>
+      <label><span>Opacidade</span><div class="slider-row"><input type="range" min="0.05" max="1" step="0.05" data-media-field="opacity" data-media="${id}" value="${media.opacity}" /><b>${Math.round(media.opacity * 100)}%</b></div></label>
+      <label><span>Rotação (graus)</span><input type="number" min="0" max="359" step="5" data-media-field="rotation" data-media="${id}" value="${media.rotation}" /></label>
+      <label class="check"><input type="checkbox" data-media-field="loop" data-media="${id}" ${media.loop ? 'checked' : ''} /><span>Repetir sem parar<small>Vale para vídeo; o GIF repete sozinho.</small></span></label>
+      <label class="check"><input type="checkbox" data-media-field="onTop" data-media="${id}" ${media.onTop ? 'checked' : ''} /><span>Acima dos interagíveis<small>Desligado, a mídia fica atrás deles.</small></span></label>
+      <p class="panel-hint">Arraste a mídia sobre a cena para posicionar e use o canto para redimensionar. A mídia é decoração: nada nela é clicável.</p>`;
   }
 
   private editableHotspotTemplate(entry: EditorHotspot, connection: EditorConnection | null): string {
@@ -363,22 +437,6 @@ export class EditorApp {
       </section>`;
   }
 
-  /**
-   * O que a janela do jogador mostra desta cena. O jogo enquadra a sala num 16:9 e
-   * amplia até cobrir a tela, então uma janela mais larga ou mais alta corta as
-   * bordas. Este contorno marca o que sobra, para nada importante ficar de fora.
-   */
-  private cropGuideTemplate(): string {
-    const width = typeof window === 'undefined' ? 0 : window.innerWidth;
-    const height = typeof window === 'undefined' ? 0 : window.innerHeight;
-    if (width <= 0 || height <= 0) return '';
-    const ratio = (width / height) / STAGE_ASPECT;
-    const visibleWidth = Math.min(100, ratio * 100);
-    const visibleHeight = Math.min(100, (1 / ratio) * 100);
-    if (visibleWidth >= 99.5 && visibleHeight >= 99.5) return '';
-    return `<div class="stage-crop-guide" aria-hidden="true" style="width:${visibleWidth.toFixed(2)}%;height:${visibleHeight.toFixed(2)}%"><span>janela do jogador · ${width}×${height}</span></div>`;
-  }
-
   private lightMarkersTemplate(room: EditorRoom): string {
     return (room.lights ?? []).map((light) => {
       const selected = light.id === this.selectedLightId;
@@ -399,7 +457,38 @@ export class EditorApp {
         ${lights.map((light, index) => this.lightEntryTemplate(light, index)).join('')}
         <button class="wide-button" data-action="add-light">+ Adicionar foco de luz</button>
       </section>
+      ${this.roomViewTemplate(room)}
+      ${this.roomMediaTemplate(room)}
       ${this.roomAudioTemplate(room)}`;
+  }
+
+  /**
+   * O campo de visão desta sala. O jogo enquadra exatamente este retângulo e o amplia
+   * até cobrir a tela, então reduzi-lo aproxima a cena e movê-lo escolhe o que o
+   * jogador vê. A cena inteira é o enquadramento de sempre.
+   */
+  private roomViewTemplate(room: EditorRoom): string {
+    const view = room.view ?? FULL_ROOM_VIEW;
+    const full = isFullRoomView(room.view);
+    return `<section class="property-section">
+      <div class="panel-title"><span>Janela do jogador</span>${full ? '' : '<b>ajustada</b>'}</div>
+      <p class="panel-hint">Arraste o retângulo sobre a cena para escolher o que esta sala mostra; o canto dele redimensiona. O jogo usa exatamente este recorte.</p>
+      <button class="wide-button ${this.viewEditing ? 'primary' : ''}" data-action="toggle-view-edit">${this.viewEditing ? 'Concluir a janela' : 'Ajustar a janela na cena'}</button>
+      <div class="field-row"><label><span>X %</span><input type="number" min="0" max="95" step="0.5" data-view-field="x" value="${view.x.toFixed(1)}" /></label><label><span>Y %</span><input type="number" min="0" max="95" step="0.5" data-view-field="y" value="${view.y.toFixed(1)}" /></label></div>
+      <div class="field-row"><label><span>Largura %</span><input type="number" min="5" max="100" step="0.5" data-view-field="width" value="${view.width.toFixed(1)}" /></label><label><span>Altura %</span><input type="number" min="5" max="100" step="0.5" data-view-field="height" value="${view.height.toFixed(1)}" /></label></div>
+      ${full ? '' : '<button class="wide-button" data-action="reset-view-window">Voltar à cena inteira</button>'}
+    </section>`;
+  }
+
+  /** Fotos, GIFs e vídeos soltos sobre a cena desta sala. */
+  private roomMediaTemplate(room: EditorRoom): string {
+    const media = room.media ?? [];
+    return `<section class="property-section">
+      <div class="panel-title"><span>Mídias da sala</span><b>${media.length}</b></div>
+      <p class="panel-hint">Imagens (jpg, png, webp), GIFs e vídeos (webm, mp4) colocados sobre a cena. Clique em uma para abrir as opções dela.</p>
+      <div class="hotspot-summary">${media.map((entry, index) => `<button data-action="select-media" data-media="${esc(entry.id)}" class="${entry.id === this.selectedMediaId ? 'active' : ''}"><i style="background:#3b4a64"></i><span>${esc(entry.path.split('/').pop() || `Mídia ${index + 1}`)}</span><small>${entry.kind === 'video' ? 'vídeo' : entry.kind}${entry.onTop ? ' · à frente' : ''}</small></button>`).join('') || '<p class="empty-note">Nenhuma mídia nesta sala.</p>'}</div>
+      <button class="wide-button" data-action="add-media">+ Adicionar mídia</button>
+    </section>`;
   }
 
   /**
@@ -601,9 +690,11 @@ export class EditorApp {
     const items = itemsToRuntime(this.project.data.items);
     return `<main class="editor-playtest">
       <section class="test-scene">
-        <div class="test-scene-frame">
+        <div class="test-scene-frame" style="${sceneFrameStyle(room.view)}">
           <img src="${esc(room.image)}" alt="${esc(room.description)}" />
+          ${roomMediaMarkup(room.media, false, esc)}
           ${this.testHotspotMarkup(game, room)}
+          ${roomMediaMarkup(room.media, true, esc)}
         </div>
         <div class="test-grade"></div>
       </section>
@@ -700,17 +791,64 @@ export class EditorApp {
     window.addEventListener('keydown', (event) => this.handleKey(event));
   }
 
-  /** Ctrl+C e Ctrl+V sobre o que estiver selecionado, exceto dentro de um campo. */
+  /**
+   * Atalhos do editor sobre o que estiver selecionado, exceto dentro de um campo:
+   * Ctrl+C / Ctrl+V duplicam e Delete exclui.
+   */
   private handleKey(event: KeyboardEvent): void {
-    if (this.testMode || !(event.ctrlKey || event.metaKey)) return;
+    if (this.testMode || this.confirm) return;
     // O alvo pode não ser um elemento (teclado sem foco): só então vale o atalho.
     const target = event.target as Element | null;
     if (target && typeof target.closest === 'function' && target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (event.key === 'Delete') { event.preventDefault(); this.deleteSelection(); return; }
+    if (!(event.ctrlKey || event.metaKey)) return;
     const key = event.key.toLowerCase();
     if (key !== 'c' && key !== 'v') return;
     event.preventDefault();
     if (key === 'c') this.copySelection();
     else void this.pasteClipboard();
+  }
+
+  /**
+   * O que a tecla Delete leva, na mesma ordem em que o Ctrl+C copia: o interagível, o
+   * foco de luz, a mídia ou o caminho que estiver selecionado na cena. A exclusão é
+   * imediata e o aviso no canto diz o que saiu — nada aqui mexe em salas ou níveis,
+   * que continuam saindo só pelo botão, com confirmação.
+   */
+  private deleteSelection(): void {
+    const room = this.selectedRoom;
+    if (!this.hotspotEditorOpen || !room) return;
+    const hotspot = room.hotspots.find((entry) => entry.id === this.selectedHotspotId);
+    if (hotspot) {
+      this.project.deleteHotspot(room.id, hotspot.id);
+      this.selectedHotspotId = null;
+      this.flashClipboard(`interagível "${hotspot.label}" excluído`);
+      return;
+    }
+    const media = room.media?.find((entry) => entry.id === this.selectedMediaId);
+    if (media) {
+      room.media = (room.media ?? []).filter((entry) => entry.id !== media.id);
+      this.selectedMediaId = null;
+      this.project.save();
+      this.flashClipboard('mídia excluída');
+      return;
+    }
+    const light = room.lights?.find((entry) => entry.id === this.selectedLightId);
+    if (light) {
+      room.lights = (room.lights ?? []).filter((entry) => entry.id !== light.id);
+      this.selectedLightId = null;
+      this.project.save();
+      this.flashClipboard('foco de luz excluído');
+      return;
+    }
+    const connection = this.project.activeLevel.connections.find((entry) => entry.id === this.selectedConnectionId);
+    if (connection) {
+      this.project.deleteConnection(connection.id);
+      this.selectedConnectionId = null;
+      this.flashClipboard(`caminho "${connection.label}" excluído`);
+      return;
+    }
+    this.flashClipboard('Nada selecionado para excluir.');
   }
 
   /** O que o Ctrl+C leva, na ordem do que está em foco agora. */
@@ -719,6 +857,8 @@ export class EditorApp {
     if (this.hotspotEditorOpen && room) {
       const hotspot = room.hotspots.find((entry) => entry.id === this.selectedHotspotId);
       if (hotspot) return this.remember({ kind: 'hotspot', data: structuredClone(hotspot) });
+      const media = room.media?.find((entry) => entry.id === this.selectedMediaId);
+      if (media) return this.remember({ kind: 'media', data: structuredClone(media) });
       const light = room.lights?.find((entry) => entry.id === this.selectedLightId);
       if (light) return this.remember({ kind: 'light', data: structuredClone(light) });
     }
@@ -749,6 +889,15 @@ export class EditorApp {
       this.selectedHotspotId = hotspot.id;
       this.selectedConnectionId = null;
       this.hotspotEditorOpen = true;
+    } else if (entry.kind === 'media') {
+      if (!room) return;
+      const media: EditorRoomMedia = { ...structuredClone(entry.data), id: createId('midia') };
+      media.x = clamp(media.x + 4, -100, 200);
+      media.y = clamp(media.y + 4, -100, 200);
+      room.media = [...(room.media ?? []), media];
+      this.selectedMediaId = media.id;
+      this.selectedHotspotId = null;
+      this.hotspotEditorOpen = true;
     } else if (entry.kind === 'light') {
       if (!room) return;
       const light: EditorLight = { ...structuredClone(entry.data), id: createId('luz') };
@@ -765,6 +914,7 @@ export class EditorApp {
       copy.position = { x: copy.position.x + 48, y: copy.position.y + 48 };
       copy.hotspots = copy.hotspots.map((hotspot) => ({ ...hotspot, id: createId('hotspot') }));
       copy.lights = copy.lights?.map((light) => ({ ...light, id: createId('luz') }));
+      copy.media = copy.media?.map((media) => ({ ...media, id: createId('midia') }));
       this.project.activeLevel.rooms.push(copy);
       this.selectedRoomId = copy.id;
     } else if (entry.kind === 'item') {
@@ -911,10 +1061,36 @@ export class EditorApp {
       case 'choose-image': if (this.selectedRoom) { this.selectedRoom.image = target.dataset.image ?? this.selectedRoom.image; this.project.save(); } break;
       case 'open-hotspots': this.openPerspective(); break;
       case 'open-hotspot': this.hotspotEditorOpen = true; this.selectedHotspotId = target.dataset.hotspot ?? null; this.selectedConnectionId = null; break;
-      case 'scene-lighting': this.selectedHotspotId = null; this.selectedConnectionId = null; this.selectedLightId = null; break;
-      case 'select-scene-connection': this.selectedConnectionId = target.dataset.connection ?? null; this.selectedHotspotId = null; break;
-      case 'close-hotspots': this.hotspotEditorOpen = false; this.selectedHotspotId = null; this.selectedConnectionId = null; this.selectedLightId = null; this.project.save(); break;
-      case 'add-hotspot': if (this.selectedRoom) { const hotspot = this.project.addHotspot(this.selectedRoom.id); this.selectedHotspotId = hotspot?.id ?? null; this.selectedConnectionId = null; } break;
+      case 'scene-lighting': this.clearSceneSelection(); break;
+      case 'select-scene-connection': this.selectedConnectionId = target.dataset.connection ?? null; this.selectedHotspotId = null; this.selectedMediaId = null; break;
+      case 'close-hotspots': this.hotspotEditorOpen = false; this.clearSceneSelection(); this.viewEditing = false; this.project.save(); break;
+      case 'add-hotspot': if (this.selectedRoom) { const hotspot = this.project.addHotspot(this.selectedRoom.id); this.selectedHotspotId = hotspot?.id ?? null; this.selectedConnectionId = null; this.selectedMediaId = null; } break;
+      case 'add-connection': this.addSceneConnection(); break;
+      case 'add-media': {
+        const room = this.selectedRoom;
+        if (!room) break;
+        const { createId } = await import('./EditorProject');
+        const media = createRoomMedia(createId('midia'));
+        room.media = [...(room.media ?? []), media];
+        this.selectedMediaId = media.id;
+        this.selectedHotspotId = null;
+        this.selectedConnectionId = null;
+        this.hotspotEditorOpen = true;
+        this.project.save();
+        break;
+      }
+      case 'select-media': this.selectedMediaId = target.dataset.media ?? null; this.selectedHotspotId = null; this.selectedConnectionId = null; break;
+      case 'delete-media': {
+        const room = this.selectedRoom;
+        const mediaId = target.dataset.media ?? this.selectedMediaId;
+        if (!room || !mediaId) break;
+        room.media = (room.media ?? []).filter((entry) => entry.id !== mediaId);
+        if (this.selectedMediaId === mediaId) this.selectedMediaId = null;
+        this.project.save();
+        break;
+      }
+      case 'toggle-view-edit': this.viewEditing = !this.viewEditing; if (this.viewEditing) this.clearSceneSelection(); break;
+      case 'reset-view-window': { const room = this.selectedRoom; if (room) { room.view = undefined; this.project.save(); } break; }
       case 'delete-hotspot': {
         const room = this.selectedRoom;
         const hotspotId = this.selectedHotspotId;
@@ -972,6 +1148,7 @@ export class EditorApp {
         if (input) { input.accept = accept; input.click(); }
         return;
       }
+      case 'push-repo': void this.pushToMain(); return;
       case 'test': this.startTest(); return;
       case 'export': this.exportJSON(); return;
       case 'import': this.root.querySelector<HTMLInputElement>('[data-role="import-file"]')?.click(); return;
@@ -992,6 +1169,48 @@ export class EditorApp {
     this.hotspotEditorOpen = true;
     this.selectedHotspotId = this.selectedRoom?.hotspots[0]?.id ?? null;
     this.selectedConnectionId = null;
+    this.selectedMediaId = null;
+  }
+
+  /** Nada selecionado na cena: o painel volta para as opções da própria cena. */
+  private clearSceneSelection(): void {
+    this.selectedHotspotId = null;
+    this.selectedConnectionId = null;
+    this.selectedLightId = null;
+    this.selectedMediaId = null;
+  }
+
+  /**
+   * Cria um caminho a partir da sala aberta sem sair para o mapa. O destino nasce na
+   * primeira outra sala do nível e é trocado no painel — arrastar o ponto ◉ no mapa
+   * continua funcionando, isto é o mesmo caminho criado de dentro da cena.
+   */
+  private addSceneConnection(): void {
+    const room = this.selectedRoom;
+    if (!room) return;
+    const destination = this.project.activeLevel.rooms.find((entry) => entry.id !== room.id);
+    if (!destination) {
+      this.askConfirm({
+        title: 'Este nível só tem esta sala',
+        message: 'Um caminho precisa de um destino. Crie outra sala neste nível (ou em outro) antes de criar o caminho.',
+        confirmLabel: 'Entendi',
+        run: () => this.render(),
+      });
+      return;
+    }
+    const connection = this.project.addConnection(room.id, destination.id);
+    if (!connection) return;
+    connection.label = destination.name;
+    // Nasce no meio da base, longe dos caminhos que já estão na cena.
+    const taken = this.project.activeLevel.connections.filter((entry) => entry.from === room.id && entry.id !== connection.id).length;
+    connection.buttonX = clamp(50 + (taken % 2 === 0 ? 1 : -1) * Math.ceil(taken / 2) * 14, 8, 92);
+    connection.buttonY = 82;
+    this.project.save();
+    this.hotspotEditorOpen = true;
+    this.selectedConnectionId = connection.id;
+    this.selectedHotspotId = null;
+    this.selectedMediaId = null;
+    this.flashClipboard(`caminho para "${destination.name}" criado — escolha o destino no painel`);
   }
 
   private async handleChange(event: Event): Promise<void> {
@@ -1016,6 +1235,9 @@ export class EditorApp {
       } else if (target === 'hideoutImage') {
         const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId);
         if (hotspot) { hotspot.hideoutImage = objectUrl; this.project.save(); }
+      } else if (target === 'media-path') {
+        const media = this.selectedRoom?.media?.find((entry) => entry.id === this.selectedMediaId);
+        if (media) { media.path = objectUrl; media.kind = detectMediaType(file.name); this.project.save(); }
       }
       input.value = '';
       this.browseTarget = '';
@@ -1028,6 +1250,8 @@ export class EditorApp {
       return;
     }
     if (input.dataset.roomAudioField) { this.applyRoomAudioField(input); return; }
+    if (input.dataset.mediaField) { this.applyMediaField(input); return; }
+    if (input.dataset.viewField) { this.applyViewField(input); return; }
     const roomField = input.dataset.roomField as keyof Pick<EditorRoom, 'name' | 'code' | 'description' | 'image'> | undefined;
     if (roomField && this.selectedRoom) { this.selectedRoom[roomField] = input.value; this.project.save(); this.render(); return; }
     const itemField = input.dataset.itemField as keyof EditorItem | undefined;
@@ -1122,6 +1346,51 @@ export class EditorApp {
     this.render();
   }
 
+  /** Campos de uma mídia da sala. */
+  private applyMediaField(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): void {
+    const field = input.dataset.mediaField;
+    const media = this.selectedRoom?.media?.find((entry) => entry.id === input.dataset.media);
+    if (!field || !media) return;
+    if (field === 'path') { media.path = input.value.trim(); media.kind = detectMediaType(media.path); }
+    else if (field === 'kind') media.kind = input.value as EditorRoomMedia['kind'];
+    else if (field === 'x' || field === 'y') media[field] = clamp(Number(input.value), -100, 200);
+    else if (field === 'width' || field === 'height') media[field] = clamp(Number(input.value), 1, 400);
+    else if (field === 'opacity') media.opacity = clamp(Number(input.value), 0.05, 1);
+    else if (field === 'rotation') media.rotation = ((Math.round(Number(input.value)) % 360) + 360) % 360;
+    else if (field === 'loop') media.loop = (input as HTMLInputElement).checked;
+    else if (field === 'onTop') media.onTop = (input as HTMLInputElement).checked;
+    this.project.save();
+    this.render();
+  }
+
+  /**
+   * Campos numéricos da janela do jogador. A posição é presa à cena: uma janela que
+   * começasse fora dela mostraria um pedaço vazio ao lado da imagem.
+   */
+  private applyViewField(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): void {
+    const room = this.selectedRoom;
+    const field = input.dataset.viewField as keyof EditorRoomView | undefined;
+    if (!room || !field) return;
+    const view: EditorRoomView = { ...(room.view ?? FULL_ROOM_VIEW) };
+    if (field === 'width' || field === 'height') view[field] = clamp(Number(input.value), 5, 100);
+    else view[field] = clamp(Number(input.value), 0, 95);
+    room.view = this.fitView(view);
+    this.project.save();
+    this.render();
+  }
+
+  /** Mantém a janela inteira dentro da cena, sem sobrar borda nenhuma. */
+  private fitView(view: EditorRoomView): EditorRoomView | undefined {
+    const width = clamp(view.width, 5, 100);
+    const height = clamp(view.height, 5, 100);
+    const fitted: EditorRoomView = {
+      width, height,
+      x: clamp(view.x, 0, 100 - width),
+      y: clamp(view.y, 0, 100 - height),
+    };
+    return isFullRoomView(fitted) ? undefined : fitted;
+  }
+
   private applySceneField(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): void {
     const room = this.selectedRoom;
     if (!room || input.dataset.sceneField !== 'darknessLevel') return;
@@ -1180,6 +1449,26 @@ export class EditorApp {
     const indicatorPoint = target.closest<HTMLElement>('[data-role="indicator-point"]');
     const hotspotBox = target.closest<HTMLElement>('.editable-hotspot');
     const stage = target.closest<HTMLElement>('[data-role="hotspot-stage"]');
+    const viewWindow = target.closest<HTMLElement>('[data-role="view-window"]');
+    if (this.viewEditing && viewWindow && stage && this.selectedRoom) {
+      const view = this.selectedRoom.view ?? FULL_ROOM_VIEW;
+      this.gesture = { type: 'view', roomId: this.selectedRoom.id, resize: Boolean(target.closest('[data-role="view-resize"]')), startX: event.clientX, startY: event.clientY, origin: { ...view }, rect: stage.getBoundingClientRect() };
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    const mediaBox = target.closest<HTMLElement>('[data-role="scene-media"]');
+    if (mediaBox && stage && this.selectedRoom) {
+      const media = this.selectedRoom.media?.find((entry) => entry.id === mediaBox.dataset.media);
+      if (!media) return;
+      this.selectedMediaId = media.id;
+      this.selectedHotspotId = null;
+      this.selectedConnectionId = null;
+      this.gesture = { type: 'media', roomId: this.selectedRoom.id, mediaId: media.id, resize: Boolean(target.closest('[data-role="media-resize"]')), startX: event.clientX, startY: event.clientY, origin: { x: media.x, y: media.y, width: media.width, height: media.height }, rect: stage.getBoundingClientRect() };
+      this.render();
+      event.preventDefault();
+      return;
+    }
     if (indicatorPoint && hotspotBox && stage && this.selectedRoom) {
       const hotspot = this.selectedRoom.hotspots.find((entry) => entry.id === hotspotBox.dataset.hotspot);
       if (!hotspot) return;
@@ -1233,10 +1522,8 @@ export class EditorApp {
       event.stopPropagation();
       return;
     }
-    if (stage && (this.selectedHotspotId || this.selectedConnectionId || this.selectedLightId)) {
-      this.selectedHotspotId = null;
-      this.selectedConnectionId = null;
-      this.selectedLightId = null;
+    if (stage && (this.selectedHotspotId || this.selectedConnectionId || this.selectedLightId || this.selectedMediaId)) {
+      this.clearSceneSelection();
       this.render();
       return;
     }
@@ -1321,6 +1608,39 @@ export class EditorApp {
       connection.buttonY = clamp(gesture.origin.y + dy, 0, 100);
       const marker = this.root.querySelector<HTMLElement>(`.scene-connection[data-connection="${CSS.escape(connection.id)}"]`);
       if (marker) { marker.style.left = `${connection.buttonX}%`; marker.style.top = `${connection.buttonY}%`; }
+    } else if (this.gesture.type === 'media') {
+      const gesture = this.gesture;
+      const room = this.project.findRoom(gesture.roomId);
+      const media = room?.media?.find((entry) => entry.id === gesture.mediaId);
+      if (!media) return;
+      const dx = ((event.clientX - gesture.startX) / gesture.rect.width) * 100;
+      const dy = ((event.clientY - gesture.startY) / gesture.rect.height) * 100;
+      if (gesture.resize) {
+        media.width = clamp(gesture.origin.width + dx, 1, 400);
+        media.height = clamp(gesture.origin.height + dy, 1, 400);
+      } else {
+        media.x = clamp(gesture.origin.x + dx, -100, 200);
+        media.y = clamp(gesture.origin.y + dy, -100, 200);
+      }
+      const box = this.root.querySelector<HTMLElement>(`[data-role="scene-media"][data-media="${CSS.escape(media.id)}"]`);
+      if (box) { box.style.left = `${media.x}%`; box.style.top = `${media.y}%`; box.style.width = `${media.width}%`; box.style.height = `${media.height}%`; }
+    } else if (this.gesture.type === 'view') {
+      const gesture = this.gesture;
+      const room = this.project.findRoom(gesture.roomId);
+      if (!room) return;
+      const dx = ((event.clientX - gesture.startX) / gesture.rect.width) * 100;
+      const dy = ((event.clientY - gesture.startY) / gesture.rect.height) * 100;
+      const next: EditorRoomView = gesture.resize
+        ? { ...gesture.origin, width: gesture.origin.width + dx, height: gesture.origin.height + dy }
+        : { ...gesture.origin, x: gesture.origin.x + dx, y: gesture.origin.y + dy };
+      // Redimensionar pelo canto não pode empurrar a janela para fora da cena.
+      if (gesture.resize) {
+        next.width = clamp(next.width, 5, 100 - gesture.origin.x);
+        next.height = clamp(next.height, 5, 100 - gesture.origin.y);
+      }
+      room.view = this.fitView(next) ?? { ...FULL_ROOM_VIEW };
+      const box = this.root.querySelector<HTMLElement>('[data-role="view-window"]');
+      if (box) { box.style.left = `${room.view.x}%`; box.style.top = `${room.view.y}%`; box.style.width = `${room.view.width}%`; box.style.height = `${room.view.height}%`; }
     } else if (this.gesture.type === 'lightSpot') {
       const gesture = this.gesture;
       const room = this.project.findRoom(gesture.roomId);
@@ -1364,8 +1684,13 @@ export class EditorApp {
       return;
     }
     if (!this.gesture) return;
+    // Uma janela que voltou a cobrir a cena inteira é o enquadramento padrão: some.
+    if (this.gesture.type === 'view') {
+      const room = this.project.findRoom(this.gesture.roomId);
+      if (room) room.view = this.fitView(room.view ?? FULL_ROOM_VIEW);
+    }
     this.project.save();
-    const needsRerender = this.gesture.type === 'hotspot' || this.gesture.type === 'shapePoint' || this.gesture.type === 'indicator' || this.gesture.type === 'connectionButton' || this.gesture.type === 'lightSpot';
+    const needsRerender = this.gesture.type === 'hotspot' || this.gesture.type === 'shapePoint' || this.gesture.type === 'indicator' || this.gesture.type === 'connectionButton' || this.gesture.type === 'lightSpot' || this.gesture.type === 'media' || this.gesture.type === 'view';
     this.gesture = null;
     if (needsRerender) this.render();
     else this.root.querySelector('[data-role="canvas"]')?.classList.remove('panning');
@@ -1414,6 +1739,26 @@ export class EditorApp {
     this.selectedHotspotId = null;
     this.selectedConnectionId = null;
     this.resetView();
+  }
+
+  /**
+   * Manda a cópia local — o mapa e o progresso em `data/` — para a `main`. Só esses
+   * arquivos entram no commit; o resto da árvore de trabalho fica onde está.
+   */
+  private async pushToMain(): Promise<void> {
+    if (this.pushing) return;
+    this.project.save();
+    this.pushing = true;
+    this.render();
+    const result = await pushToRepository(`chore(editor): atualiza "${this.project.data.name}"`);
+    this.pushing = false;
+    if (result.ok) this.flashClipboard(result.pushed ? 'mapa enviado para a main' : 'nada novo para enviar');
+    else this.askConfirm({
+      title: 'Não foi possível enviar',
+      message: result.output.slice(0, 400) || 'O comando do Git não respondeu.',
+      confirmLabel: 'Entendi',
+      run: () => this.render(),
+    });
   }
 
   private exportJSON(): void {

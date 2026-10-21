@@ -40,7 +40,9 @@ nível na lista), e *Excluir nível* remove o nível inteiro junto com os caminh
 apontavam para ele.
 
 **Caminhos.** Um caminho é o único interagível que leva o jogador a outra sala: arraste o
-ponto ◉ de um bloco até outro no mapa e ele nasce. Ele tem a mesma aparência no editor e
+ponto ◉ de um bloco até outro no mapa e ele nasce — ou use *+ Caminho*, dentro do editor
+da perspectiva, para criar um a partir da sala aberta sem voltar ao mapa (o destino nasce
+na primeira outra sala do nível e é trocado no painel). Ele tem a mesma aparência no editor e
 no jogo — a seta redonda com a etiqueta do destino — e é arrastável sobre a cena para
 escolher onde o botão aparece. Projetos antigos que usavam a ação "Mudar de sala" em um
 interagível são convertidos em caminhos ao serem abertos, no mesmo ponto da tela.
@@ -51,12 +53,27 @@ então a passagem funciona direto, inclusive no modo de teste.
 
 **Enquadramento.** A cena é sempre enquadrada em 16:9 e ampliada até cobrir a tela, tanto
 no palco do editor quanto no jogo: uma coordenada em % cai no mesmo ponto da imagem nos
-dois. O contorno tracejado sobre o palco marca o que a janela atual do jogador mostra —
-o que fica fora dele é cortado.
+dois.
 
-**Copiar e colar.** `Ctrl+C` copia o que estiver selecionado — interagível, foco de luz,
-sala, item ou entidade — e `Ctrl+V` cola uma cópia independente, com id próprio e
-deslocada alguns por cento. Um aviso no canto confirma cada operação.
+**Janela do jogador.** Cada sala pode escolher o próprio campo de visão: o retângulo
+sobre o palco é arrastável e redimensionável pelo canto, e o jogo enquadra exatamente
+aquele recorte, ampliado até cobrir a tela. Uma janela menor aproxima a cena; movê-la
+decide o que o jogador vê naquela sala. O tracejado interno marca o que a proporção da
+janela real deste computador ainda corta desse recorte. Sem ajuste nenhum a janela é a
+cena inteira, o enquadramento de sempre.
+
+**Mídias da sala.** Além da imagem de fundo, uma sala aceita fotos (`jpg`, `png`,
+`webp`), GIFs e vídeos (`webm`, `mp4`) soltos sobre a cena: *+ Mídia* cria um bloco que
+se arrasta e se redimensiona como um interagível, com opacidade, rotação e a escolha de
+ficar atrás ou à frente dos interagíveis. A mídia é decoração — nada nela é clicável — e
+aparece igual no jogo e no modo de teste.
+
+**Copiar, colar e excluir.** `Ctrl+C` copia o que estiver selecionado — interagível,
+foco de luz, mídia, sala, item ou entidade — e `Ctrl+V` cola uma cópia independente, com
+id próprio e deslocada alguns por cento. `Delete` exclui na hora o que estiver
+selecionado na cena: o interagível, a mídia, o foco de luz ou o caminho, nessa ordem.
+Salas, níveis, itens e entidades continuam saindo só pelo botão, com confirmação. Um
+aviso no canto confirma cada operação.
 
 **Luz.** Cada foco tem formato, raio, intensidade, cor, flickering, uma **abertura** em
 graus (360° acende o foco inteiro, 180° deixa meio foco) e uma **rotação** que gira o
@@ -77,16 +94,28 @@ existente) começa a criação do personagem, em seis etapas com botão de volta
 Cada etapa exige exatamente uma escolha, e o botão de continuar só liga depois dela:
 
 1. **Gênero** — masculino ou feminino. Define quais arquivos de voz tocam no jogo.
-2. **Classe** — explorador, técnico, adolescente ou cavaleiro.
-3. **Nome** — de 3 a 26 caracteres, ao lado da arte da classe escolhida.
+2. **Classe** — explorador, técnico, adolescente ou cavaleiro; com o gênero feminino os
+   nomes ficam no feminino (exploradora, técnica, cavaleira) na tela e na ficha.
+3. **Nome** — de 3 a 26 caracteres, ao lado da arte da classe escolhida. Um filtro de
+   linguagem recusa ofensa racista, xenófoba, homofóbica e apologia ao ódio, inclusive
+   disfarçada com números (`n1gg3r`), pontuação (`p.u.t.a`) ou letras esticadas
+   (`viaaaado`); o motivo aparece embaixo do campo e o botão de continuar fica desligado
+   (`src/config/nameFilter.ts`).
 4. **Fobia** — doze opções: nictofobia, claustrofobia, hemofobia, monofobia,
    talassofobia, escopofobia, automatonofobia, necrofobia, fonofobia, mecanofobia,
    tanatofobia e apeirofobia.
 5. **Item inicial** — uma entre quatro opções, entregue no inventário ao começar.
-6. **Modo** — clássico (com interface) ou imersivo (a tela fica só com a cena).
+6. **Modo** — clássico (com interface) ou imersivo (a tela fica só com a cena). Cada
+   opção mostra um exemplo da tela de jogo, montado com as próprias peças da interface
+   em miniatura — e não com uma foto guardada, que envelheceria junto com o jogo.
 
 A tela não tem caixas: o título, os numerais e a regra da etapa ficam no canto superior
 esquerdo, as opções ocupam o resto da tela e "Voltar" e "Continuar" ficam no meio da base.
+
+**Gênero e classe** vão mais longe: as duas etapas ficam sobre o preto, sem cenário atrás
+e sem caixa nenhuma em volta das artes. A arte flutua no escuro, com as bordas dissolvidas
+para não virar um retângulo, e só o nome aparece embaixo, em letra grande. A escolha se vê
+no brilho — as opções não escolhidas ficam apagadas e a escolhida acende.
 
 Classe e fobia ficam gravadas no registro e aparecem na lista de campanhas; por enquanto
 não alteram as mecânicas. Gênero, item inicial e modo já têm efeito no jogo.
@@ -107,8 +136,8 @@ na arte comum se o arquivo feminino não existir (`classArtFor`, em
 
 - Sete pontos de exploração conectados, com quatro cenários e duas entidades originais.
 - Hotspots com highlight e descrições contextuais; caminhos entre salas com seta e etiqueta.
-- Legendas que somem após dez segundos e caixa de inventário que só aparece por quatro
-  segundos, depois de uma interação ou de um item recebido.
+- Legendas com prazo e caixa de inventário que só aparece por quatro segundos, depois de
+  uma interação ou de um item recebido.
 - Modo imersivo: a campanha roda sem nenhuma peça de interface sobre a cena.
 - Inventário com usar, examinar, descartar e aplicação direta no cenário.
 - Vida, fome e sede atualizadas por tempo decorrido.
@@ -122,7 +151,19 @@ na arte comum se o arquivo feminino não existir (`classArtFor`, em
 - Escuridão por sala com focos de luz de formato, abertura, rotação e flickering configuráveis.
 - Trilha presa a uma sala, com repetição única, contínua ou a cada entrada.
 - Caminhos que atravessam de um nível para outro.
+- Campo de visão por sala e mídias (imagem, GIF, vídeo) sobre a cena.
+- Filtro de linguagem no nome do personagem.
 - Layout responsivo e tela cheia.
+
+## Legendas
+
+Uma legenda sozinha fica **oito segundos** na tela — ela é a única coisa para ler e nada
+espera a vez. Um texto acima de 80 caracteres é repartido em legendas de tamanho parecido,
+e aí cada pedaço tem o tempo do próprio tamanho: até 20 caracteres, 1,9 s; de 21 a 40,
+2,5 s; de 41 a 60, 3,75 s; de 61 a 80, 5,25 s. Segurar cada pedaço por oito segundos faria
+o jogador esperar meio minuto por uma frase. A regra toda vive em `src/systems/legends.ts`.
+
+O fundo da legenda tem 15% de transparência, no jogo e no modo de teste do editor.
 
 ## Áudio
 
@@ -149,6 +190,24 @@ ao nível atual; os arquivos soltos na raiz de `FX/Anxiety` entram no nível int
 
 > **Pendência de assets:** não existe a pasta `FX/Screams`, então a categoria de grito
 > (disparada com perigo alto) fica muda. O botão "perigo" do painel DEV avisa isso.
+
+## Cópia local e envio para a main
+
+O editor e o jogo guardam tudo no `localStorage`, que o Git não enxerga. Durante o
+desenvolvimento, o plugin `scripts/localSync.mjs` espelha os dois em disco, dentro do
+próprio repositório:
+
+- `data/project.json` — o projeto do editor (níveis, salas, interagíveis, luzes, mídias,
+  itens, entidades).
+- `data/progress.json` — os quatro registros de campanha e as configurações.
+
+Ao abrir a página, o navegador compara o carimbo dos arquivos com o do `localStorage` e
+fica com o mais recente — então um `git pull` chega até a aba. A cada gravação, o caminho
+inverso: o arquivo é reescrito. O botão **Enviar à main**, na barra do editor, commita
+*apenas* `data/` e envia para a `main`; nada mais da árvore de trabalho entra no commit.
+
+A cópia local de trabalho é sempre `K:\HYDRAPHOBIA\repo` — veja [CLAUDE.md](./CLAUDE.md).
+Em produção nada disso roda: o build é estático e o jogo vive inteiro no navegador.
 
 ## Cloudflare Pages
 
