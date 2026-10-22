@@ -34,7 +34,12 @@ describe('filtro de linguagem do nome', () => {
   it('devolve o motivo quando recusa', () => {
     const check = checkCharacterName('viado');
     expect(check.ok).toBe(false);
-    expect(check.reason).toMatch(/ofensa/i);
+    expect(check.reason).toBe('Nana-nina-não, esse não.');
+  });
+
+  it('recusa ofensas em português brasileiro e espanhol latino', () => {
+    ['vai se fuder', 'pendejo', 'maricón', 'hijueputa', 'chinga tu madre']
+      .forEach((name) => expect(nameIsAllowed(name), name).toBe(false));
   });
 
   it('não recusa um nome vazio — isso é trabalho do tamanho mínimo', () => {

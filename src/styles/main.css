@@ -101,7 +101,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .movement .path-marker { pointer-events: auto; }
 
 /* A legenda vive dez segundos: entra, fica e sai sozinha. */
-.message-strip { position: absolute; z-index: 10; left: 50%; bottom: 1.1rem; width: min(680px, calc(100vw - 360px)); min-height: 58px; transform: translateX(-50%); display: flex; align-items: center; gap: .8rem; padding: .7rem 1rem; border-top: 1px solid #686851; border-bottom: 1px solid #39392f; background: #070907d9; backdrop-filter: blur(6px); pointer-events: none; animation: legend-life var(--legend-life, 8s) linear forwards; }
+.message-strip { position: absolute; z-index: 10; left: 50%; bottom: 1.1rem; width: min(680px, calc(100vw - 360px)); min-height: 58px; transform: translateX(-50%); display: flex; align-items: center; gap: .8rem; padding: .7rem 1rem; border-top: 1px solid #686851; border-bottom: 1px solid #39392f; background: #070907bf; backdrop-filter: blur(6px); pointer-events: none; animation: legend-life var(--legend-life, 8s) linear forwards; }
 .message-strip i { flex: 0 0 7px; width: 7px; height: 7px; background: var(--acid); box-shadow: 0 0 9px var(--acid); }
 .message-strip p { margin: 0; color: #bab9a6; font: .68rem/1.55 Georgia, serif; }
 /* A caixa do inventário só aparece depois de uma interação, e por quatro segundos. */
@@ -395,7 +395,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .mode-shot-bar u { display: block; height: 100%; background: var(--acid); text-decoration: none; }
 .mode-shot-anxiety u { background: #c98a5f; }
 .mode-shot-thirst u { background: #6fa8bd; }
-.mode-shot-legend { position: absolute; left: 50%; right: auto; bottom: 8%; width: 66%; padding: .25rem .35rem; transform: translateX(-50%); border-top: 1px solid #686851; border-bottom: 1px solid #39392f; background: #070907d9; color: #bab9a6; font: .42rem/1.4 Georgia, serif; text-align: left; }
+.mode-shot-legend { position: absolute; left: 50%; right: auto; bottom: 8%; width: 66%; padding: .25rem .35rem; transform: translateX(-50%); border-top: 1px solid #686851; border-bottom: 1px solid #39392f; background: #070907bf; color: #bab9a6; font: .42rem/1.4 Georgia, serif; text-align: left; }
 .mode-shot-inventory { position: absolute; right: 3%; bottom: 8%; padding: .25rem .35rem; border: 1px solid #676754; background: #0a0c0ae8; color: #cfd0bb; font: .4rem "Courier New", monospace; }
 .mode-shot-tag { position: absolute; left: 0; bottom: 0; padding: .12rem .3rem; background: #d7df77; color: #11130d; font: 700 .4rem "Courier New", monospace; letter-spacing: .08em; opacity: 0; transition: opacity .18s; }
 .option-card.selected .mode-shot-tag, .option-card:hover .mode-shot-tag { opacity: 1; }

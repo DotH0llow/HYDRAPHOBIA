@@ -226,6 +226,10 @@ export class GameApp {
   }
 
   private menuTemplate(): string {
+    const hasRecord = this.hasAnyRecord();
+    const campaignAction = hasRecord
+      ? '<button class="primary" data-action="continue"><span>01</span>Continuar</button>'
+      : '<button class="primary" data-action="new-game"><span>01</span>Novo jogo</button>';
     return `<main class="menu-screen">
       <img class="menu-bg" src="/assets/scenes/reception.jpg" alt="Corredores amarelos vazios" />
       <div class="analog-noise" aria-hidden="true"></div><div class="menu-shadow" aria-hidden="true"></div>
@@ -234,13 +238,12 @@ export class GameApp {
         <h1>HYDRAPHOBIA</h1>
         <p class="subtitle">Você não deveria ter atravessado aquela parede.</p>
         <nav class="menu-actions">
-          <button class="primary" data-action="new-game"><span>01</span>Novo jogo</button>
-          <button data-action="continue" ${this.hasAnyProgress() ? '' : 'disabled'}><span>02</span>Continuar</button>
-          <button data-action="tutorial"><span>03</span>Tutorial</button>
-          <button data-action="achievements"><span>04</span>Conquistas</button>
-          <button data-action="settings"><span>05</span>Configurações</button>
-          <button data-action="editor"><span>06</span>Editor de salas</button>
-          <button data-action="exit"><span>07</span>Sair</button>
+          ${campaignAction}
+          <button data-action="tutorial"><span>02</span>Tutorial</button>
+          <button data-action="achievements"><span>03</span>Conquistas</button>
+          <button data-action="settings"><span>04</span>Configurações</button>
+          <button data-action="editor"><span>05</span>Editor de salas</button>
+          <button data-action="exit"><span>06</span>Sair</button>
         </nav>
         <p class="menu-foot">Use fones de ouvido · Progresso salvo localmente</p>
       </section>
@@ -340,9 +343,8 @@ export class GameApp {
       <div class="slot-actions">
         ${progress
           ? `<button class="primary wide" data-action="slot-continue" data-slot="${index}">Continuar</button>`
-          : `<button class="primary wide" data-action="slot-create" data-slot="${index}">Criar personagem</button>`}
+          : '<button class="wide" disabled>Sem jogo salvo</button>'}
         <div class="slot-actions-row">
-          ${continuing ? '' : `<button data-action="slot-overwrite" data-slot="${index}">Novo personagem</button>`}
           <button class="discard" data-action="slot-delete" data-slot="${index}">Apagar</button>
         </div>
       </div>
@@ -376,7 +378,7 @@ export class GameApp {
     const index = CREATE_STEPS.indexOf(step);
     const last = index === CREATE_STEPS.length - 1;
     // Gênero e classe ficam sobre o preto, sem cenário e sem caixa em volta das artes.
-    const dark = step === 'gender' || step === 'class';
+    const dark = step === 'gender' || step === 'class' || step === 'name';
     return `<main class="create-screen${dark ? ' on-black' : ''}">
       ${dark ? '' : '<img src="/assets/scenes/reception.jpg" alt="" /><div class="settings-shade"></div>'}
       <section class="create-panel create-step-${step}">
@@ -453,7 +455,6 @@ export class GameApp {
             <label class="create-name"><span>Nome do personagem</span>
               <input type="text" maxlength="${MAX_CHARACTER_NAME}" value="${esc(this.draft.name)}" data-draft="name" placeholder="${MIN_CHARACTER_NAME} a ${MAX_CHARACTER_NAME} caracteres" /></label>
             <p class="name-warning" role="alert" data-role="name-warning" ${this.nameProblem() ? '' : 'hidden'}>${esc(this.nameProblem())}</p>
-            <p class="setting-help">O nome aparece na lista de registros e nas anotações do jogo.</p>
           </div>
           ${portrait ? `<div class="create-portrait"><img src="${esc(portrait)}" alt="" /></div>` : ''}
         </div>`;
@@ -913,7 +914,8 @@ export class GameApp {
 
   // --- campanhas ---
 
-  private hasAnyProgress(): boolean { return this.save.slots.some((slot) => slot?.game); }
+  /** Um registro criado basta para o menu passar a oferecer continuidade. */
+  private hasAnyRecord(): boolean { return this.save.slots.some((slot) => slot !== null); }
 
   /**
    * Lê o projeto do editor antes de a partida existir: as miniaturas dos registros e

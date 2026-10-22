@@ -41,7 +41,10 @@ const CONTAINED: readonly string[] = [
   'pedofilo', 'pedofila', 'pedophile', 'estuprador', 'estupro', 'estuprar', 'molestador',
   // palavrões pesados
   'filhodaputa', 'filhadaputa', 'vaitomarnocu', 'vaisefoder', 'vaitomarnoco', 'chupameopau', 'arrombado',
-  'arrombada', 'cuzao', 'caralho', 'buceta', 'punheteiro', 'corno manso',
+  'arrombada', 'cuzao', 'caralho', 'buceta', 'punheteiro', 'cornomanso', 'vaisefuder', 'vaipronoinferno',
+  // espanhol latino: construções compostas que não aparecem em nomes inocentes
+  'hijodeputa', 'hijueputa', 'chingatumadre', 'chingaatumadre', 'andatealaverga', 'meteteloportu',
+  'negrodemierda', 'indiodemierda', 'sudacademierda', 'putamadre',
 ];
 
 /** Termos que só valem como palavra inteira: curtos demais ou ambíguos. */
@@ -55,6 +58,11 @@ const EXACT: readonly string[] = [
   // palavrões
   'puta', 'putas', 'puto', 'cu', 'xota', 'pica', 'foder', 'fodase', 'merda', 'bosta', 'piranha',
   'vadia', 'vagabunda', 'corno', 'cornos', 'bitch', 'whore', 'slut', 'cunt', 'fuck', 'fucker', 'shit',
+  // português brasileiro
+  'porra', 'otario', 'otaria', 'desgracado', 'desgracada', 'babaca', 'idiota', 'imbecil', 'fdp', 'vsf', 'vtnc',
+  // espanhol latino
+  'mierda', 'pendejo', 'pendeja', 'cabron', 'cabrona', 'maricon', 'marica', 'joto', 'jota', 'boludo', 'boluda',
+  'pelotudo', 'pelotuda', 'gilipollas', 'gilipolla', 'culero', 'culera', 'pinche', 'verga', 'cojudo', 'cojuda',
 ];
 
 /** Sequências de números com significado próprio, que a tradução de leet destruiria. */
@@ -85,7 +93,7 @@ export interface NameCheck {
   reason?: string;
 }
 
-const REJECTION = 'Esse nome não passa: nada de ofensa racista, xenófoba, homofóbica ou de apologia ao ódio — nem disfarçada com números ou letras trocadas.';
+const REJECTION = 'Nana-nina-não, esse não.';
 
 /**
  * Diz se o nome pode ser usado. Um nome só é recusado quando bate em um termo
