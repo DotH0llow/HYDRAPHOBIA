@@ -11,7 +11,7 @@ npm install
 npm run dev     # jogo em /, editor em /editor.html
 ```
 
-O remoto é `origin` → `https://github.com/DotH0llow/mimosferatu.git`, e o ramo de
+O remoto é `origin` → `https://github.com/DotH0llow/HYDRAPHOBIA.git`, e o ramo de
 trabalho é a `main`.
 
 ## Onde estão o mapa e o progresso

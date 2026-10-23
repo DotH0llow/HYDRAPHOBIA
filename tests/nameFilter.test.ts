@@ -7,6 +7,22 @@ describe('filtro de linguagem do nome', () => {
       .forEach((name) => expect(nameIsAllowed(name), name).toBe(true));
   });
 
+  it('aceita os nomes de gente que se parecem com ofensa em espanhol', () => {
+    ['Concha', 'Jota', 'Pinto', 'Jotaro', 'Vergara', 'Porrada', 'Márcia', 'Mariana', 'Conchita']
+      .forEach((name) => expect(nameIsAllowed(name), name).toBe(true));
+  });
+
+  it('recusa ofensas e palavrões do português brasileiro', () => {
+    ['porra', 'Otário', 'babaca', 'desgraçado', 'escroto', 'vai se fuder', 'puta que pariu', 'FDP']
+      .forEach((name) => expect(nameIsAllowed(name), name).toBe(false));
+  });
+
+  it('recusa ofensas e palavrões do espanhol latino-americano', () => {
+    ['pendejo', 'maricón', 'cabrón', 'boludo', 'pelotuda', 'mierda', 'hijueputa', 'chinga tu madre',
+      'concha tu madre', 'negro de mierda', 'gilipollas', 'culiao']
+      .forEach((name) => expect(nameIsAllowed(name), name).toBe(false));
+  });
+
   it('recusa ofensas escritas por extenso', () => {
     ['nigger', 'Crioulo', 'Traveco', 'Boiola', 'Heil Hitler', 'retardado', 'Filho da Puta', 'estuprador']
       .forEach((name) => expect(nameIsAllowed(name), name).toBe(false));
@@ -35,11 +51,6 @@ describe('filtro de linguagem do nome', () => {
     const check = checkCharacterName('viado');
     expect(check.ok).toBe(false);
     expect(check.reason).toBe('Nana-nina-não, esse não.');
-  });
-
-  it('recusa ofensas em português brasileiro e espanhol latino', () => {
-    ['vai se fuder', 'pendejo', 'maricón', 'hijueputa', 'chinga tu madre']
-      .forEach((name) => expect(nameIsAllowed(name), name).toBe(false));
   });
 
   it('não recusa um nome vazio — isso é trabalho do tamanho mínimo', () => {

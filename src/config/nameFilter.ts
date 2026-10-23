@@ -13,6 +13,12 @@
  * `EXACT` reúne o que é curto ou ambíguo e só vale como palavra inteira: "viado" mora
  * dentro de "enviado" e "desviado", "puta" dentro de "disputa" e "reputação", e
  * bloquear por pedaço reprovaria nomes inocentes.
+ *
+ * O filtro cobre português brasileiro e espanhol latino-americano. Como os acentos caem
+ * antes da comparação, "maricón" e "maricon" são a mesma coisa aqui. Três palavras do
+ * espanhol ficaram de fora de propósito, porque são nome de gente antes de serem ofensa:
+ * "concha" (de Concepción), "jota" (apelido de João no Brasil) e "pinto" (sobrenome
+ * comum) — o que se pega delas são as formas compostas, em `CONTAINED`.
  */
 
 /** Dígitos e símbolos que costumam substituir letras. */
@@ -41,10 +47,15 @@ const CONTAINED: readonly string[] = [
   'pedofilo', 'pedofila', 'pedophile', 'estuprador', 'estupro', 'estuprar', 'molestador',
   // palavrões pesados
   'filhodaputa', 'filhadaputa', 'vaitomarnocu', 'vaisefoder', 'vaitomarnoco', 'chupameopau', 'arrombado',
-  'arrombada', 'cuzao', 'caralho', 'buceta', 'punheteiro', 'cornomanso', 'vaisefuder', 'vaipronoinferno',
-  // espanhol latino: construções compostas que não aparecem em nomes inocentes
-  'hijodeputa', 'hijueputa', 'chingatumadre', 'chingaatumadre', 'andatealaverga', 'meteteloportu',
-  'negrodemierda', 'indiodemierda', 'sudacademierda', 'putamadre',
+  'arrombada', 'cuzao', 'caralho', 'buceta', 'punheteiro', 'corno manso',
+  // português brasileiro: compostos que nenhum nome inocente carrega
+  'vaisefuder', 'fiodaputa', 'putaquepariu', 'vaipraputaquepariu', 'vaitomarnabunda', 'putamerda',
+  'judeudemerda', 'ciganodemerda', 'indiodemerda', 'morrasapatao', 'morratraveco', 'bichanojenta',
+  // espanhol latino-americano: insultos e ofensas de ódio, sempre compostos
+  'hijodeputa', 'hijadeputa', 'hijueputa', 'hijodelachingada', 'chingatumadre', 'chingaatumadre',
+  'vetealachingada', 'andatealaverga', 'conchatumadre', 'conchadetumadre', 'conchasumadre',
+  'negrodemierda', 'indiodemierda', 'sudacademierda', 'cholodemierda', 'nacodemierda',
+  'putamadre', 'malparido', 'malparida', 'muerdealmohadas', 'maricones', 'jotito', 'carechimba',
 ];
 
 /** Termos que só valem como palavra inteira: curtos demais ou ambíguos. */
@@ -58,11 +69,14 @@ const EXACT: readonly string[] = [
   // palavrões
   'puta', 'putas', 'puto', 'cu', 'xota', 'pica', 'foder', 'fodase', 'merda', 'bosta', 'piranha',
   'vadia', 'vagabunda', 'corno', 'cornos', 'bitch', 'whore', 'slut', 'cunt', 'fuck', 'fucker', 'shit',
-  // português brasileiro
-  'porra', 'otario', 'otaria', 'desgracado', 'desgracada', 'babaca', 'idiota', 'imbecil', 'fdp', 'vsf', 'vtnc',
-  // espanhol latino
-  'mierda', 'pendejo', 'pendeja', 'cabron', 'cabrona', 'maricon', 'marica', 'joto', 'jota', 'boludo', 'boluda',
-  'pelotudo', 'pelotuda', 'gilipollas', 'gilipolla', 'culero', 'culera', 'pinche', 'verga', 'cojudo', 'cojuda',
+  // palavrões e insultos do português brasileiro
+  'porra', 'krl', 'crl', 'otario', 'otaria', 'otarios', 'babaca', 'idiota', 'imbecil', 'escroto', 'escrota',
+  'desgracado', 'desgracada', 'xoxota', 'boceta', 'cuzinho', 'rola', 'fdp', 'vtnc', 'vsf', 'pqp', 'tnc',
+  // palavrões e insultos do espanhol latino-americano
+  'mierda', 'pendejo', 'pendeja', 'pendejos', 'cabron', 'cabrona', 'maricon', 'marica', 'joto',
+  'boludo', 'boluda', 'pelotudo', 'pelotuda', 'gilipollas', 'culero', 'culera', 'pinche', 'verga',
+  'vergas', 'chingada', 'chingar', 'huevon', 'guevon', 'culiao', 'conchudo', 'zorra', 'gonorrea',
+  'pirobo', 'cerote', 'culiada',
 ];
 
 /** Sequências de números com significado próprio, que a tradução de leet destruiria. */

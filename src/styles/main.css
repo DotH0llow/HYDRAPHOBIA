@@ -100,7 +100,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .movement { position: absolute; inset: 0; pointer-events: none; }
 .movement .path-marker { pointer-events: auto; }
 
-/* A legenda vive dez segundos: entra, fica e sai sozinha. */
+/* A legenda vive dez segundos: entra, fica e sai sozinha. O fundo é 75% opaco: a cena
+   continua visível atrás do texto. */
 .message-strip { position: absolute; z-index: 10; left: 50%; bottom: 1.1rem; width: min(680px, calc(100vw - 360px)); min-height: 58px; transform: translateX(-50%); display: flex; align-items: center; gap: .8rem; padding: .7rem 1rem; border-top: 1px solid #686851; border-bottom: 1px solid #39392f; background: #070907bf; backdrop-filter: blur(6px); pointer-events: none; animation: legend-life var(--legend-life, 8s) linear forwards; }
 .message-strip i { flex: 0 0 7px; width: 7px; height: 7px; background: var(--acid); box-shadow: 0 0 9px var(--acid); }
 .message-strip p { margin: 0; color: #bab9a6; font: .68rem/1.55 Georgia, serif; }

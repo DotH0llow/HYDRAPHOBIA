@@ -226,8 +226,10 @@ export class GameApp {
   }
 
   private menuTemplate(): string {
-    const hasRecord = this.hasAnyRecord();
-    const campaignAction = hasRecord
+    // A entrada de campanha é uma só e troca de papel: sem nenhum registro gravado ela
+    // começa um jogo, com um registro ela continua. As duas nunca aparecem juntas, e a
+    // criação de personagem segue acessível pelos registros vazios da tela de registros.
+    const campaign = this.hasAnyRecord()
       ? '<button class="primary" data-action="continue"><span>01</span>Continuar</button>'
       : '<button class="primary" data-action="new-game"><span>01</span>Novo jogo</button>';
     return `<main class="menu-screen">
@@ -238,7 +240,7 @@ export class GameApp {
         <h1>HYDRAPHOBIA</h1>
         <p class="subtitle">Você não deveria ter atravessado aquela parede.</p>
         <nav class="menu-actions">
-          ${campaignAction}
+          ${campaign}
           <button data-action="tutorial"><span>02</span>Tutorial</button>
           <button data-action="achievements"><span>03</span>Conquistas</button>
           <button data-action="settings"><span>04</span>Configurações</button>
@@ -263,7 +265,7 @@ export class GameApp {
         <h1>${continuing ? 'Continuar' : 'Escolha um registro'}</h1>
         <p class="setting-help">${continuing ? 'Selecione a campanha que deseja retomar.' : 'Cada registro guarda uma campanha independente, com o próprio personagem.'}</p>
         <div class="slot-grid">
-          ${this.save.slots.map((slot, index) => this.slotCardTemplate(slot, index, continuing)).join('')}
+          ${this.save.slots.map((slot, index) => this.slotCardTemplate(slot, index)).join('')}
         </div>
         <button class="slots-back" data-action="slots-back"><i aria-hidden="true">&#8592;</i>Voltar</button>
       </section>
@@ -298,7 +300,7 @@ export class GameApp {
     this.audio.play('click');
   }
 
-  private slotCardTemplate(slot: SaveSlot | null, index: number, continuing: boolean): string {
+  private slotCardTemplate(slot: SaveSlot | null, index: number): string {
     const number = String(index + 1).padStart(2, '0');
     if (!slot) {
       return `<article class="slot-card empty">
@@ -311,9 +313,7 @@ export class GameApp {
           </div>
         </div>
         <div class="slot-actions">
-          ${continuing
-            ? '<button class="wide" disabled>Sem progresso</button>'
-            : `<button class="primary wide" data-action="slot-create" data-slot="${index}">Criar personagem</button>`}
+          <button class="primary wide" data-action="slot-create" data-slot="${index}">Criar personagem</button>
         </div>
       </article>`;
     }
@@ -321,6 +321,12 @@ export class GameApp {
     const progress = slot.game;
     const ending = progress ? undefined : slot.ending;
     const rooms = progress?.discovered.length ?? 0;
+    // Com um jogo salvo o registro só continua ou é apagado. Sem jogo salvo — a campanha
+    // acabou, ou o personagem nunca saiu do lugar — o registro é reaproveitado criando
+    // outro personagem, e `overwriteSlot` pede confirmação antes de trocar.
+    const mainAction = progress
+      ? `<button class="primary wide" data-action="slot-continue" data-slot="${index}">Continuar</button>`
+      : `<button class="primary wide" data-action="slot-overwrite" data-slot="${index}">Criar personagem</button>`;
     return `<article class="slot-card${ending ? ` ended ended-${ending.kind}` : ''}">
       <small class="slot-tag">REGISTRO ${number}${ending ? ' · ENCERRADO' : ''}</small>
       <div class="slot-body">
@@ -341,9 +347,7 @@ export class GameApp {
           ? this.endingNote(ending)
           : '<span>Personagem criado, exploração ainda não iniciada.</span>'}</p>
       <div class="slot-actions">
-        ${progress
-          ? `<button class="primary wide" data-action="slot-continue" data-slot="${index}">Continuar</button>`
-          : '<button class="wide" disabled>Sem jogo salvo</button>'}
+        ${mainAction}
         <div class="slot-actions-row">
           <button class="discard" data-action="slot-delete" data-slot="${index}">Apagar</button>
         </div>
@@ -377,7 +381,7 @@ export class GameApp {
     const step = this.createStep;
     const index = CREATE_STEPS.indexOf(step);
     const last = index === CREATE_STEPS.length - 1;
-    // Gênero e classe ficam sobre o preto, sem cenário e sem caixa em volta das artes.
+    // Gênero, classe e nome ficam sobre o preto, sem cenário e sem caixa em volta das artes.
     const dark = step === 'gender' || step === 'class' || step === 'name';
     return `<main class="create-screen${dark ? ' on-black' : ''}">
       ${dark ? '' : '<img src="/assets/scenes/reception.jpg" alt="" /><div class="settings-shade"></div>'}
@@ -914,7 +918,7 @@ export class GameApp {
 
   // --- campanhas ---
 
-  /** Um registro criado basta para o menu passar a oferecer continuidade. */
+  /** Um registro criado já basta: com ele o menu oferece continuar, e não um jogo novo. */
   private hasAnyRecord(): boolean { return this.save.slots.some((slot) => slot !== null); }
 
   /**

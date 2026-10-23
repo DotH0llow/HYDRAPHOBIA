@@ -28,7 +28,18 @@ const CLIPBOARD_LABELS: Record<ClipboardEntry['kind'], string> = {
 };
 
 type Panel = 'map' | 'items' | 'entities';
-type ViewResize = 'move' | 'north' | 'south' | 'east' | 'west' | 'north-east' | 'north-west' | 'south-east' | 'south-west';
+
+/**
+ * Por onde a janela do jogador está sendo arrastada: `move` é o corpo dela, as demais
+ * são as oito alças de borda. Cada letra é um lado (n, s, e, w), e um canto tem as duas.
+ */
+type ViewGrip = 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
+/** As alças desenhadas em volta da janela, na ordem em que entram na cena. */
+const VIEW_GRIPS: readonly ViewGrip[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
+
+/** Menor lado que a janela pode ter, em porcentagem da cena. */
+const MIN_VIEW_SIDE = 5;
 
 /**
  * Uma pergunta de sim/não desenhada pelo próprio editor. `window.confirm` não aparece
@@ -51,7 +62,7 @@ type Gesture =
   | { type: 'connectionButton'; connectionId: string; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect }
   | { type: 'lightSpot'; roomId: string; lightId: string; startX: number; startY: number; origin: { x: number; y: number }; rect: DOMRect }
   | { type: 'media'; roomId: string; mediaId: string; resize: boolean; startX: number; startY: number; origin: { x: number; y: number; width: number; height: number }; rect: DOMRect }
-  | { type: 'view'; roomId: string; resize: ViewResize; startX: number; startY: number; origin: EditorRoomView; rect: DOMRect };
+  | { type: 'view'; roomId: string; grip: ViewGrip; startX: number; startY: number; origin: EditorRoomView; rect: DOMRect };
 
 const esc = (value: unknown): string => String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]!);
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
@@ -96,6 +107,13 @@ export class EditorApp {
   private clipboardNote = '';
   /** Arquivos de áudio encontrados em `public/assets/audio`, para a trilha das salas. */
   private audioFiles: string[] = [];
+  /**
+   * As imagens do palco já decodificadas, por caminho de arquivo. `render()` reescreve a
+   * cena inteira com `innerHTML`, e isso jogava fora o `<img>` do GIF a cada edição: o
+   * navegador decodificava o arquivo outra vez e a animação voltava ao primeiro quadro.
+   * Guardar o elemento e devolvê-lo à cena depois de cada render mantém um único decode.
+   */
+  private readonly sceneImages = new Map<string, HTMLImageElement>();
   /** Confirmação aberta; a ação só roda quando o editor diz que sim. */
   private confirm: EditorConfirm | null = null;
   /** Um envio para a main em andamento; o botão fica desligado enquanto isso. */
@@ -129,8 +147,29 @@ export class EditorApp {
 
   private render(): void {
     this.root.innerHTML = this.testMode ? this.playtestTemplate() : this.editorTemplate();
+    this.keepSceneImages();
     if (this.testMode) this.bindTestCutsceneVideo();
     else if (this.hotspotEditorOpen) this.updateDarknessCanvas();
+  }
+
+  /**
+   * Troca cada imagem recém-criada do palco pelo elemento do mesmo arquivo que já estava
+   * decodificado. Dois usos do mesmo arquivo na mesma sala ficam fora: o elemento vive em
+   * um lugar só, e movê-lo esvaziaria a primeira mídia.
+   */
+  private keepSceneImages(): void {
+    const adopted = new Set<string>();
+    this.root.querySelectorAll<HTMLElement>('[data-role="scene-media"]').forEach((holder) => {
+      const fresh = holder.querySelector('img');
+      const path = fresh?.getAttribute('src');
+      if (!fresh || !path || adopted.has(path)) return;
+      adopted.add(path);
+      const kept = this.sceneImages.get(path);
+      if (kept) fresh.replaceWith(kept);
+      else this.sceneImages.set(path, fresh);
+    });
+    // Mídia apagada, ou com outro arquivo: o elemento guardado não serve mais a ninguém.
+    [...this.sceneImages.keys()].forEach((path) => { if (!adopted.has(path)) this.sceneImages.delete(path); });
   }
 
   private updateDarknessCanvas(): void {
@@ -347,8 +386,8 @@ export class EditorApp {
 
   /**
    * A janela do jogador desta sala: o retângulo que o jogo vai enquadrar e ampliar até
-   * cobrir a tela. Arrastar o retângulo move o campo de visão; o canto redimensiona —
-   * quanto menor, mais perto a cena fica. O tracejado interno é o que a janela real
+   * cobrir a tela. Arrastar o retângulo move o campo de visão e as alças das bordas o
+   * redimensionam, como num interagível — quanto menor, mais perto a cena fica. O tracejado interno é o que a janela real
    * deste computador ainda corta desse recorte, por causa da proporção dela.
    */
   private viewWindowTemplate(room: EditorRoom): string {
@@ -367,23 +406,30 @@ export class EditorApp {
     return `<div class="stage-view-window ${this.viewEditing ? 'editing' : ''} ${full ? 'full' : ''}" data-role="view-window" style="left:${view.x}%;top:${view.y}%;width:${view.width}%;height:${view.height}%">
       ${safe}
       <span>janela do jogador${width > 0 ? ` · tela ${width}×${height}` : ''}</span>
-      ${this.viewEditing ? `<i class="view-resize north" data-role="view-resize" data-direction="north"></i><i class="view-resize south" data-role="view-resize" data-direction="south"></i><i class="view-resize east" data-role="view-resize" data-direction="east"></i><i class="view-resize west" data-role="view-resize" data-direction="west"></i><i class="view-resize south-east" data-role="view-resize" data-direction="south-east"></i>` : ''}
+      ${this.viewEditing ? VIEW_GRIPS.map((grip) => `<i class="view-grip ${grip}" data-role="view-grip" data-grip="${grip}"></i>`).join('') : ''}
     </div>`;
+  }
+
+  /**
+   * A prévia do arquivo na lateral. O GIF fica de fora de propósito: ele já está animando
+   * no palco, e uma segunda cópia do mesmo arquivo dobrava a decodificação de cada quadro
+   * — era isso que deixava o editor pesado assim que uma animação entrava na sala.
+   */
+  private mediaPreviewTemplate(media: EditorRoomMedia): string {
+    if (!media.path) return '<p class="panel-hint">Escolha um arquivo para a mídia aparecer na cena.</p>';
+    if (media.kind === 'gif') return `<p class="panel-hint">GIF animado no palco. A prévia daqui fica desligada para o editor não decodificar a animação duas vezes.<br><b>${esc(media.path)}</b></p>`;
+    const body = media.kind === 'video'
+      ? `<video src="${esc(media.path)}" autoplay muted loop playsinline></video>`
+      : `<img src="${esc(media.path)}" alt="" decoding="async" />`;
+    return `<div class="image-preview">${body}<span>${esc(media.path)}</span></div>`;
   }
 
   private mediaFieldsTemplate(media: EditorRoomMedia): string {
     const id = esc(media.id);
-    // GIFs são caros para decodificar. No palco ele já está animado; uma segunda
-    // instância na lateral duplicava esse trabalho e tornava a edição pesada.
-    const preview = !media.path
-      ? '<p class="panel-hint">Escolha um arquivo para a mídia aparecer na cena.</p>'
-      : media.kind === 'gif'
-        ? '<p class="panel-hint">GIF animado em reprodução no palco. A prévia lateral fica desligada para manter o editor leve.</p>'
-        : `<div class="image-preview">${media.kind === 'video' ? `<video src="${esc(media.path)}" autoplay muted loop playsinline></video>` : `<img src="${esc(media.path)}" alt="" decoding="async" />`}<span>${esc(media.path)}</span></div>`;
     return `<div class="properties-heading"><div><small>MÍDIA DA SALA</small><h3>${esc(media.path.split('/').pop() || 'Sem arquivo')}</h3></div><button class="danger" data-action="delete-media" data-media="${id}">Excluir</button></div>
       <label><span>Arquivo (jpg, png, webp, gif, webm…)</span><div class="input-with-browse"><input data-media-field="path" data-media="${id}" value="${esc(media.path)}" placeholder="/assets/scenes/minha-arte.webp" /><button type="button" data-action="browse-file" data-target-field="media-path" data-accept="image/*,.gif,video/webm,video/*">Procurar</button></div></label>
       <label><span>Tipo</span><select data-media-field="kind" data-media="${id}"><option value="image" ${media.kind === 'image' ? 'selected' : ''}>Imagem</option><option value="gif" ${media.kind === 'gif' ? 'selected' : ''}>GIF animado</option><option value="video" ${media.kind === 'video' ? 'selected' : ''}>Vídeo (webm/mp4)</option></select></label>
-      ${preview}
+      ${this.mediaPreviewTemplate(media)}
       <div class="field-row"><label><span>X %</span><input type="number" step="0.5" data-media-field="x" data-media="${id}" value="${media.x.toFixed(1)}" /></label><label><span>Y %</span><input type="number" step="0.5" data-media-field="y" data-media="${id}" value="${media.y.toFixed(1)}" /></label></div>
       <div class="field-row"><label><span>Largura %</span><input type="number" min="1" max="400" step="0.5" data-media-field="width" data-media="${id}" value="${media.width.toFixed(1)}" /></label><label><span>Altura %</span><input type="number" min="1" max="400" step="0.5" data-media-field="height" data-media="${id}" value="${media.height.toFixed(1)}" /></label></div>
       <label><span>Opacidade</span><div class="slider-row"><input type="range" min="0.05" max="1" step="0.05" data-media-field="opacity" data-media="${id}" value="${media.opacity}" /><b>${Math.round(media.opacity * 100)}%</b></div></label>
@@ -480,7 +526,7 @@ export class EditorApp {
     const full = isFullRoomView(room.view);
     return `<section class="property-section">
       <div class="panel-title"><span>Janela do jogador</span>${full ? '' : '<b>ajustada</b>'}</div>
-      <p class="panel-hint">Arraste o retângulo sobre a cena para mover o recorte; arraste as laterais ou o canto para redimensioná-lo. O jogo usa exatamente este recorte.</p>
+      <p class="panel-hint">Arraste o retângulo sobre a cena para mover o recorte, e as alças das laterais ou dos cantos para redimensioná-lo. O jogo usa exatamente este recorte.</p>
       <button class="wide-button ${this.viewEditing ? 'primary' : ''}" data-action="toggle-view-edit">${this.viewEditing ? 'Concluir a janela' : 'Ajustar a janela na cena'}</button>
       <div class="field-row"><label><span>X %</span><input type="number" min="0" max="95" step="0.5" data-view-field="x" value="${view.x.toFixed(1)}" /></label><label><span>Y %</span><input type="number" min="0" max="95" step="0.5" data-view-field="y" value="${view.y.toFixed(1)}" /></label></div>
       <div class="field-row"><label><span>Largura %</span><input type="number" min="5" max="100" step="0.5" data-view-field="width" value="${view.width.toFixed(1)}" /></label><label><span>Altura %</span><input type="number" min="5" max="100" step="0.5" data-view-field="height" value="${view.height.toFixed(1)}" /></label></div>
@@ -1460,9 +1506,8 @@ export class EditorApp {
     const viewWindow = target.closest<HTMLElement>('[data-role="view-window"]');
     if (this.viewEditing && viewWindow && stage && this.selectedRoom) {
       const view = this.selectedRoom.view ?? FULL_ROOM_VIEW;
-      const handle = target.closest<HTMLElement>('[data-role="view-resize"]');
-      const resize = (handle?.dataset.direction ?? 'move') as ViewResize;
-      this.gesture = { type: 'view', roomId: this.selectedRoom.id, resize, startX: event.clientX, startY: event.clientY, origin: { ...view }, rect: stage.getBoundingClientRect() };
+      const grip = (target.closest<HTMLElement>('[data-role="view-grip"]')?.dataset.grip ?? 'move') as ViewGrip;
+      this.gesture = { type: 'view', roomId: this.selectedRoom.id, grip, startX: event.clientX, startY: event.clientY, origin: { ...view }, rect: stage.getBoundingClientRect() };
       event.preventDefault();
       event.stopPropagation();
       return;
@@ -1641,20 +1686,23 @@ export class EditorApp {
       const dx = ((event.clientX - gesture.startX) / gesture.rect.width) * 100;
       const dy = ((event.clientY - gesture.startY) / gesture.rect.height) * 100;
       const next: EditorRoomView = { ...gesture.origin };
-      if (gesture.resize === 'move') {
-        next.x += dx;
-        next.y += dy;
+      if (gesture.grip === 'move') {
+        next.x = gesture.origin.x + dx;
+        next.y = gesture.origin.y + dy;
       } else {
+        // Cada alça move só a própria borda e deixa a oposta onde está — é por isso que
+        // norte e oeste mexem na posição e na medida juntas. Nenhuma borda pode passar
+        // da cena nem cruzar a outra: sobra sempre o lado mínimo.
         const right = gesture.origin.x + gesture.origin.width;
         const bottom = gesture.origin.y + gesture.origin.height;
-        if (gesture.resize.includes('east')) next.width = clamp(gesture.origin.width + dx, 5, 100 - gesture.origin.x);
-        if (gesture.resize.includes('south')) next.height = clamp(gesture.origin.height + dy, 5, 100 - gesture.origin.y);
-        if (gesture.resize.includes('west')) {
-          next.x = clamp(gesture.origin.x + dx, 0, right - 5);
+        if (gesture.grip.includes('e')) next.width = clamp(gesture.origin.width + dx, MIN_VIEW_SIDE, 100 - gesture.origin.x);
+        if (gesture.grip.includes('s')) next.height = clamp(gesture.origin.height + dy, MIN_VIEW_SIDE, 100 - gesture.origin.y);
+        if (gesture.grip.includes('w')) {
+          next.x = clamp(gesture.origin.x + dx, 0, right - MIN_VIEW_SIDE);
           next.width = right - next.x;
         }
-        if (gesture.resize.includes('north')) {
-          next.y = clamp(gesture.origin.y + dy, 0, bottom - 5);
+        if (gesture.grip.includes('n')) {
+          next.y = clamp(gesture.origin.y + dy, 0, bottom - MIN_VIEW_SIDE);
           next.height = bottom - next.y;
         }
       }
