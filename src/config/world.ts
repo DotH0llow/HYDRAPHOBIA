@@ -187,6 +187,9 @@ export const ROOMS: Record<RoomId, RoomDefinition> = {
     hotspots: [
       { id: 'cardReader', label: 'Usar leitor de cartão', x: 46, y: 37, width: 9, height: 24, kind: 'use', message: 'O leitor aceita o cartão. A fechadura pesada recua com um estalo.', requiresItem: 'accessCard', grantsFlag: 'maintenanceUnlocked', once: true },
       { id: 'wallMarks', label: 'Examinar riscos', x: 15, y: 31, width: 15, height: 29, kind: 'examine', message: 'Marcas de unhas contam grupos de sete. A contagem termina abruptamente.' },
+      // Sobre a porta vermelha, no ponto de fuga: olhar para lá chama o encontro do
+      // coração. Uma vez por campanha — o susto não sobrevive a ser repetido.
+      { id: 'corridorEnd', label: 'Olhar o fim do corredor', x: 31, y: 35, width: 11, height: 17, kind: 'event', event: 'vigia', message: 'Você força a vista até onde o corredor deveria acabar.', once: true },
     ],
   },
   westWing: {
