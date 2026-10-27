@@ -377,7 +377,7 @@ export class EditorApp {
           ? `<video src="${esc(entry.path)}" autoplay muted playsinline ${entry.loop ? 'loop' : ''}></video>`
           : `<img src="${esc(entry.path)}" alt="" decoding="async" />`
         : '<em>sem arquivo</em>';
-      return `<div class="scene-media ${selected ? 'selected' : ''} ${onTop ? 'on-top' : ''}" data-role="scene-media" data-media="${esc(entry.id)}" style="left:${entry.x}%;top:${entry.y}%;width:${entry.width}%;height:${entry.height}%;opacity:${entry.opacity};transform:rotate(${entry.rotation}deg)" title="${esc(entry.path || 'mídia sem arquivo')}">
+      return `<div class="scene-media ${selected ? 'selected' : ''} ${onTop ? 'on-top' : ''}" data-role="scene-media" data-media="${esc(entry.id)}" style="left:${entry.x}%;top:${entry.y}%;width:${entry.width}%;height:${entry.height}%;opacity:${entry.opacity};transform:rotate(${entry.rotation}deg)" title="${esc(entry.path ? (EditorApp.isEmbedded(entry.path) ? 'arquivo embutido no projeto' : entry.path) : 'mídia sem arquivo')}">
         ${body}
         ${selected ? '<i data-role="media-resize"></i>' : ''}
       </div>`;
@@ -410,13 +410,19 @@ export class EditorApp {
     </div>`;
   }
 
+  /** Um arquivo escolhido pelo "Procurar" vive inteiro dentro do projeto, em base64. */
+  private static isEmbedded(path: string): boolean { return path.startsWith('data:'); }
+
   /**
    * A prévia do arquivo na lateral. O GIF fica de fora de propósito: ele já está animando
    * no palco, e uma segunda cópia do mesmo arquivo dobrava a decodificação de cada quadro
-   * — era isso que deixava o editor pesado assim que uma animação entrava na sala.
+   * — era isso que deixava o editor pesado assim que uma animação entrava na sala. Um
+   * arquivo embutido fica de fora pelo mesmo motivo, e ainda por um segundo: a prévia
+   * dele carregaria de novo os megabytes de base64 que já estão no palco.
    */
   private mediaPreviewTemplate(media: EditorRoomMedia): string {
     if (!media.path) return '<p class="panel-hint">Escolha um arquivo para a mídia aparecer na cena.</p>';
+    if (EditorApp.isEmbedded(media.path)) return `<p class="panel-hint">Arquivo embutido no projeto (${Math.round(media.path.length / 1024)} KB), já desenhado no palco. Use "Procurar" para trocá-lo.</p>`;
     if (media.kind === 'gif') return `<p class="panel-hint">GIF animado no palco. A prévia daqui fica desligada para o editor não decodificar a animação duas vezes.<br><b>${esc(media.path)}</b></p>`;
     const body = media.kind === 'video'
       ? `<video src="${esc(media.path)}" autoplay muted loop playsinline></video>`
@@ -426,8 +432,11 @@ export class EditorApp {
 
   private mediaFieldsTemplate(media: EditorRoomMedia): string {
     const id = esc(media.id);
-    return `<div class="properties-heading"><div><small>MÍDIA DA SALA</small><h3>${esc(media.path.split('/').pop() || 'Sem arquivo')}</h3></div><button class="danger" data-action="delete-media" data-media="${id}">Excluir</button></div>
-      <label><span>Arquivo (jpg, png, webp, gif, webm…)</span><div class="input-with-browse"><input data-media-field="path" data-media="${id}" value="${esc(media.path)}" placeholder="/assets/scenes/minha-arte.webp" /><button type="button" data-action="browse-file" data-target-field="media-path" data-accept="image/*,.gif,video/webm,video/*">Procurar</button></div></label>
+    const name = EditorApp.isEmbedded(media.path) ? 'Arquivo embutido' : (media.path.split('/').pop() || 'Sem arquivo');
+    return `<div class="properties-heading"><div><small>MÍDIA DA SALA</small><h3>${esc(name)}</h3></div><button class="danger" data-action="delete-media" data-media="${id}">Excluir</button></div>
+      <label><span>Arquivo (jpg, png, webp, gif, webm…)</span><div class="input-with-browse">${EditorApp.isEmbedded(media.path)
+        ? '<input value="arquivo embutido no projeto" readonly title="O arquivo está guardado dentro do projeto; troque-o pelo Procurar." />'
+        : `<input data-media-field="path" data-media="${id}" value="${esc(media.path)}" placeholder="/assets/scenes/minha-arte.webp" />`}<button type="button" data-action="browse-file" data-target-field="media-path" data-accept="image/*,.gif,video/webm,video/*">Procurar</button></div></label>
       <label><span>Tipo</span><select data-media-field="kind" data-media="${id}"><option value="image" ${media.kind === 'image' ? 'selected' : ''}>Imagem</option><option value="gif" ${media.kind === 'gif' ? 'selected' : ''}>GIF animado</option><option value="video" ${media.kind === 'video' ? 'selected' : ''}>Vídeo (webm/mp4)</option></select></label>
       ${this.mediaPreviewTemplate(media)}
       <div class="field-row"><label><span>X %</span><input type="number" step="0.5" data-media-field="x" data-media="${id}" value="${media.x.toFixed(1)}" /></label><label><span>Y %</span><input type="number" step="0.5" data-media-field="y" data-media="${id}" value="${media.y.toFixed(1)}" /></label></div>
@@ -1481,6 +1490,42 @@ export class EditorApp {
     if (rerender && committed) this.render();
   }
 
+  /**
+   * Passa a marca de seleção para a mídia escolhida, no palco e só nele. O que some
+   * junto é o que o redesenho tiraria: a marca dos outros alvos e as alças que só
+   * existem enquanto um interagível está selecionado.
+   */
+  private markMediaSelected(): void {
+    this.root.querySelectorAll<HTMLElement>('[data-role="scene-media"]').forEach((box) => {
+      const selected = box.dataset.media === this.selectedMediaId;
+      box.classList.toggle('selected', selected);
+      const grip = box.querySelector('[data-role="media-resize"]');
+      if (selected && !grip) box.insertAdjacentHTML('beforeend', '<i data-role="media-resize"></i>');
+      else if (!selected && grip) grip.remove();
+    });
+    this.root.querySelectorAll<HTMLElement>('.editable-hotspot.selected').forEach((box) => {
+      box.classList.remove('selected');
+      box.querySelectorAll('[data-role="shape-point"], [data-role="indicator-point"]').forEach((handle) => handle.remove());
+    });
+    this.root.querySelector('.scene-connection.selected')?.classList.remove('selected');
+  }
+
+  /**
+   * O painel lateral da mídia depois do arrasto. Sendo o painel desta mesma mídia só os
+   * números mudam: recriá-lo pediria o arquivo de novo e reiniciaria a prévia a cada
+   * vez que o jogador soltasse o botão.
+   */
+  private showMediaSettings(media: EditorRoomMedia): void {
+    const aside = this.root.querySelector<HTMLElement>('.hotspot-settings');
+    if (!aside) return;
+    const id = CSS.escape(media.id);
+    if (!aside.querySelector(`[data-media-field="x"][data-media="${id}"]`)) { aside.innerHTML = this.mediaFieldsTemplate(media); return; }
+    (['x', 'y', 'width', 'height'] as const).forEach((field) => {
+      const input = aside.querySelector<HTMLInputElement>(`[data-media-field="${field}"][data-media="${id}"]`);
+      if (input) input.value = media[field].toFixed(1);
+    });
+  }
+
   /** Mostra ou esconde a dica da rotação sem recriar o bloco do foco. */
   private updateRotationHint(light: EditorLight): void {
     const hint = this.root.querySelector<HTMLElement>(`[data-role="light-rotation-hint"][data-light="${CSS.escape(light.id)}"]`);
@@ -1520,7 +1565,11 @@ export class EditorApp {
       this.selectedHotspotId = null;
       this.selectedConnectionId = null;
       this.gesture = { type: 'media', roomId: this.selectedRoom.id, mediaId: media.id, resize: Boolean(target.closest('[data-role="media-resize"]')), startX: event.clientX, startY: event.clientY, origin: { x: media.x, y: media.y, width: media.width, height: media.height }, rect: stage.getBoundingClientRect() };
-      this.render();
+      // Só a marca da seleção, no palco. Redesenhar o editor inteiro aqui era o engasgo
+      // do início do arrasto: o `innerHTML` refazia os dois painéis e a cena, e com um
+      // GIF na sala ainda tirava e devolvia o elemento animado a cada clique. O painel
+      // lateral espera o jogador soltar o botão.
+      this.markMediaSelected();
       event.preventDefault();
       return;
     }
@@ -1758,9 +1807,14 @@ export class EditorApp {
       if (room) room.view = this.fitView(room.view ?? FULL_ROOM_VIEW);
     }
     this.project.save();
-    const needsRerender = this.gesture.type === 'hotspot' || this.gesture.type === 'shapePoint' || this.gesture.type === 'indicator' || this.gesture.type === 'connectionButton' || this.gesture.type === 'lightSpot' || this.gesture.type === 'media' || this.gesture.type === 'view';
+    // A mídia fica de fora do redesenho: o palco já acompanhou o arrasto e o painel dela
+    // é atualizado sozinho. Refazer a cena aqui recarregava a prévia e a animação.
+    const dragged = this.gesture;
+    const media = dragged.type === 'media' ? this.project.findRoom(dragged.roomId)?.media?.find((entry) => entry.id === dragged.mediaId) : undefined;
+    const needsRerender = this.gesture.type === 'hotspot' || this.gesture.type === 'shapePoint' || this.gesture.type === 'indicator' || this.gesture.type === 'connectionButton' || this.gesture.type === 'lightSpot' || this.gesture.type === 'view';
     this.gesture = null;
-    if (needsRerender) this.render();
+    if (media) this.showMediaSettings(media);
+    else if (needsRerender) this.render();
     else this.root.querySelector('[data-role="canvas"]')?.classList.remove('panning');
   }
 

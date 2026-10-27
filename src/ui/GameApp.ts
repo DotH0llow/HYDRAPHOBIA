@@ -17,9 +17,9 @@ import { checkCharacterName } from '../config/nameFilter';
 import { legendTimings, SOLO_LEGEND_MS, splitLegend } from '../systems/legends';
 import { roomMediaMarkup, sceneFrameStyle } from '../systems/roomView';
 import { createSlot, endCampaign, SaveSystem } from '../systems/SaveSystem';
-import { SAVE_SLOT_COUNT, type CampaignEnding, type CharacterClassId, type CharacterGender, type CharacterMode, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type PhobiaId, type Preferences, type RoomId, type SaveData, type SaveSlot, type Screen } from '../types';
+import { SAVE_SLOT_COUNT, type BooleanPreferenceKey, type CampaignEnding, type CharacterClassId, type CharacterGender, type CharacterMode, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type PhobiaId, type Preferences, type RoomId, type SaveData, type SaveSlot, type Screen } from '../types';
 
-type NumericPreferenceKey = Exclude<keyof Preferences, 'showHealthBar'>;
+type NumericPreferenceKey = Exclude<keyof Preferences, BooleanPreferenceKey>;
 /** Uma pergunta de sim/nao desenhada pelo proprio jogo, com a acao ja escolhida. */
 interface ConfirmRequest {
   title: string;
@@ -69,7 +69,7 @@ const DANGER_INTERVALS: Record<number, [number, number]> = {
 const esc = (value: unknown): string => String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]!);
 
 export class GameApp {
-  private screen: Screen = 'menu';
+  private screen: Screen = 'splash';
   private game: Game | null = null;
   private items: Record<ItemId, ItemDefinition> = ITEMS;
   private readonly saves = new SaveSystem();
@@ -119,6 +119,7 @@ export class GameApp {
     this.audio = new AudioSystem(this.save.preferences);
     this.bindEvents();
     this.bindFirstGesture();
+    this.bindSplash();
   }
 
   start(): void {
@@ -187,7 +188,10 @@ export class GameApp {
       return `create:${this.createStep}:${JSON.stringify(rest)}${dialog}`;
     }
     this.trackMessage();
-    if (this.screen !== 'game' || !this.game) return `${this.screen}:${this.inventoryOpen}:${this.focusedItem ?? ''}:${JSON.stringify(this.save.preferences)}${dialog}`;
+    // As preferências ficam de fora da chave de propósito: cada controle das
+    // configurações já carrega o próprio valor, e redesenhar o painel a cada mudança
+    // arrancava o slider da mão do jogador e jogava a rolagem de volta ao topo.
+    if (this.screen !== 'game' || !this.game) return `${this.screen}:${this.inventoryOpen}:${this.focusedItem ?? ''}${dialog}`;
     return JSON.stringify({
       screen: this.screen,
       room: this.game.position,
@@ -214,6 +218,7 @@ export class GameApp {
 
   private template(): string {
     switch (this.screen) {
+      case 'splash': return this.splashTemplate();
       case 'menu': return this.menuTemplate();
       case 'slots': return this.slotsTemplate();
       case 'create': return this.createTemplate();
@@ -223,6 +228,24 @@ export class GameApp {
       case 'escaped': return this.escapedTemplate();
       case 'exit': return this.exitTemplate();
     }
+  }
+
+  /**
+   * A abertura. Ela existe por um motivo técnico: o navegador só libera o áudio depois
+   * de o jogador tocar na página, e sem esta tela o menu abria mudo até o primeiro
+   * clique. Por isso ela aparece sempre, inclusive para quem já tem progresso gravado.
+   * Na tela não há nada além do fundo, da vinheta e do título, que entram em fade
+   * lento, e do pedido piscando no meio.
+   */
+  private splashTemplate(): string {
+    return `<main class="splash-screen">
+      <img class="splash-bg" src="/assets/scenes/reception.jpg" alt="" />
+      <div class="analog-noise" aria-hidden="true"></div><div class="menu-shadow splash-vignette" aria-hidden="true"></div>
+      <section class="splash-plate">
+        <h1>HYDRAPHOBIA</h1>
+        <p class="splash-prompt">aperte qualquer botão para continuar</p>
+      </section>
+    </main>`;
   }
 
   private menuTemplate(): string {
@@ -383,8 +406,12 @@ export class GameApp {
     const last = index === CREATE_STEPS.length - 1;
     // Gênero, classe e nome ficam sobre o preto, sem cenário e sem caixa em volta das artes.
     const dark = step === 'gender' || step === 'class' || step === 'name';
+    // No batismo a arte da classe escolhida é o cenário: ela ocupa a tela inteira, atrás
+    // de tudo, em vez de ficar num quadro ao lado do campo.
+    const portrait = step === 'name' && this.draft.classId ? classArtFor(this.draft.classId, this.draft.gender ?? 'male') : undefined;
     return `<main class="create-screen${dark ? ' on-black' : ''}">
       ${dark ? '' : '<img src="/assets/scenes/reception.jpg" alt="" /><div class="settings-shade"></div>'}
+      ${portrait ? `<div class="create-portrait" aria-hidden="true"><img src="${esc(portrait)}" alt="" /></div>` : ''}
       <section class="create-panel create-step-${step}">
         <div class="create-head">
           <small>CRIAÇÃO DE PERSONAGEM · REGISTRO ${String((this.activeSlot ?? 0) + 1).padStart(2, '0')}</small>
@@ -452,15 +479,11 @@ export class GameApp {
       case 'item': return this.startingItemGrid();
       case 'mode': return this.modeGrid();
       case 'name': {
-        // O retrato é a arte da classe escolhida: quem está sendo batizado fica à vista.
-        const portrait = this.draft.classId ? classArtFor(this.draft.classId, this.draft.gender ?? 'male') : undefined;
-        return `<div class="create-name-row">
-          <div class="create-name-field">
-            <label class="create-name"><span>Nome do personagem</span>
-              <input type="text" maxlength="${MAX_CHARACTER_NAME}" value="${esc(this.draft.name)}" data-draft="name" placeholder="${MIN_CHARACTER_NAME} a ${MAX_CHARACTER_NAME} caracteres" /></label>
-            <p class="name-warning" role="alert" data-role="name-warning" ${this.nameProblem() ? '' : 'hidden'}>${esc(this.nameProblem())}</p>
-          </div>
-          ${portrait ? `<div class="create-portrait"><img src="${esc(portrait)}" alt="" /></div>` : ''}
+        // A arte da classe já está no fundo da tela; aqui fica só o campo, sobre o pé dela.
+        return `<div class="create-name-field">
+          <label class="create-name"><span>Nome do personagem</span>
+            <input type="text" maxlength="${MAX_CHARACTER_NAME}" value="${esc(this.draft.name)}" data-draft="name" placeholder="${MIN_CHARACTER_NAME} a ${MAX_CHARACTER_NAME} caracteres" /></label>
+          <p class="name-warning" role="alert" data-role="name-warning" ${this.nameProblem() ? '' : 'hidden'}>${esc(this.nameProblem())}</p>
         </div>`;
       }
     }
@@ -528,10 +551,10 @@ export class GameApp {
     if (!this.game) return '';
     const room = this.game.room;
     const exits = Object.entries(room.exits) as Array<[Direction, NonNullable<typeof room.exits[Direction]>]>;
-    const condition = this.conditionClasses();
     // No modo imersivo nada de interface entra na tela: só a cena e o que está nela.
     const hud = !this.immersive;
-    return `<main class="game-screen ${condition}${hud ? '' : ' immersive'}">
+    const { filmMode, vhsMode } = this.save.preferences;
+    return `<main class="${this.gameScreenClass()}">
       <section class="scene" aria-label="${room.name}">
         <div class="scene-frame" style="${sceneFrameStyle((room as RoomDefinition).view)}">
           <img src="${room.image}" alt="${room.description}" />
@@ -544,6 +567,8 @@ export class GameApp {
         <div class="scene-grade"></div><div class="scene-noise"></div>
       </section>
       <div class="blood-overlay" data-blood-level="${this.bloodLevel()}" aria-hidden="true"><i></i><i></i><i></i></div>
+      ${vhsMode ? '<div class="vhs-overlay" aria-hidden="true"><i class="vhs-grain"></i><i class="vhs-scan"></i><i class="vhs-chroma"></i><i class="vhs-band"></i></div>' : ''}
+      ${filmMode ? '<div class="film-bars" aria-hidden="true"><i></i><i></i></div>' : ''}
       ${hud ? `<header class="game-header">
         <div class="room-id"><small>${room.code}</small><strong>${room.name}</strong></div>
         <div class="survival-bars">
@@ -632,6 +657,21 @@ export class GameApp {
   private itemCountLabel(): string {
     const total = this.game?.inventory.reduce((sum, item) => sum + item.quantity, 0) ?? 0;
     return `${total} ${total === 1 ? 'item' : 'itens'}`;
+  }
+
+  /**
+   * A classe da tela de jogo. O modo imersivo, o enquadramento de cinema e o VHS vivem
+   * nela, e `updateReadouts` reescreve essa classe a cada quadro: sem um lugar só, cada
+   * atualização apagava as marcas que o desenho tinha posto.
+   */
+  private gameScreenClass(): string {
+    const { filmMode, vhsMode } = this.save.preferences;
+    return `game-screen ${this.conditionClasses()}${this.immersive ? ' immersive' : ''}${filmMode ? ' film-mode' : ''}${vhsMode ? ' vhs-mode' : ''}`;
+  }
+
+  private applyGameScreenClass(): void {
+    const screen = this.root.querySelector<HTMLElement>('.game-screen');
+    if (screen) screen.className = this.gameScreenClass();
   }
 
   private statBar(key: string, label: string, value: number): string {
@@ -738,7 +778,7 @@ export class GameApp {
 
   private settingsTemplate(): string {
     const p = this.save.preferences;
-    return `<main class="settings-screen"><img src="/assets/scenes/corridor.jpg" alt="" /><div class="settings-shade"></div><section class="settings-panel"><small>CONFIGURAÇÃO DO REGISTRO</small><h1>Configurações</h1>${this.range('masterVolume', 'Volume geral', p.masterVolume)}${this.range('musicVolume', 'Ambiente / música', p.musicVolume)}${this.range('effectsVolume', 'Efeitos sonoros', p.effectsVolume)}${this.range('voiceVolume', 'Vocalização do personagem', p.voiceVolume)}<p class="setting-help">A vocalização reúne a respiração, os suspiros, a fome, a sede e os gritos do próprio personagem.</p><label class="setting-select"><span>Intensidade dos sustos</span><select data-setting="jumpscareIntensity"><option value="0.25" ${p.jumpscareIntensity < .45 ? 'selected' : ''}>Baixa</option><option value="0.6" ${p.jumpscareIntensity >= .45 && p.jumpscareIntensity < .8 ? 'selected' : ''}>Média</option><option value="1" ${p.jumpscareIntensity >= .8 ? 'selected' : ''}>Alta</option></select></label><p class="setting-help">Controla o tremor, o flash, a duração e parte da força sonora do susto. Os controles de volume continuam valendo separadamente.</p><button data-action="fullscreen">${document.fullscreenElement ? 'Sair da tela cheia' : 'Ativar tela cheia'}</button><button class="danger-button" data-action="clear-save">Apagar save local</button><button class="primary" data-action="settings-back">Voltar</button></section>${this.confirmTemplate()}</main>`;
+    return `<main class="settings-screen"><img src="/assets/scenes/corridor.jpg" alt="" /><div class="settings-shade"></div><section class="settings-panel"><small>CONFIGURAÇÃO DO REGISTRO</small><h1>Configurações</h1>${this.range('masterVolume', 'Volume geral', p.masterVolume)}${this.range('musicVolume', 'Ambiente / música', p.musicVolume)}${this.range('effectsVolume', 'Efeitos sonoros', p.effectsVolume)}${this.range('voiceVolume', 'Vocalização do personagem', p.voiceVolume)}<p class="setting-help">A vocalização reúne a respiração, os suspiros, a fome, a sede e os gritos do próprio personagem.</p><label class="setting-select"><span>Intensidade dos sustos</span><select data-setting="jumpscareIntensity"><option value="0.25" ${p.jumpscareIntensity < .45 ? 'selected' : ''}>Baixa</option><option value="0.6" ${p.jumpscareIntensity >= .45 && p.jumpscareIntensity < .8 ? 'selected' : ''}>Média</option><option value="1" ${p.jumpscareIntensity >= .8 ? 'selected' : ''}>Alta</option></select></label><p class="setting-help">Controla o tremor, o flash, a duração e parte da força sonora do susto. Os controles de volume continuam valendo separadamente.</p>${this.toggle('filmMode', 'Modo filme', p.filmMode)}${this.toggle('vhsMode', 'Modo VHS', p.vhsMode)}<button data-action="fullscreen">${document.fullscreenElement ? 'Sair da tela cheia' : 'Ativar tela cheia'}</button><button class="danger-button" data-action="clear-save">Apagar save local</button><button class="primary" data-action="settings-back">Voltar</button></section>${this.confirmTemplate()}</main>`;
   }
 
   private devToolsTemplate(): string {
@@ -819,6 +859,11 @@ export class GameApp {
       <div class="dev-meter" data-dev-meter="${key}"><span>${label}</span><b>${Math.round(value)}</b><i><em style="width:${value}%"></em></i></div>`).join('')}</div>`;
   }
 
+  /** Um liga/desliga das configurações; o nome sozinho já diz o que faz. */
+  private toggle(key: BooleanPreferenceKey, label: string, value: boolean): string {
+    return `<label class="setting-toggle"><span>${label}</span><input type="checkbox" data-setting="${key}" ${value ? 'checked' : ''} /><i aria-hidden="true"></i></label>`;
+  }
+
   private range(key: NumericPreferenceKey, label: string, value: number): string {
     return `<label class="setting-range"><span>${label}<b>${Math.round(value * 100)}%</b></span><input type="range" min="0" max="1" step="0.05" value="${value}" data-setting="${key}" /></label>`;
   }
@@ -862,6 +907,24 @@ export class GameApp {
       }
       this.forcePaint = true;
     });
+  }
+
+  /**
+   * Qualquer tecla ou clique fecha a abertura. É esse gesto que o navegador espera
+   * para deixar o áudio tocar, então sair daqui é também ligar o som do jogo.
+   */
+  private bindSplash(): void {
+    const leave = (): void => {
+      if (this.screen !== 'splash') return;
+      window.removeEventListener('keydown', leave);
+      window.removeEventListener('pointerdown', leave);
+      this.screen = 'menu';
+      void this.audio.unlock().then(() => this.syncMusic()).catch(() => undefined);
+      this.forcePaint = true;
+      this.render(true);
+    };
+    window.addEventListener('keydown', leave);
+    window.addEventListener('pointerdown', leave);
   }
 
   /** O navegador só libera áudio depois de uma interação; a primeira serve de gatilho. */
@@ -1272,6 +1335,15 @@ export class GameApp {
       this.render(true);
       return;
     }
+    const flag = input.dataset.setting as BooleanPreferenceKey | undefined;
+    if (flag === 'filmMode' || flag === 'vhsMode' || flag === 'showHealthBar') {
+      this.save.preferences[flag] = input.checked;
+      this.persistSave();
+      // Com o jogo em andamento a tela dele é redesenhada ao voltar; estando à vista,
+      // a marca na classe muda na hora.
+      this.applyGameScreenClass();
+      return;
+    }
     const key = input.dataset.setting as NumericPreferenceKey | undefined;
     if (!key) return;
     this.save.preferences[key] = Number(input.value);
@@ -1343,10 +1415,7 @@ export class GameApp {
     });
     this.updateDevMeters();
     this.updateNowPlaying();
-    const screen = this.root.querySelector<HTMLElement>('.game-screen');
-    // O modo imersivo é parte da classe da tela: reescrevê-la sem ele tirava a marca
-    // que esconde a interface até o próximo redesenho estrutural.
-    if (screen) screen.className = `game-screen ${this.conditionClasses()}${this.immersive ? ' immersive' : ''}`;
+    this.applyGameScreenClass();
     const blood = this.root.querySelector<HTMLElement>('.blood-overlay');
     if (blood) blood.dataset.bloodLevel = String(this.bloodLevel());
     if (this.game.encounter) {

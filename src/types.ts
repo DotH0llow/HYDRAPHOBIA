@@ -1,4 +1,4 @@
-export type Screen = 'menu' | 'slots' | 'create' | 'game' | 'settings' | 'gameover' | 'escaped' | 'exit';
+export type Screen = 'splash' | 'menu' | 'slots' | 'create' | 'game' | 'settings' | 'gameover' | 'escaped' | 'exit';
 export type GameStatus = 'exploring' | 'encounter' | 'paused' | 'gameover' | 'escaped' | 'cutscene' | 'hidden';
 export type CutsceneMediaType = 'image' | 'gif' | 'video';
 export type Direction = string;
@@ -33,7 +33,14 @@ export interface Preferences {
   voiceVolume: number;
   jumpscareIntensity: number;
   showHealthBar: boolean;
+  /** Barras pretas em cima e embaixo da cena, no enquadramento de cinema. */
+  filmMode: boolean;
+  /** Fita gasta: chuvisco, linhas e a banda que sobe devagar sobre a cena. */
+  vhsMode: boolean;
 }
+
+/** As preferências que são um liga/desliga; o resto é número de 0 a 1. */
+export type BooleanPreferenceKey = 'showHealthBar' | 'filmMode' | 'vhsMode';
 
 export interface CharacterProfile {
   name: string;

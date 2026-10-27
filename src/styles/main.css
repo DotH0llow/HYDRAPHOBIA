@@ -22,8 +22,23 @@ button { color: inherit; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outline-offset: 3px; }
 .overline, small { font-family: "Courier New", monospace; letter-spacing: .16em; }
 
+/*
+ * Abertura. O navegador só deixa o jogo soar depois de o jogador tocar na página, e é
+ * esta tela que arranca esse toque: nada além do fundo, da vinheta e do título, que
+ * sobem devagar, e do pedido piscando no meio. Ela aparece sempre, mesmo para quem já
+ * tem campanha gravada.
+ */
+.splash-screen { background: #000; }
+.splash-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: saturate(.6) contrast(1.12) brightness(.82); animation: splash-rise 3.2s ease-out both; }
+/* A vinheta da abertura é simétrica: o título fica no meio, e não encostado à esquerda. */
+.splash-vignette { background: linear-gradient(90deg, #040504e8 0, #0405049e 16%, #04050400 42% 58%, #0405049e 84%, #040504e8 100%), radial-gradient(ellipse at 50% 48%, #00000000 34%, #050604cc 100%); animation: splash-rise 3.2s ease-out both; }
+.splash-plate { position: absolute; z-index: 3; left: 50%; top: 50%; width: min(960px, calc(100vw - 3rem)); transform: translate(-50%, -50%); text-align: center; }
+.splash-plate h1 { position: relative; margin: 0; color: #e6e3c6; font-size: clamp(2.8rem, 8.6vw, 8rem); font-weight: 900; line-height: .9; letter-spacing: -.075em; text-shadow: 4px 4px 0 #777039, 8px 8px 0 #17180e; animation: splash-rise 3.2s ease-out both; }
+/* O pedido só começa a piscar depois de o título terminar de surgir. */
+.splash-prompt { margin: clamp(2.2rem, 8vh, 5rem) 0 0; color: #cfccab; font: italic 1rem/1.4 Georgia, serif; letter-spacing: .05em; text-shadow: 0 2px 12px #000; opacity: 0; animation: splash-call 1.5s steps(1, end) 3.4s infinite; }
+
 /* Main menu */
-.menu-screen, .settings-screen, .slots-screen, .create-screen, .end-screen, .exit-screen { position: relative; width: 100vw; height: 100vh; overflow: hidden; background: #0a0b08; }
+.splash-screen, .menu-screen, .settings-screen, .slots-screen, .create-screen, .end-screen, .exit-screen { position: relative; width: 100vw; height: 100vh; overflow: hidden; background: #0a0b08; }
 .menu-bg, .settings-screen > img, .slots-screen > img, .create-screen > img, .escaped > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: saturate(.68) contrast(1.12); }
 .menu-shadow { position: absolute; inset: 0; background: linear-gradient(90deg, #050605f7 0 30%, #050605c8 46%, #02030238 75%), linear-gradient(0deg, #0203029c, transparent 45%); }
 .analog-noise, .scene-noise, .end-noise { position: absolute; inset: -20%; pointer-events: none; opacity: .1; background-image: repeating-radial-gradient(circle at 17% 32%, transparent 0 1px, #e9e1ba 2px 3px); background-size: 5px 5px; mix-blend-mode: overlay; animation: noise .18s steps(2) infinite; }
@@ -194,7 +209,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .simple-modal > button, .end-screen section > button { display: block; width: 100%; margin-top: .5rem; text-align: center; }
 .simple-modal > button.primary, .settings-panel > button.primary, .end-screen section > button.primary { color: #11130d; background: var(--acid); font-weight: 700; }
 .settings-shade { position: absolute; inset: 0; background: #030403dc; backdrop-filter: blur(8px); }
-.settings-panel { position: relative; z-index: 2; width: min(620px, 92vw); margin: 8vh auto 0; padding: clamp(1.5rem, 5vw, 3.5rem); border: 1px solid #565645; background: #0b0d0be8; }
+/* O painel rola dentro da tela, como o dos registros: em tela baixa o fim da lista — o botão de voltar inclusive — ficava fora do alcance. */
+.settings-panel { position: relative; z-index: 2; width: min(620px, 92vw); max-height: 88vh; margin: 6vh auto 0; padding: clamp(1.5rem, 5vw, 3.5rem); overflow-y: auto; border: 1px solid #565645; background: #0b0d0be8; scrollbar-color: #4a4e41 #0b0d0b; }
 .settings-panel h1 { margin: .4rem 0 2rem; font-size: clamp(2rem, 5vw, 4rem); font-weight: 300; }
 .setting-range { display: block; margin: 1.3rem 0; }
 .setting-range span { display: flex; justify-content: space-between; color: #b3b2a0; font-size: .72rem; }
@@ -202,6 +218,14 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .setting-range input { width: 100%; margin-top: .65rem; accent-color: var(--acid); }
 .setting-select { display: grid; gap: .6rem; margin: 1.3rem 0; color: #b3b2a0; font-size: .72rem; }
 .setting-select select { min-height: 44px; padding: .6rem .75rem; border: 1px solid #5b5b48; background: #0d100d; color: #e8e6d8; }
+.setting-toggle { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .8rem; margin: 1.1rem 0; padding: .7rem .85rem; border: 1px solid #44443a; background: #0d100d99; color: #b3b2a0; font-size: .72rem; cursor: pointer; }
+.setting-toggle:hover { border-color: #7e8359; }
+.setting-toggle input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.setting-toggle i { display: block; width: 44px; height: 22px; border: 1px solid #5b5b48; background: #0a0c0a; transition: background .18s, border-color .18s; }
+.setting-toggle i::before { content: ''; display: block; width: 16px; height: 16px; margin: 2px; background: #6c6d5c; transition: transform .18s, background .18s; }
+.setting-toggle input:checked + i { border-color: var(--acid); background: #272c17; }
+.setting-toggle input:checked + i::before { background: var(--acid); transform: translateX(22px); }
+.setting-toggle input:focus-visible + i { outline: 2px solid var(--acid); outline-offset: 3px; }
 .setting-help { margin: -.7rem 0 1.2rem; color: #858579; font: .68rem/1.5 Georgia, serif; }
 .settings-panel > button { display: block; width: 100%; margin-top: .5rem; text-align: center; }
 .settings-panel > button.danger-button { color: #d9958d; border: 1px solid #733a34; background: #210e0d; }
@@ -236,6 +260,34 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .exit-screen { display: grid; place-items: center; background: #020302; }
 .exit-screen button { width: 100%; text-align: center; margin-top: 1rem; }
 
+/*
+ * Modo filme: a cena fica entre duas barras pretas, no enquadramento largo de cinema.
+ * As barras cobrem 12,2% da altura cada, que é o que transforma um 16:9 em 2,35:1.
+ * Elas ficam acima da cena e abaixo dos caminhos (`.path-marker`, z-index 8) de
+ * propósito: o recorte esconderia as setas do rodapé e deixaria o jogador preso na
+ * sala. A interface desce para dentro do quadro pelo mesmo motivo.
+ */
+.film-bars { position: absolute; z-index: 7; inset: 0; pointer-events: none; }
+.film-bars i { position: absolute; left: 0; right: 0; height: var(--film-bar, 12.2%); background: #000; box-shadow: 0 0 22px #000; }
+.film-bars i:first-child { top: 0; }
+.film-bars i:last-child { bottom: 0; }
+.film-mode .game-header { top: var(--film-bar, 12.2%); }
+.film-mode .survival-bars, .film-mode .inventory-button, .film-mode .message-strip { bottom: calc(var(--film-bar, 12.2%) + 1.1rem); }
+
+/*
+ * Modo VHS: a cena passa a ser uma fita gasta. Tudo aqui é decoração sobre o jogo —
+ * chuvisco, linhas, o desencontro de cor e a banda que sobe devagar. Só anima opacidade
+ * e deslocamento, para o filtro não custar um quadro.
+ */
+.vhs-mode .scene-frame > img { filter: saturate(1.24) contrast(1.07) brightness(1.03); }
+.vhs-overlay { position: absolute; z-index: 6; inset: 0; overflow: hidden; pointer-events: none; }
+.vhs-overlay i { position: absolute; display: block; }
+.vhs-overlay .vhs-grain { inset: -20%; opacity: .11; background-image: repeating-radial-gradient(circle at 23% 41%, transparent 0 1px, #e9e1ba 2px 3px); background-size: 6px 6px; mix-blend-mode: overlay; animation: noise .14s steps(2) infinite; }
+/* Linhas de varredura: três pixels de folga para uma de risco, senão viram uma tela de pontos. */
+.vhs-overlay .vhs-scan { inset: 0; background: repeating-linear-gradient(to bottom, #00000000 0 3px, #0000003d 3px 4px); }
+.vhs-overlay .vhs-chroma { inset: 0; opacity: .14; background: linear-gradient(90deg, #ff30304d, #30303000 38% 62%, #30ffff4d); mix-blend-mode: screen; animation: vhs-chroma 2.6s steps(2) infinite; }
+.vhs-overlay .vhs-band { left: 0; right: 0; height: 16%; background: linear-gradient(#ffffff00, #ffffff1c 42%, #ffffff0d 58%, #ffffff00); animation: vhs-roll 7.5s linear infinite; }
+
 @keyframes noise { to { transform: translate(3px, -2px); } }
 @keyframes scene-enter { from { opacity: .15; filter: blur(5px) brightness(2); transform: scale(1.035); } to { opacity: 1; filter: none; transform: scale(1); } }
 @keyframes legend-life { from { opacity: 0; } 4% , 90% { opacity: 1; } to { opacity: 0; } }
@@ -244,6 +296,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 @keyframes critical { 50% { opacity: .55; } }
 @keyframes entity-drift { from { transform: scale(1.02); } to { transform: scale(1.07) translateX(.5%); } }
 @keyframes jump-flash { 0% { transform: translate(0) scale(1); filter: invert(0); } 33% { transform: translate(-3%, 2%) scale(1.08); filter: invert(.2); } 66% { transform: translate(3%, -2%) scale(1.13); filter: invert(1); } }
+@keyframes splash-rise { from { opacity: 0; } to { opacity: 1; } }
+@keyframes splash-call { 0%, 58% { opacity: 1; } 59%, 100% { opacity: 0; } }
+@keyframes vhs-chroma { 0% { transform: translateX(-1px); } 50% { transform: translateX(1px); } }
+@keyframes vhs-roll { from { top: -18%; } to { top: 100%; } }
 @keyframes hunger-shake { 0%, 88%, 100% { transform: translate(0); } 90% { transform: translate(-3px, 1px); } 92% { transform: translate(4px, -2px); } 94% { transform: translate(-2px, 2px); } 96% { transform: translate(2px, -1px); } }
 
 @media (hover: none) {
@@ -446,15 +502,32 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .on-black .option-grid.illustrated .option-card.selected > b { text-shadow: 0 0 18px #d7df7766, 0 2px 10px #000c; }
 .on-black .option-grid.illustrated .option-card > small { color: #9a9a8c; font-size: .66rem; text-shadow: 0 2px 8px #000d; }
 
-/* Etapa do nome: campo à esquerda, retrato do gênero escolhido à direita. */
-.create-name-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 46vh); gap: clamp(1rem, 4vw, 3rem); align-items: center; height: 100%; }
-.create-name-field { align-self: center; }
+/*
+ * Etapa do nome: a arte da classe escolhida é o cenário. Ela ocupa a tela inteira,
+ * centrada e da altura dela, com as bordas dissolvidas no preto pelo mesmo corte macio
+ * da etapa da classe — antes ela ficava num quadro à direita, e as bordas retas do
+ * arquivo viravam uma caixa recortada no meio do escuro. O campo desce para o pé da
+ * figura, onde o véu já escureceu o bastante para o texto se ler.
+ */
+.create-portrait { position: absolute; z-index: 1; inset: 0; display: grid; place-items: center; overflow: hidden; pointer-events: none; }
+.create-portrait img { display: block; width: auto; max-width: none; height: 100%; object-fit: contain; filter: brightness(1.14) saturate(1.05) contrast(1.12); -webkit-mask-image: linear-gradient(to right, #0000, #000 15%, #000 85%, #0000), linear-gradient(to bottom, #0000, #000 9%, #000 100%); mask-image: linear-gradient(to right, #0000, #000 15%, #000 85%, #0000), linear-gradient(to bottom, #0000, #000 9%, #000 100%); -webkit-mask-composite: source-in; mask-composite: intersect; }
+.create-portrait::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, #00000000 38%, #000000a6 64%, #000000ed 86%, #000000 100%); }
+/*
+ * Em tela mais alta que larga a figura — que é quadrada — não cabe pela altura: presa
+ * assim, sobrava dela só uma faixa no meio. Aí ela passa a caber pela largura e desce
+ * para o pé da tela, onde o véu já a entrega ao campo do nome.
+ */
+@media (max-aspect-ratio: 1 / 1) {
+  .create-portrait { align-items: end; }
+  .create-portrait img { width: 100%; height: auto; max-height: 100%; margin-bottom: 14vh; }
+  .create-portrait::after { background: linear-gradient(180deg, #00000000 58%, #000000a6 78%, #000000ed 92%, #000000 100%); }
+}
+.create-step-name .create-body { align-content: end; justify-items: center; }
+.create-name-field { width: min(620px, 100%); padding-bottom: clamp(.4rem, 2.5vh, 1.6rem); }
 /* Aviso do filtro de linguagem: fica entre o campo e a ajuda, só quando há problema. */
 .name-warning { margin: -.6rem 0 .8rem; padding: .5rem .7rem; border-left: 2px solid #c9704f; background: #1a0f0ba8; color: #e0a98f; font: .68rem/1.5 Georgia, serif; }
 .name-warning[hidden] { display: none; }
-.create-portrait { justify-self: center; align-self: center; overflow: hidden; height: 100%; max-height: 100%; aspect-ratio: 3 / 4; background: #05060500; }
-.create-portrait img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center bottom; filter: drop-shadow(0 12px 32px #000c); }
-.create-name { display: block; max-width: 620px; }
+.create-name { display: block; }
 .create-name span { display: block; margin-bottom: .5rem; color: #b3b2a0; font-size: .72rem; }
 .create-name input { width: 100%; min-height: 74px; padding: .7rem 1rem; border: 0; border-bottom: 2px solid #8f9463; background: #0a0c0a66; color: #f1efdd; font-size: clamp(1.3rem, 2.4vw, 2rem); letter-spacing: .02em; }
 .create-name input:focus-visible { outline: 0; border-bottom-color: var(--acid); background: #10130f99; }
@@ -490,8 +563,6 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
   .create-step-class .option-grid.illustrated,
   .create-step-item .option-grid.illustrated { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .create-step-phobia .option-grid.illustrated { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .create-name-row { grid-template-columns: 1fr; align-content: center; }
-  .create-portrait { display: none; }
   .create-nav { grid-template-columns: 1fr 1fr; }
   .dev-meters { width: 124px; }
 }

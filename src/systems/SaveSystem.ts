@@ -7,7 +7,7 @@ const STORAGE_KEY = SAVE_STORAGE_KEY;
 const LEGACY_STORAGE_KEY = LEGACY_SAVE_STORAGE_KEY;
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const INTEGRITY_SEED = 'limiar:v3:integrity:f4k3r$';
-export const DEFAULT_PREFERENCES: Preferences = { masterVolume: 0.72, musicVolume: 0.34, effectsVolume: 0.78, voiceVolume: 0.8, jumpscareIntensity: 0.8, showHealthBar: false };
+export const DEFAULT_PREFERENCES: Preferences = { masterVolume: 0.72, musicVolume: 0.34, effectsVolume: 0.78, voiceVolume: 0.8, jumpscareIntensity: 0.8, showHealthBar: false, filmMode: false, vhsMode: false };
 
 const emptySlots = (): Array<SaveSlot | null> => Array.from({ length: SAVE_SLOT_COUNT }, () => null);
 
@@ -135,7 +135,9 @@ export class SaveSystem {
       effectsVolume: this.number(prefs.effectsVolume, 0, 1, DEFAULT_PREFERENCES.effectsVolume),
       voiceVolume: this.number(prefs.voiceVolume, 0, 1, DEFAULT_PREFERENCES.voiceVolume),
       jumpscareIntensity: this.number(prefs.jumpscareIntensity, 0, 1, DEFAULT_PREFERENCES.jumpscareIntensity),
-      showHealthBar: typeof prefs.showHealthBar === 'boolean' ? prefs.showHealthBar : DEFAULT_PREFERENCES.showHealthBar,
+      showHealthBar: this.flag(prefs.showHealthBar, DEFAULT_PREFERENCES.showHealthBar),
+      filmMode: this.flag(prefs.filmMode, DEFAULT_PREFERENCES.filmMode),
+      vhsMode: this.flag(prefs.vhsMode, DEFAULT_PREFERENCES.vhsMode),
     };
   }
 
@@ -164,6 +166,10 @@ export class SaveSystem {
       roomId: typeof raw.roomId === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(raw.roomId) ? raw.roomId : '',
       elapsed: this.number(raw.elapsed, 0, 10000000, 0),
     };
+  }
+
+  private flag(value: unknown, fallback: boolean): boolean {
+    return typeof value === 'boolean' ? value : fallback;
   }
 
   private number(value: unknown, min: number, max: number, fallback: number): number {

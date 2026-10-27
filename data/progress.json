@@ -1,28 +1,28 @@
 {
   "version": 3,
-  "updatedAt": "2026-10-21T20:37:51.545Z",
-  "activeSlot": 0,
+  "updatedAt": "2026-10-27T14:16:45.889Z",
+  "activeSlot": null,
   "slots": [
     {
       "character": {
-        "name": "Helena",
+        "name": "asdas",
         "gender": "female",
         "classId": "explorador",
-        "phobia": "nictofobia",
-        "startingItem": "almondWater",
-        "mode": "classic"
+        "phobia": "mecanofobia",
+        "startingItem": "medkit",
+        "mode": "immersive"
       },
       "game": {
         "position": "reception",
         "stats": {
           "health": 100,
-          "hunger": 99.760547200001,
-          "thirst": 99.64082080000033,
+          "hunger": 100,
+          "thirst": 100,
           "anxiety": 0
         },
         "inventory": [
           {
-            "id": "almondWater",
+            "id": "medkit",
             "quantity": 1
           }
         ],
@@ -31,14 +31,12 @@
           "reception"
         ],
         "moveCount": 0,
-        "elapsed": 7.482900000000056,
-        "danger": 2,
-        "roomTime": {
-          "reception": 7.482900000000056
-        }
+        "elapsed": 0,
+        "danger": 0,
+        "roomTime": {}
       },
-      "createdAt": "2026-10-21T20:37:44.069Z",
-      "updatedAt": "2026-10-21T20:37:51.545Z"
+      "createdAt": "2026-10-24T16:55:11.723Z",
+      "updatedAt": "2026-10-24T16:55:11.723Z"
     },
     null,
     null,
@@ -50,7 +48,9 @@
     "effectsVolume": 0.78,
     "voiceVolume": 0.8,
     "jumpscareIntensity": 0.8,
-    "showHealthBar": false
+    "showHealthBar": false,
+    "filmMode": false,
+    "vhsMode": false
   },
-  "_ic": "848d6510"
+  "_ic": "0b3ac4ba"
 }
