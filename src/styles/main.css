@@ -37,6 +37,225 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 /* O pedido só começa a piscar depois de o título terminar de surgir. */
 .splash-prompt { margin: clamp(2.2rem, 8vh, 5rem) 0 0; color: #cfccab; font: italic 1rem/1.4 Georgia, serif; letter-spacing: .05em; text-shadow: 0 2px 12px #000; opacity: 0; animation: splash-call 1.5s steps(1, end) 3.4s infinite; }
 
+/* ==========================================================================
+   A placa — o botão do jogo
+   Uma chapa gasta, com os cantos arredondados e uma orelha saliente no meio de
+   cada lado. Ela é desenhada uma vez aqui e vale para todo botão do jogo; o
+   editor fica de fora de propósito, porque lá o que importa é densidade, não
+   atmosfera. O desenho é um SVG esticado: a forma preenchida vira máscara da
+   cor de fundo, e o contorno vira máscara da cor da linha — assim cada estado
+   (normal, foco, primário, perigo) troca só duas cores, e não a forma.
+   ========================================================================== */
+:root {
+  --plate-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 420 58' preserveAspectRatio='none'%3E%3Cpath d='M13.5.5H406.5A9 9 0 0 1 415.5 9.5V20C415.5 23 419.5 24 419.5 29C419.5 34 415.5 35 415.5 38V48.5A9 9 0 0 1 406.5 57.5H13.5A9 9 0 0 1 4.5 48.5V38C4.5 35 .5 34 .5 29C.5 24 4.5 23 4.5 20V9.5A9 9 0 0 1 13.5 .5Z' fill='%23fff'/%3E%3C/svg%3E");
+  --plate-line: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 420 58' preserveAspectRatio='none'%3E%3Cpath d='M13.5.5H406.5A9 9 0 0 1 415.5 9.5V20C415.5 23 419.5 24 419.5 29C419.5 34 415.5 35 415.5 38V48.5A9 9 0 0 1 406.5 57.5H13.5A9 9 0 0 1 4.5 48.5V38C4.5 35 .5 34 .5 29C.5 24 4.5 23 4.5 20V9.5A9 9 0 0 1 13.5 .5Z' fill='none' stroke='%23fff' stroke-width='1.1' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E");
+  /*
+   * Sujeira da chapa. Sao tres camadas de ruido: manchas largas, riscos verticais e
+   * um granulado fino. Ela e ancorada na janela (`background-attachment: fixed`), e
+   * nao em cada botao: assim a mesma mancha atravessa duas placas vizinhas, como se
+   * a sujeira estivesse na parede atras delas e nao em cada peca.
+   */
+  --plate-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='600'%3E%3Cfilter id='a'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.016' numOctaves='4' seed='17'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='2.4' intercept='-.7'/%3E%3CfeFuncG type='linear' slope='2.4' intercept='-.7'/%3E%3CfeFuncB type='linear' slope='2.4' intercept='-.7'/%3E%3CfeFuncA type='gamma' exponent='2.1' amplitude='.78'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85 .015' numOctaves='3' seed='5'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='gamma' exponent='4.5' amplitude='1.3'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.7' numOctaves='2' seed='29'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='gamma' exponent='3' amplitude='.8'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='900' height='600' filter='url(%23a)'/%3E%3Crect width='900' height='600' filter='url(%23b)' opacity='.3'/%3E%3Crect width='900' height='600' filter='url(%23c)' opacity='.22'/%3E%3C/svg%3E");
+}
+
+/*
+ * `plate` é a classe de verdade; a lista de seletores abaixo existe para o resto
+ * do jogo não precisar mudar de marcação. Toda regra aqui usa as duas variáveis
+ * de cor, nunca `background` nem `border` direto: a forma é máscara, e uma cor
+ * de fundo comum vazaria pelos cantos e pela orelha.
+ */
+.plate,
+.menu-actions button,
+.settings-panel > button,
+.simple-modal > button,
+.end-screen section > button,
+.exit-screen button,
+.slots-panel > button,
+.slots-back,
+.slot-actions button,
+.create-nav button,
+.item-actions button,
+.decision-buttons button,
+.hidden-overlay button,
+.inventory-panel header > button {
+  --plate-fill: #0f1309ee;
+  --plate-stroke: #5c5f47;
+  --plate-glow: transparent;
+  /* `overlay` guarda os pretos e so remexe o miolo: a chapa escura fica suja, nao cinza. */
+  --plate-blend: overlay;
+  position: relative;
+  z-index: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #cfcdb2;
+  cursor: pointer;
+  text-transform: uppercase;
+  font-family: "Courier New", monospace;
+  letter-spacing: .12em;
+  transition: color .18s, filter .18s;
+}
+
+.plate::before,
+.menu-actions button::before,
+.settings-panel > button::before,
+.simple-modal > button::before,
+.end-screen section > button::before,
+.exit-screen button::before,
+.slots-panel > button::before,
+.slots-back::before,
+.slot-actions button::before,
+.create-nav button::before,
+.item-actions button::before,
+.decision-buttons button::before,
+.hidden-overlay button::before,
+.inventory-panel header > button::before {
+  content: '';
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  background-color: var(--plate-fill);
+  background-image: var(--plate-grain);
+  background-attachment: fixed;
+  background-size: 900px 600px;
+  background-blend-mode: var(--plate-blend);
+  -webkit-mask-image: var(--plate-shape);
+  mask-image: var(--plate-shape);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  filter: drop-shadow(0 0 10px var(--plate-glow));
+  transition: background-color .18s, filter .18s;
+}
+
+/* O contorno é uma camada só dele: a máscara da forma cortaria a linha ao meio. */
+.plate::after,
+.menu-actions button::after,
+.settings-panel > button::after,
+.simple-modal > button::after,
+.end-screen section > button::after,
+.exit-screen button::after,
+.slots-panel > button::after,
+.slots-back::after,
+.slot-actions button::after,
+.create-nav button::after,
+.item-actions button::after,
+.decision-buttons button::after,
+.hidden-overlay button::after,
+.inventory-panel header > button::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  background-color: var(--plate-stroke);
+  -webkit-mask-image: var(--plate-line);
+  mask-image: var(--plate-line);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  transition: background-color .18s;
+}
+
+/* Foco do mouse e do teclado: a chapa acende, sem mudar de tamanho nem de lugar. */
+.plate:hover:not(:disabled),
+.menu-actions button:hover:not(:disabled),
+.settings-panel > button:hover:not(:disabled),
+.simple-modal > button:hover:not(:disabled),
+.end-screen section > button:hover:not(:disabled),
+.exit-screen button:hover:not(:disabled),
+.slots-panel > button:hover:not(:disabled),
+.slots-back:hover,
+.slot-actions button:hover:not(:disabled),
+.create-nav button:hover:not(:disabled),
+.item-actions button:hover:not(:disabled),
+.decision-buttons button:hover:not(:disabled),
+.hidden-overlay button:hover:not(:disabled),
+.inventory-panel header > button:hover {
+  --plate-fill: #1f2412ee;
+  --plate-stroke: var(--acid);
+  --plate-glow: #d7df7733;
+  color: var(--acid);
+}
+
+/* A entrada escolhida: a chapa inteira pintada, com o texto escuro em cima. */
+.plate.primary,
+.menu-actions button.primary,
+.settings-panel > button.primary,
+.simple-modal > button.primary,
+.end-screen section > button.primary,
+.slots-panel > button.primary,
+.slot-actions button.primary,
+.create-nav button.primary,
+.hidden-overlay button.primary {
+  --plate-fill: var(--acid);
+  --plate-stroke: #eef29e;
+  --plate-glow: #d7df7759;
+  --plate-blend: multiply;
+  color: #10120d;
+  font-weight: 700;
+}
+
+.plate.primary:hover:not(:disabled),
+.menu-actions button.primary:hover:not(:disabled),
+.settings-panel > button.primary:hover,
+.simple-modal > button.primary:hover,
+.end-screen section > button.primary:hover,
+.slots-panel > button.primary:hover,
+.slot-actions button.primary:hover:not(:disabled),
+.create-nav button.primary:hover:not(:disabled),
+.hidden-overlay button.primary:hover {
+  --plate-fill: #e6ee88;
+  --plate-glow: #d7df7799;
+  color: #10120d;
+}
+
+/* Apagar, descartar, substituir: a mesma chapa, oxidada. */
+.plate.danger-button, .plate.discard,
+.settings-panel > button.danger-button,
+.simple-modal > button.danger-button,
+.slot-actions button.discard,
+.item-actions .discard {
+  --plate-fill: #1b0d0ce8;
+  --plate-stroke: #7b4039;
+  color: #d9958d;
+}
+
+.settings-panel > button.danger-button:hover,
+.simple-modal > button.danger-button:hover,
+.slot-actions button.discard:hover:not(:disabled),
+.item-actions .discard:hover {
+  --plate-fill: #58211de8;
+  --plate-stroke: #c4625a;
+  --plate-glow: #9b3b3344;
+  color: #ffe9e5;
+}
+
+.plate:disabled,
+.menu-actions button:disabled,
+.slot-actions button:disabled,
+.create-nav button:disabled,
+.settings-panel > button:disabled {
+  --plate-fill: #0a0c0ad9;
+  --plate-stroke: #3a3b31;
+  color: #5f6054;
+  cursor: not-allowed;
+}
+
+.create-nav button.primary:disabled { --plate-fill: #3b3f2b; --plate-stroke: #55583c; --plate-glow: transparent; color: #74775a; }
+
+.plate:focus-visible,
+.menu-actions button:focus-visible,
+.settings-panel > button:focus-visible,
+.simple-modal > button:focus-visible,
+.slots-panel > button:focus-visible,
+.slots-back:focus-visible,
+.slot-actions button:focus-visible,
+.create-nav button:focus-visible,
+.item-actions button:focus-visible,
+.decision-buttons button:focus-visible,
+.hidden-overlay button:focus-visible,
+.end-screen section > button:focus-visible,
+.exit-screen button:focus-visible { outline: 0; --plate-stroke: var(--acid); --plate-glow: #d7df7788; color: var(--acid); }
+
 /* Main menu */
 .splash-screen, .menu-screen, .settings-screen, .slots-screen, .create-screen, .end-screen, .exit-screen { position: relative; width: 100vw; height: 100vh; overflow: hidden; background: #0a0b08; }
 .menu-bg, .settings-screen > img, .slots-screen > img, .create-screen > img, .escaped > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: saturate(.68) contrast(1.12); }
@@ -47,13 +266,16 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .menu-panel h1 { position: relative; margin: 0; color: #e6e3c6; font-size: clamp(4rem, 9vw, 8.5rem); line-height: .82; font-weight: 900; letter-spacing: -.08em; text-shadow: 4px 4px 0 #777039, 8px 8px 0 #17180e; }
 .menu-panel h1::after { content: 'HYDRAPHOBIA'; position: absolute; left: 3px; top: 2px; color: #889b73; opacity: .18; clip-path: inset(44% 0 38% 0); transform: translateX(7px); }
 .subtitle { max-width: 390px; margin: 1.7rem 0 2.3rem; color: #979789; font-family: Georgia, serif; font-style: italic; line-height: 1.65; }
-.menu-actions { display: grid; width: min(360px, 100%); border-top: 1px solid #545447; }
-.menu-actions button, .settings-panel > button, .simple-modal > button, .end-screen section > button, .exit-screen button { min-height: 48px; border: 0; border-bottom: 1px solid #424238; background: #0d0f0ce6; text-align: left; text-transform: uppercase; letter-spacing: .12em; font-size: .72rem; cursor: pointer; transition: padding .18s, color .18s, background .18s; }
-.menu-actions button span { display: inline-block; width: 52px; color: #666653; font: .64rem "Courier New", monospace; }
-.menu-actions button:hover:not(:disabled), .settings-panel > button:hover, .simple-modal > button:hover, .end-screen section > button:hover { padding-left: 1.2rem; color: var(--acid); background: #1b1e14e6; }
-.menu-actions button.primary { color: #10120d; background: var(--acid); font-weight: 800; }
-.menu-actions button.primary span { color: #464b29; }
-.menu-actions button:disabled { opacity: .25; cursor: not-allowed; }
+.menu-actions { display: grid; gap: .5rem; width: min(400px, 100%); }
+/* Cada entrada e uma placa: o numero a esquerda, um filete, e o nome depois dele. */
+.menu-actions button { min-height: 54px; display: grid; grid-template-columns: 62px 1fr; align-items: center; padding: 0 1.1rem 0 0; text-align: left; font-size: .74rem; font-weight: 700; }
+.menu-actions button span { position: relative; align-self: stretch; display: grid; place-items: center; color: #8c8d6f; font: .66rem "Courier New", monospace; letter-spacing: .1em; }
+/* O filete nao encosta nas bordas: ele vive no miolo da placa. */
+.menu-actions button span::after { content: ''; position: absolute; right: 0; top: 24%; bottom: 24%; width: 1px; background: #6d6f55; }
+.menu-actions button.primary span { color: #4a4f2a; }
+.menu-actions button.primary span::after { background: #4a4f2a99; }
+.menu-actions button:hover:not(:disabled) span { color: var(--acid); }
+.menu-actions button:hover:not(:disabled) span::after { background: var(--acid); }
 .menu-foot { margin-top: 1.4rem; color: #626359; font: .68rem "Courier New", monospace; letter-spacing: .08em; }
 .status-code { position: absolute; z-index: 3; right: 3rem; bottom: 2rem; color: #d4d09a; text-align: right; font: .7rem/1.7 "Courier New", monospace; letter-spacing: .18em; }
 .status-code b { color: #666759; font-weight: 400; }
@@ -134,13 +356,16 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .inventory-panel > header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid #4e4e40; padding-bottom: 1rem; }
 .inventory-panel header small, .item-details small { color: #858665; font-size: .64rem; }
 .inventory-panel h2 { margin: .25rem 0 0; font-size: 2rem; font-weight: 300; }
-.inventory-panel header > button { display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 1px solid #4f4f42; background: transparent; cursor: pointer; font-size: 1.4rem; line-height: 1; }
+.inventory-panel header > button { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; font-size: 1.3rem; line-height: 1; }
 .inventory-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .55rem; margin: 1.4rem 0; }
-.item-slot { position: relative; aspect-ratio: 1; min-width: 0; border: 1px solid #48483d; background: #0a0c0a; cursor: pointer; padding: .5rem; overflow: hidden; }
+.item-slot { position: relative; aspect-ratio: 1; min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: .35rem; border: 1px solid #48483d; background: #0a0c0a; cursor: pointer; padding: .5rem; overflow: hidden; }
 .item-slot:hover, .item-slot.focused { border-color: var(--acid); background: #1b1e14; }
 .item-slot.selected { box-shadow: inset 0 0 0 2px var(--acid); }
-.item-slot > span { display: block; color: #d4d594; font: 2rem Georgia, serif; }
-.item-slot > b { display: block; margin-top: .45rem; color: #a7a796; font-size: .62rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item-slot > span { display: grid; place-items: center; min-height: 0; color: #d4d594; font: 2rem Georgia, serif; }
+/* A arte do item cabe no quadro, como no item selecionado: sem isto ela entrava no
+   tamanho original de 640 px e o `overflow` do quadro mostrava só um canto preto dela. */
+.item-slot > span img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.item-slot > b { display: block; align-self: end; color: #a7a796; font-size: .62rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .item-slot > em { position: absolute; right: .35rem; top: .35rem; color: #0a0c08; background: var(--acid); padding: .12rem .28rem; font: normal .6rem "Courier New", monospace; }
 .item-slot.empty { cursor: default; background: #080a0880; }
 .item-slot.empty small { color: #34362f; }
@@ -152,9 +377,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .item-details p { color: #8f8f82; font: .72rem/1.6 Georgia, serif; }
 .empty-details { grid-column: 1 / -1; align-self: center; text-align: center; }
 .item-actions { display: flex; flex-wrap: wrap; gap: .45rem; }
-.item-actions button { border: 1px solid #5d5d4b; background: #171a14; padding: .55rem .8rem; cursor: pointer; text-transform: uppercase; font: .64rem "Courier New", monospace; }
-.item-actions button:hover { color: #111; background: var(--acid); }
-.item-actions .discard:hover { color: #fff; background: #762f2b; }
+.item-actions button { min-height: 38px; padding: .55rem .9rem; font-size: .64rem; }
 
 /* Encounters and jumpscares */
 .encounter-layer { position: absolute; z-index: 25; inset: 0; display: grid; place-items: center; background: radial-gradient(circle at 50% 30%, #6f7561 0%, #010201 65%), #010201; }
@@ -168,8 +391,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .decision-timer { height: 4px; margin: 1.2rem 0; background: #311715; }
 .decision-timer i { display: block; height: 100%; background: var(--red); box-shadow: 0 0 10px var(--red); transition: width .1s linear; }
 .decision-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
-.decision-buttons button { min-height: 48px; border: 1px solid #706b58; background: #151713; cursor: pointer; text-transform: uppercase; font: .65rem "Courier New", monospace; }
-.decision-buttons button:hover { color: #111; background: var(--acid); }
+.decision-buttons button { min-height: 50px; font-size: .68rem; font-weight: 700; }
 .jumpscare { position: absolute; z-index: 60; inset: 0; display: grid; place-items: center; background: #b81816; overflow: hidden; animation: jump-flash calc(.12s + (1 - var(--intensity)) * .2s) steps(2) infinite; }
 .jumpscare::before { content: ''; position: absolute; inset: -20%; background: repeating-linear-gradient(0deg, #fff 0 3px, #000 4px 8px); opacity: calc(.12 + var(--intensity) * .4); mix-blend-mode: difference; }
 .jumpscare > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scale(calc(1 + var(--intensity) * .35)); filter: contrast(calc(1.2 + var(--intensity))) saturate(calc(.5 + var(--intensity))); }
@@ -206,8 +428,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .simple-modal small, .settings-panel > small, .end-screen section > small, .exit-screen small { color: #909168; font-size: .64rem; }
 .simple-modal h2 { margin: .45rem 0; font-size: 2.2rem; font-weight: 300; }
 .simple-modal p { color: #86867c; font: .76rem Georgia, serif; }
-.simple-modal > button, .end-screen section > button { display: block; width: 100%; margin-top: .5rem; text-align: center; }
-.simple-modal > button.primary, .settings-panel > button.primary, .end-screen section > button.primary { color: #11130d; background: var(--acid); font-weight: 700; }
+.simple-modal > button, .end-screen section > button { display: block; width: 100%; min-height: 50px; margin-top: .55rem; text-align: center; font-size: .72rem; }
 .settings-shade { position: absolute; inset: 0; background: #030403dc; backdrop-filter: blur(8px); }
 /* O painel rola dentro da tela, como o dos registros: em tela baixa o fim da lista — o botão de voltar inclusive — ficava fora do alcance. */
 .settings-panel { position: relative; z-index: 2; width: min(620px, 92vw); max-height: 88vh; margin: 6vh auto 0; padding: clamp(1.5rem, 5vw, 3.5rem); overflow-y: auto; border: 1px solid #565645; background: #0b0d0be8; scrollbar-color: #4a4e41 #0b0d0b; }
@@ -227,8 +448,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .setting-toggle input:checked + i::before { background: var(--acid); transform: translateX(22px); }
 .setting-toggle input:focus-visible + i { outline: 2px solid var(--acid); outline-offset: 3px; }
 .setting-help { margin: -.7rem 0 1.2rem; color: #858579; font: .68rem/1.5 Georgia, serif; }
-.settings-panel > button { display: block; width: 100%; margin-top: .5rem; text-align: center; }
-.settings-panel > button.danger-button { color: #d9958d; border: 1px solid #733a34; background: #210e0d; }
+.settings-panel > button { display: block; width: 100%; min-height: 50px; margin-top: .55rem; text-align: center; font-size: .72rem; }
 
 .dev-toggle { position: absolute; z-index: 20; right: .65rem; top: .65rem; min-width: 48px; min-height: 30px; border: 1px solid #d7df77; background: #d7df77; color: #000; font: 700 .66rem "Courier New", monospace; cursor: pointer; }
 .dev-panel { position: absolute; z-index: 45; right: .65rem; top: .65rem; width: 250px; padding: .8rem; border: 1px solid #85875c; background: #090b09f2; box-shadow: 0 12px 40px #000; }
@@ -244,9 +464,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .dev-add button { padding: .5rem; border: 0; background: var(--acid); color: #000; font: 700 .64rem "Courier New", monospace; }
 
 /* Yellow labels always use dark ink for contrast. */
-.hotspot-label, .menu-actions button.primary, .simple-modal > button.primary, .settings-panel > button.primary,
-.end-screen section > button.primary, .item-slot > em, .item-actions button:hover, .decision-buttons button:hover,
-.dev-toggle, .dev-add button { color: #000; }
+.hotspot-label, .item-slot > em, .dev-toggle, .dev-add button { color: #000; }
 .end-screen { display: grid; place-items: center; background: radial-gradient(circle, #1f0b09, #030403 70%); }
 .end-screen section, .exit-screen section { position: relative; z-index: 3; width: min(660px, 90vw); padding: 3rem; text-align: center; border: 1px solid #5d5d4b; background: #090b09e8; }
 .end-screen h1 { margin: .6rem 0; font-size: clamp(2.8rem, 7vw, 6rem); line-height: .9; }
@@ -258,7 +476,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .summary span { padding: .8rem; color: #77766a; background: #0b0d0b; font: .66rem "Courier New", monospace; }
 .summary b { display: block; margin-top: .35rem; color: var(--acid); font-size: .8rem; }
 .exit-screen { display: grid; place-items: center; background: #020302; }
-.exit-screen button { width: 100%; text-align: center; margin-top: 1rem; }
+.exit-screen button { width: 100%; min-height: 50px; margin-top: 1rem; text-align: center; font-size: .72rem; }
 
 /*
  * Modo filme: a cena fica entre duas barras pretas, no enquadramento largo de cinema.
@@ -287,6 +505,62 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .vhs-overlay .vhs-scan { inset: 0; background: repeating-linear-gradient(to bottom, #00000000 0 3px, #0000003d 3px 4px); }
 .vhs-overlay .vhs-chroma { inset: 0; opacity: .14; background: linear-gradient(90deg, #ff30304d, #30303000 38% 62%, #30ffff4d); mix-blend-mode: screen; animation: vhs-chroma 2.6s steps(2) infinite; }
 .vhs-overlay .vhs-band { left: 0; right: 0; height: 16%; background: linear-gradient(#ffffff00, #ffffff1c 42%, #ffffff0d 58%, #ffffff00); animation: vhs-roll 7.5s linear infinite; }
+
+/* ==========================================================================
+   Encontro da caixa toracica — "segure o medo"
+   Tres camadas soltas, empilhadas: a cena do encontro, a entidade sobre ela e a
+   mecanica por cima das duas. O desenho da mecanica (costelas e coracao) e SVG,
+   escrito em `systems/heartArt`, para poder ser posto sobre qualquer cena.
+   ========================================================================== */
+.heart-layer { position: absolute; z-index: 40; inset: 0; overflow: hidden; background: #020302; animation: heart-enter .7s ease both; user-select: none; touch-action: none; }
+.heart-scene { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: saturate(.62) brightness(.62) contrast(1.08); }
+/*
+ * A entidade e uma camada propria: trocar a cena atras dela nao mexe no desenho dela.
+ * `darken` e o que une as duas sem exigir um PNG recortado: onde a arte da entidade e
+ * escura ela aparece, e onde e clara a cena passa por baixo. Serve tanto para uma
+ * silhueta sobre um fundo claro quanto para um recorte com transparencia de verdade.
+ */
+.heart-entity { position: absolute; left: 50%; bottom: 0; height: 100%; width: 100%; max-width: 100%; transform: translateX(-50%); object-fit: cover; mix-blend-mode: darken; filter: brightness(.72) contrast(1.1); animation: heart-breath 5.5s ease-in-out infinite; }
+/* Um recorte com transparencia nao precisa cobrir a cena inteira: ele fica no centro. */
+.heart-layer[data-cutout="true"] .heart-entity { height: 92%; width: auto; max-width: 72%; object-fit: contain; mix-blend-mode: normal; }
+.heart-grade { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 46%, #00000000 24%, #0000009e 70%, #000000e0 100%); }
+
+.heart-stage { position: absolute; inset: 0; }
+.heart-cage { position: absolute; transform: translate(-50%, -50%); color: #e9e7d2; opacity: .72; pointer-events: none; transition: color .25s, opacity .25s, filter .25s; filter: drop-shadow(0 0 14px #0009); }
+.heart-cage-art { display: block; width: 100%; height: 100%; overflow: visible; }
+/* Com o coracao dentro as costelas acendem: e o unico aviso de que esta dando certo. */
+.heart-layer[data-inside="true"] .heart-cage { color: #fffdf0; opacity: .95; filter: drop-shadow(0 0 18px #d7df7755); }
+
+.heart-piece { position: absolute; z-index: 2; width: 7%; aspect-ratio: 5 / 6; padding: 0; border: 0; background: transparent; transform: translate(-50%, -50%); cursor: grab; }
+.heart-piece.held { cursor: grabbing; }
+.heart-art { display: block; width: 100%; height: 100%; filter: drop-shadow(0 0 16px #c0231c6b); animation: heart-beat 1.05s ease-in-out infinite; }
+.heart-piece.held .heart-art { animation-duration: .72s; }
+.heart-body { fill: #c9211b; }
+.heart-vessels { fill: #8e1812; }
+.heart-shade { fill: none; stroke: #7d120d; stroke-width: 3; stroke-linecap: round; opacity: .55; }
+.heart-layer[data-inside="false"] .heart-art { filter: drop-shadow(0 0 22px #e23a2fa8); }
+
+/* O pedido aparece no comeco e sai sozinho, como na cena que deu origem a isto. */
+.heart-call { position: absolute; left: 50%; bottom: 17%; width: max-content; max-width: 80vw; margin: 0; transform: translateX(-50%); color: #cfcdb4; font: italic 1rem/1.4 Georgia, serif; letter-spacing: .04em; text-shadow: 0 2px 14px #000; animation: heart-call 5.4s ease forwards; pointer-events: none; }
+
+.heart-meters { position: absolute; left: 50%; bottom: 6%; display: grid; gap: .5rem; width: min(430px, 76vw); transform: translateX(-50%); pointer-events: none; }
+.heart-meter { display: grid; gap: .22rem; }
+.heart-meter em { color: #8d8e78; font: normal .58rem "Courier New", monospace; letter-spacing: .18em; }
+.heart-meter i { display: block; height: 5px; background: #ffffff14; }
+.heart-meter u { display: block; height: 100%; text-decoration: none; transition: width .12s linear; }
+.heart-hold u { background: var(--acid); box-shadow: 0 0 12px #d7df7766; }
+.heart-loose em { color: #a8776f; }
+.heart-loose u { background: #cf3b30; box-shadow: 0 0 12px #cf3b3066; }
+
+@keyframes heart-enter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes heart-beat { 0%, 100% { transform: scale(1); } 12% { transform: scale(1.14); } 24% { transform: scale(1); } 36% { transform: scale(1.07); } }
+@keyframes heart-breath { 50% { transform: translateX(-50%) scale(1.015); } }
+@keyframes heart-call { 0% { opacity: 0; } 14%, 70% { opacity: 1; } 100% { opacity: 0; } }
+
+@media (max-width: 760px) {
+  .heart-piece { width: 15%; }
+  .heart-call { font-size: .82rem; bottom: 21%; }
+}
 
 @keyframes noise { to { transform: translate(3px, -2px); } }
 @keyframes scene-enter { from { opacity: .15; filter: blur(5px) brightness(2); transform: scale(1.035); } to { opacity: 1; filter: none; transform: scale(1); } }
@@ -389,17 +663,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .slot-actions { display: grid; gap: .4rem; margin-top: auto; }
 .slot-actions-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: .4rem; }
 .slot-actions button.wide { width: 100%; }
-.slots-back { display: flex; align-items: center; justify-content: center; gap: .6rem; width: 100%; min-height: 46px; border: 1px solid #5d5d4b; background: #0d0f0ce6; color: inherit; cursor: pointer; text-transform: uppercase; font: .68rem "Courier New", monospace; letter-spacing: .12em; }
-.slots-back:hover { color: var(--acid); background: #1b1e14e6; }
+.slots-back { display: flex; align-items: center; justify-content: center; gap: .6rem; width: 100%; min-height: 50px; font-size: .68rem; }
 .slots-back i { font-style: normal; }
-.slot-actions button { min-height: 38px; border: 1px solid #5d5d4b; background: #141712; cursor: pointer; text-transform: uppercase; font: .62rem "Courier New", monospace; letter-spacing: .08em; }
-.slot-actions button:hover:not(:disabled) { color: #111; background: var(--acid); }
-.slot-actions button.primary { color: #11130d; background: var(--acid); font-weight: 700; }
-.slot-actions button.discard { border-color: #6b3b36; color: #d99a93; background: #1a0f0e; }
-.slot-actions button.discard:hover { color: #fff; background: #762f2b; }
-.slot-actions button:disabled { opacity: .3; cursor: not-allowed; }
-.slots-panel > button { min-height: 44px; border: 1px solid #5d5d4b; background: #0d0f0ce6; cursor: pointer; text-transform: uppercase; font: .68rem "Courier New", monospace; letter-spacing: .1em; }
-.slots-panel > button.primary { color: #11130d; background: var(--acid); font-weight: 700; }
+.slot-actions button { min-height: 42px; font-size: .62rem; letter-spacing: .1em; }
+.slots-panel > button { min-height: 48px; font-size: .68rem; }
 .slots-panel > button { width: 100%; }
 
 .create-steps { display: flex; gap: .4rem; margin: 0; padding: 0; list-style: none; }
@@ -532,8 +799,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .create-name input { width: 100%; min-height: 74px; padding: .7rem 1rem; border: 0; border-bottom: 2px solid #8f9463; background: #0a0c0a66; color: #f1efdd; font-size: clamp(1.3rem, 2.4vw, 2rem); letter-spacing: .02em; }
 .create-name input:focus-visible { outline: 0; border-bottom-color: var(--acid); background: #10130f99; }
 .create-nav { justify-self: center; display: grid; grid-template-columns: minmax(150px, 1fr) minmax(190px, 1.4fr); gap: .5rem; width: min(560px, 92vw); }
-.create-nav button { min-height: 44px; border: 1px solid #5d5d4b; background: #0d0f0ce6; cursor: pointer; text-transform: uppercase; font: .68rem "Courier New", monospace; letter-spacing: .1em; }
-.create-nav button.primary { color: #11130d; background: var(--acid); font-weight: 700; }
+.create-nav button { min-height: 50px; font-size: .68rem; }
 
 /* Medidores do DEV sempre à vista */
 .dev-live { position: absolute; z-index: 20; right: .65rem; top: .65rem; display: grid; justify-items: end; gap: .3rem; pointer-events: none; }
@@ -566,8 +832,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
   .create-nav { grid-template-columns: 1fr 1fr; }
   .dev-meters { width: 124px; }
 }
-.create-nav button:disabled { opacity: .32; cursor: not-allowed; }
-.create-nav button.primary:disabled { color: #5d6042; background: #3b3f2b; }
+
 
 /* DEV: forçar a vocalização de cada métrica */
 .dev-voices { margin-top: .8rem; padding-top: .65rem; border-top: 1px solid #343629; }

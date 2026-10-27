@@ -6,6 +6,11 @@ export type RoomId = string;
 export type ItemId = string;
 export type HotspotId = string;
 export type EncounterAction = 'run' | 'hide';
+/**
+ * Como um encontro é jogado. `choice` é a pergunta de sempre, de duas respostas;
+ * `heart` é a caixa torácica, em que o jogador segura o próprio coração no lugar.
+ */
+export type EncounterKind = 'choice' | 'heart';
 export type EntityId = string;
 export type HotspotVisibility = 'visible' | 'hidden' | 'invisible';
 
@@ -57,11 +62,32 @@ export interface Encounter {
   name: string;
   prompt: string;
   hint: string;
+  kind: EncounterKind;
   solution: EncounterAction;
   remaining: number;
   timeLimit: number;
   image: string;
+  /** Cena por trás da entidade; sem ela o encontro acontece sobre a sala atual. */
+  sceneImage?: string;
   jumpscareDuration?: number;
+  /** Só em `heart`: o estado da mecânica, que a tela desenha e alimenta. */
+  heart?: HeartEncounter;
+}
+
+/** O que o encontro do coração guarda; a lógica vive em `systems/heartEncounter`. */
+export interface HeartEncounter {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  angle: number;
+  turnIn: number;
+  held: number;
+  escaped: number;
+  grace: number;
+  holdSeconds: number;
+  escapeSeconds: number;
+  pull: number;
 }
 
 export interface HideoutState {

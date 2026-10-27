@@ -129,7 +129,12 @@ export const itemsToRuntime = (items: EditorItem[]): Record<ItemId, ItemDefiniti
 export const entitiesToRuntime = (entities: EditorEntity[]): Record<EntityId, EntityDefinition> => {
   const result: Record<EntityId, EntityDefinition> = {};
   entities.forEach((entity) => {
-    result[entity.id] = { name: entity.name, prompt: entity.prompt, hint: entity.hint, solution: entity.solution, timeLimit: entity.timeLimit, image: entity.image, jumpscareSeconds: entity.jumpscareSeconds };
+    result[entity.id] = {
+      name: entity.name, prompt: entity.prompt, hint: entity.hint,
+      encounter: entity.encounter, solution: entity.solution, timeLimit: entity.timeLimit,
+      image: entity.image, sceneImage: entity.sceneImage, jumpscareSeconds: entity.jumpscareSeconds,
+      heartHoldSeconds: entity.heartHoldSeconds, heartEscapeSeconds: entity.heartEscapeSeconds, heartPull: entity.heartPull,
+    };
   });
   return result;
 };

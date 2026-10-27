@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "updatedAt": "2026-10-27T14:16:45.889Z",
+  "updatedAt": "2026-10-27T16:05:55.530Z",
   "activeSlot": null,
   "slots": [
     {
@@ -38,7 +38,41 @@
       "createdAt": "2026-10-24T16:55:11.723Z",
       "updatedAt": "2026-10-24T16:55:11.723Z"
     },
-    null,
+    {
+      "character": {
+        "name": "sadf",
+        "gender": "female",
+        "classId": "tecnico",
+        "phobia": "mecanofobia",
+        "startingItem": "medkit",
+        "mode": "classic"
+      },
+      "game": {
+        "position": "reception",
+        "stats": {
+          "health": 66,
+          "hunger": 100,
+          "thirst": 100,
+          "anxiety": 100
+        },
+        "inventory": [
+          {
+            "id": "medkit",
+            "quantity": 1
+          }
+        ],
+        "flags": {},
+        "discovered": [
+          "reception"
+        ],
+        "moveCount": 0,
+        "elapsed": 44.53660000000019,
+        "danger": 0,
+        "roomTime": {}
+      },
+      "createdAt": "2026-10-27T15:16:39.784Z",
+      "updatedAt": "2026-10-27T15:58:22.551Z"
+    },
     null,
     null
   ],
@@ -51,6 +85,5 @@
     "showHealthBar": false,
     "filmMode": false,
     "vhsMode": false
-  },
-  "_ic": "0b3ac4ba"
+  }
 }

@@ -1,4 +1,4 @@
-import type { CutsceneMediaType, Direction, EncounterAction, EntityId, HotspotId, HotspotVisibility, ItemId, RoomId } from '../types';
+import type { CutsceneMediaType, Direction, EncounterAction, EncounterKind, EntityId, HotspotId, HotspotVisibility, ItemId, RoomId } from '../types';
 
 export interface ExitDefinition {
   to: RoomId;
@@ -127,10 +127,18 @@ export interface EntityDefinition {
   name: string;
   prompt: string;
   hint: string;
+  /** Como o encontro é jogado; ausente é a pergunta de duas respostas de sempre. */
+  encounter?: EncounterKind;
   solution: EncounterAction;
   timeLimit: number;
   image: string;
+  /** Cena por tras da entidade no encontro, separada da arte dela. */
+  sceneImage?: string;
   jumpscareSeconds?: number;
+  /** So no encontro do coracao; ausente usa o padrao da mecanica. */
+  heartHoldSeconds?: number;
+  heartEscapeSeconds?: number;
+  heartPull?: number;
 }
 
 export const ITEMS: Record<ItemId, ItemDefinition> = {
@@ -144,6 +152,15 @@ export const ITEMS: Record<ItemId, ItemDefinition> = {
 export const ENTITIES: Record<EntityId, EntityDefinition> = {
   watcher: { name: 'O Observador', prompt: 'Uma silhueta bloqueia o corredor. Ela reage a movimento.', hint: 'Talvez seja melhor desaparecer da visão.', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg' },
   crawler: { name: 'O Rastejante', prompt: 'Unhas batem no concreto atrás de você. Está se aproximando.', hint: 'Ficar parado significa ser alcançado.', solution: 'run', timeLimit: 4.2, image: '/assets/entities/crawler.jpg' },
+  vigia: {
+    name: 'O que espera no fim do corredor',
+    prompt: 'O corredor não acaba, e há algo parado onde ele deveria acabar. Não se mexe. Está esperando você respirar.',
+    hint: 'Prenda o medo dentro do peito.',
+    encounter: 'heart', solution: 'hide', timeLimit: 5,
+    image: '/assets/entities/watcher.jpg',
+    sceneImage: '/assets/scenes/lobbyEncounter.jpg',
+    heartHoldSeconds: 9, heartEscapeSeconds: 3.4, heartPull: 54,
+  },
 };
 
 export const ROOMS: Record<RoomId, RoomDefinition> = {

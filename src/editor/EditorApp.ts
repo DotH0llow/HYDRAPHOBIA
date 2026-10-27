@@ -11,7 +11,7 @@ import { roomMediaMarkup, sceneFrameStyle } from '../systems/roomView';
 import type { EncounterAction, ItemId } from '../types';
 import { EditorProject } from './EditorProject';
 import { entitiesToRuntime, itemsToRuntime, projectToWorld } from './mapAdapter';
-import { createLight, createRoomMedia, DEFAULT_SHAPE_POINT_COUNT, ENTITY_IMAGE_LIBRARY, FULL_ROOM_VIEW, IMAGE_LIBRARY, isFullRoomView, ROOM_AUDIO_MODES, detectMediaType, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorLight, type EditorRoom, type EditorRoomMedia, type EditorRoomView } from './types';
+import { createLight, createRoomMedia, DEFAULT_SHAPE_POINT_COUNT, ENCOUNTER_KINDS, ENTITY_IMAGE_LIBRARY, FULL_ROOM_VIEW, IMAGE_LIBRARY, isFullRoomView, ROOM_AUDIO_MODES, detectMediaType, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorLight, type EditorRoom, type EditorRoomMedia, type EditorRoomView } from './types';
 import type { RoomAudioMode } from '../config/world';
 
 /** O que a área de transferência do editor está guardando. */
@@ -694,7 +694,7 @@ export class EditorApp {
     return `<div class="side-panel-layout">
       <aside class="editor-sidebar editor-left">
         <section><div class="panel-title"><span>Entidades</span><b>${entities.length}</b></div>
-          <div class="level-list">${entities.map((entry) => `<button class="${entry.id === entity?.id ? 'active' : ''}" data-action="select-entity" data-entity="${esc(entry.id)}"><i></i><span>${esc(entry.name)}</span><small>${entry.solution === 'hide' ? 'esconder-se' : 'correr'}</small></button>`).join('')}</div>
+          <div class="level-list">${entities.map((entry) => `<button class="${entry.id === entity?.id ? 'active' : ''}" data-action="select-entity" data-entity="${esc(entry.id)}"><i></i><span>${esc(entry.name)}</span><small>${entry.encounter === 'heart' ? 'segure o medo' : entry.solution === 'hide' ? 'esconder-se' : 'correr'}</small></button>`).join('')}</div>
           <button class="wide-button primary" data-action="new-entity">+ Nova entidade</button>
         </section>
       </aside>
@@ -709,11 +709,23 @@ export class EditorApp {
       <label><span>Nome</span><input data-entity-field="name" value="${esc(entity.name)}" /></label>
       <label><span>Mensagem do encontro</span><textarea data-entity-field="prompt" rows="2">${esc(entity.prompt)}</textarea></label>
       <label><span>Dica</span><textarea data-entity-field="hint" rows="2">${esc(entity.hint)}</textarea></label>
-      <label><span>Decisão correta</span><select data-entity-field="solution"><option value="hide" ${entity.solution === 'hide' ? 'selected' : ''}>Esconder-se</option><option value="run" ${entity.solution === 'run' ? 'selected' : ''}>Correr</option></select></label>
-      <label><span>Tempo para decidir (segundos)</span><input type="number" min="1" max="30" step="0.1" data-entity-field="timeLimit" value="${entity.timeLimit}" /></label>
-      <label><span>Imagem relativa</span><div class="input-with-browse"><input data-entity-field="image" list="entity-assets" value="${esc(entity.image)}" /><button type="button" data-action="browse-file" data-target-field="entity-image" data-accept="image/*,.gif">Procurar</button></div></label>
+      <label><span>Tipo de encontro</span><select data-entity-field="encounter">${ENCOUNTER_KINDS.map((kind) => `<option value="${kind.id}" ${entity.encounter === kind.id ? 'selected' : ''}>${esc(kind.label)}</option>`).join('')}</select></label>
+      <p class="panel-hint">${esc(ENCOUNTER_KINDS.find((kind) => kind.id === entity.encounter)?.hint ?? '')}</p>
+      ${entity.encounter === 'choice' ? `<label><span>Decisão correta</span><select data-entity-field="solution"><option value="hide" ${entity.solution === 'hide' ? 'selected' : ''}>Esconder-se</option><option value="run" ${entity.solution === 'run' ? 'selected' : ''}>Correr</option></select></label>
+      <label><span>Tempo para decidir (segundos)</span><input type="number" min="1" max="30" step="0.1" data-entity-field="timeLimit" value="${entity.timeLimit}" /></label>` : `
+      <div class="field-row">
+        <label><span>Segurar por (s)</span><input type="number" min="2" max="60" step="0.5" data-entity-field="heartHoldSeconds" value="${entity.heartHoldSeconds ?? ''}" placeholder="9" /></label>
+        <label><span>Escapa em (s)</span><input type="number" min="0.5" max="20" step="0.1" data-entity-field="heartEscapeSeconds" value="${entity.heartEscapeSeconds ?? ''}" placeholder="3.4" /></label>
+      </div>
+      <label><span>Força da fuga</span><input type="number" min="8" max="160" step="2" data-entity-field="heartPull" value="${entity.heartPull ?? ''}" placeholder="54" /></label>
+      <p class="panel-hint">O coração e as costelas são desenhados pelo próprio jogo: a mecânica não precisa de arte nenhuma e serve a qualquer entidade.</p>`}
+      <label><span>Imagem da entidade</span><div class="input-with-browse"><input data-entity-field="image" list="entity-assets" value="${esc(entity.image)}" /><button type="button" data-action="browse-file" data-target-field="entity-image" data-accept="image/*,.gif">Procurar</button></div></label>
       <datalist id="entity-assets">${ENTITY_IMAGE_LIBRARY.map((image) => `<option value="${esc(image)}"></option>`).join('')}</datalist>
       <div class="image-preview"><img src="${esc(entity.image)}" alt="Prévia de ${esc(entity.name)}" /><span>${esc(entity.image)}</span></div>
+      <label><span>Cena do encontro (opcional)</span><div class="input-with-browse"><input data-entity-field="sceneImage" list="scene-assets-entity" value="${esc(entity.sceneImage ?? '')}" placeholder="/assets/scenes/lobby-encontro.webp" /><button type="button" data-action="browse-file" data-target-field="entity-scene" data-accept="image/*">Procurar</button></div></label>
+      <datalist id="scene-assets-entity">${IMAGE_LIBRARY.map((image) => `<option value="${esc(image)}"></option>`).join('')}</datalist>
+      <p class="panel-hint">O lugar onde o encontro acontece, sem a entidade desenhada nele. Em branco, o encontro usa a sala em que o jogador está.</p>
+      ${entity.sceneImage ? `<div class="image-preview"><img src="${esc(entity.sceneImage)}" alt="Prévia da cena" /><span>${esc(entity.sceneImage)}</span></div>` : ''}
       <label><span>Duração do jumpscare (segundos, padrão 1.55)</span><input type="number" min="0.3" max="10" step="0.05" data-entity-field="jumpscareSeconds" value="${entity.jumpscareSeconds ?? ''}" placeholder="1.55" /></label>
       <p class="panel-hint">ID interno: <code>${esc(entity.id)}</code> · use este ID no campo "Evento" de um hotspot para disparar o encontro.</p>`;
   }
@@ -1292,6 +1304,7 @@ export class EditorApp {
       if (target === 'room-image' && this.selectedRoom) { this.selectedRoom.image = objectUrl; this.project.save(); }
       else if (target === 'item-image' && this.selectedItem) { this.selectedItem.image = objectUrl; this.project.save(); }
       else if (target === 'entity-image' && this.selectedEntity) { this.selectedEntity.image = objectUrl; this.project.save(); }
+      else if (target === 'entity-scene' && this.selectedEntity) { this.selectedEntity.sceneImage = objectUrl; this.project.save(); }
       else if (target === 'cutscenePath') {
         const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId);
         if (hotspot) { hotspot.cutscenePath = objectUrl; hotspot.cutsceneMedia = detectMediaType(file.name); this.project.save(); }
@@ -1332,7 +1345,11 @@ export class EditorApp {
       const entity = this.selectedEntity;
       if (entityField === 'timeLimit') entity.timeLimit = Number(input.value);
       else if (entityField === 'jumpscareSeconds') entity.jumpscareSeconds = input.value ? Number(input.value) : undefined;
+      else if (entityField === 'heartHoldSeconds' || entityField === 'heartEscapeSeconds' || entityField === 'heartPull') entity[entityField] = input.value ? Number(input.value) : undefined;
       else if (entityField === 'solution') entity.solution = input.value as EncounterAction;
+      // Trocar o tipo de encontro troca os campos do painel; por isso ele redesenha.
+      else if (entityField === 'encounter') { entity.encounter = input.value === 'heart' ? 'heart' : 'choice'; this.project.save(); this.render(); return; }
+      else if (entityField === 'sceneImage') entity.sceneImage = input.value.trim() || undefined;
       else if (entityField === 'name' || entityField === 'prompt' || entityField === 'hint' || entityField === 'image') entity[entityField] = input.value;
       this.project.save(); this.render();
       return;

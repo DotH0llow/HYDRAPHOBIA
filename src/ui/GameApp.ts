@@ -1,4 +1,4 @@
-import { ITEMS, type ItemDefinition, type RoomDefinition } from '../config/world';
+import { ENTITIES, ITEMS, type EntityDefinition, type ItemDefinition, type RoomDefinition } from '../config/world';
 import { allIllustrated, CLASSES, classArtFor, classLabelFor, DEFAULT_CHARACTER, GENDERS, labelOf, MAX_CHARACTER_NAME, MIN_CHARACTER_NAME, MODES, PHOBIAS, sanitizeCharacterName, STARTING_ITEMS } from '../config/character';
 import { Game } from '../core/Game';
 import { EditorProject } from '../editor/EditorProject';
@@ -12,12 +12,14 @@ import {
 import { HUNGER_LOW_THRESHOLD, HUNGER_THRESHOLD, THIRST_LOW_THRESHOLD, THIRST_THRESHOLD } from '../config/thresholds';
 import { defaultArrowRotation, defaultPathPosition } from '../config/paths';
 import { drawRoomLighting, hasFlicker } from '../systems/lighting';
+import { CAGE, heartExposure, heartInsideCage, heartProgress, heartWithinGrip } from '../systems/heartEncounter';
+import { HEART_SVG, RIBCAGE_SVG } from '../systems/heartArt';
 import { labelAnchorOf } from '../systems/hotspots';
 import { checkCharacterName } from '../config/nameFilter';
 import { legendTimings, SOLO_LEGEND_MS, splitLegend } from '../systems/legends';
 import { roomMediaMarkup, sceneFrameStyle } from '../systems/roomView';
 import { createSlot, endCampaign, SaveSystem } from '../systems/SaveSystem';
-import { SAVE_SLOT_COUNT, type BooleanPreferenceKey, type CampaignEnding, type CharacterClassId, type CharacterGender, type CharacterMode, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type PhobiaId, type Preferences, type RoomId, type SaveData, type SaveSlot, type Screen } from '../types';
+import { SAVE_SLOT_COUNT, type BooleanPreferenceKey, type CampaignEnding, type CharacterClassId, type EntityId, type CharacterGender, type CharacterMode, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type PhobiaId, type Preferences, type RoomId, type SaveData, type SaveSlot, type Screen } from '../types';
 
 type NumericPreferenceKey = Exclude<keyof Preferences, BooleanPreferenceKey>;
 /** Uma pergunta de sim/nao desenhada pelo proprio jogo, com a acao ja escolhida. */
@@ -72,6 +74,8 @@ export class GameApp {
   private screen: Screen = 'splash';
   private game: Game | null = null;
   private items: Record<ItemId, ItemDefinition> = ITEMS;
+  /** As entidades do projeto em jogo; o painel DEV precisa delas para chamar um encontro. */
+  private entities: Record<EntityId, EntityDefinition> = ENTITIES;
   private readonly saves = new SaveSystem();
   private save: SaveData;
   private readonly audio: AudioSystem;
@@ -120,6 +124,9 @@ export class GameApp {
     this.bindEvents();
     this.bindFirstGesture();
     this.bindSplash();
+    // A abertura existe para arrancar o gesto que libera o som; enquanto ela está na
+    // tela, a trilha do menu já é baixada e decodificada, para entrar no próprio clique.
+    void this.audio.prime(MUSIC_MENU);
   }
 
   start(): void {
@@ -146,6 +153,9 @@ export class GameApp {
       this.updateSampleAmbience();
     }
     this.render();
+    // O coração se move a cada quadro, e `render` só repinta de dez em dez: a posição
+    // dele é escrita aqui, fora do desenho, como a escuridão que pisca.
+    if (this.screen === 'game' && this.game?.encounter?.kind === 'heart') this.updateHeartLayer();
     // Luzes com flickering precisam de um quadro novo mesmo sem mudança de estado.
     if (this.screen === 'game' && this.game && hasFlicker((this.game.room as RoomDefinition).lights)) this.updateDarknessCanvas();
     requestAnimationFrame(this.tick);
@@ -712,6 +722,7 @@ export class GameApp {
 
   private encounterTemplate(): string {
     const encounter = this.game!.encounter!;
+    if (encounter.kind === 'heart') return this.heartEncounterTemplate();
     return `<div class="encounter-layer ${encounter.id}">
       <img class="entity-image" src="${encounter.image}" alt="${encounter.name} bloqueando o caminho" />
       <section class="encounter-card">
@@ -720,6 +731,38 @@ export class GameApp {
         <div class="decision-timer"><i style="width:${(encounter.remaining / encounter.timeLimit) * 100}%"></i></div>
         <div class="decision-buttons"><button data-action="encounter" data-choice="run">Correr</button><button data-action="encounter" data-choice="hide">Esconder-se</button></div>
       </section>
+    </div>`;
+  }
+
+  /**
+   * O encontro da caixa torácica. São três camadas soltas, empilhadas na ordem em que
+   * foram pensadas: a cena do encontro atrás, a entidade sobre ela e a mecânica por
+   * cima das duas. Nenhuma sabe das outras — trocar a cena não mexe na entidade, e a
+   * mesma mecânica serve a qualquer uma delas.
+   */
+  private heartEncounterTemplate(): string {
+    const encounter = this.game!.encounter!;
+    const heart = encounter.heart!;
+    const config = { holdSeconds: heart.holdSeconds, escapeSeconds: heart.escapeSeconds, pull: heart.pull };
+    const inside = heartInsideCage(heart.x, heart.y);
+    const exposure = heartExposure(heart, config);
+    const scene = encounter.sceneImage || this.game!.room.image;
+    // Um PNG ou WebP pode trazer transparência; aí a entidade é um recorte e fica no
+    // centro da cena, em vez de uma arte de tela inteira encaixada por mistura.
+    const cutout = /\.(png|webp|gif)$/i.test(encounter.image) || encounter.image.startsWith('data:image/png');
+    return `<div class="heart-layer" data-role="heart-layer" data-inside="${inside}" data-cutout="${cutout}">
+      <img class="heart-scene" src="${esc(scene)}" alt="" />
+      <img class="heart-entity" src="${esc(encounter.image)}" alt="${esc(encounter.name)}" />
+      <div class="heart-grade" aria-hidden="true"></div>
+      <div class="heart-stage" data-role="heart-stage">
+        <div class="heart-cage" style="left:${CAGE.x}%;top:${CAGE.y}%;width:${CAGE.rx * 2}%;height:${CAGE.ry * 2}%">${RIBCAGE_SVG}</div>
+        <button class="heart-piece" data-role="heart-piece" aria-label="Segure o coração no lugar" style="left:${heart.x}%;top:${heart.y}%">${HEART_SVG}</button>
+      </div>
+      <p class="heart-call" data-role="heart-call">Segure o medo lá dentro</p>
+      <div class="heart-meters">
+        <div class="heart-meter heart-hold"><em>DENTRO</em><i><u data-role="heart-hold" style="width:${heartProgress(heart, config) * 100}%"></u></i></div>
+        <div class="heart-meter heart-loose"><em>ESCAPANDO</em><i><u data-role="heart-escape" style="width:${exposure * 100}%"></u></i></div>
+      </div>
     </div>`;
   }
 
@@ -786,6 +829,8 @@ export class GameApp {
     // Com o painel fechado os medidores continuam à vista, atualizados em tempo real.
     if (!this.devPanelOpen) return `<div class="dev-live"><button class="dev-toggle" data-action="dev-toggle">DEV</button>${this.devMetersTemplate()}</div>`;
     const itemOptions = Object.entries(this.items).map(([id, item]) => `<option value="${id}">${item.name}</option>`).join('');
+    // Encontros são raros de propósito; para afinar a mecânica é preciso chamá-los.
+    const entityOptions = Object.entries(this.entities).map(([id, entity]) => `<option value="${id}">${entity.name}${entity.encounter === 'heart' ? ' · coração' : ''}</option>`).join('');
     return `<aside class="dev-panel"><header><b>DEV cheats</b><button data-action="dev-toggle">×</button></header>
       ${this.devMetersTemplate()}
       ${(['health', 'thirst', 'hunger', 'anxiety'] as const).map((key) => `<label><span>${key}</span><input type="number" min="0" max="100" value="${Math.round(this.game!.stats[key])}" data-dev-stat="${key}" /></label>`).join('')}
@@ -793,6 +838,7 @@ export class GameApp {
       <label class="dev-check"><input type="checkbox" data-dev-invincible ${this.game.invincible ? 'checked' : ''} /><span>Invencibilidade</span></label>
       <label class="dev-check"><input type="checkbox" data-dev-health-bar ${this.save.preferences.showHealthBar ? 'checked' : ''} /><span>Mostrar barra de vida</span></label>
       <div class="dev-add"><select data-dev-item>${itemOptions}</select><button data-action="dev-add-item">Adicionar item</button></div>
+      <div class="dev-add"><select data-dev-entity>${entityOptions}</select><button data-action="dev-encounter">Forçar encontro</button></div>
       ${this.devVoicesTemplate()}
       ${this.devNowPlayingTemplate()}
     </aside>`;
@@ -891,6 +937,10 @@ export class GameApp {
       void this.audio.unlock();
       void this.handleAction(target.dataset.action ?? '', target.dataset);
     });
+    this.root.addEventListener('pointerdown', (event) => this.grabHeart(event));
+    window.addEventListener('pointermove', (event) => this.dragHeart(event));
+    window.addEventListener('pointerup', () => this.releaseHeart());
+    window.addEventListener('pointercancel', () => this.releaseHeart());
     this.root.addEventListener('input', (event) => this.handleInput(event.target as HTMLInputElement));
     this.root.addEventListener('change', (event) => this.handleInput(event.target as HTMLInputElement));
     window.addEventListener('keydown', (event) => this.handleKey(event));
@@ -971,6 +1021,11 @@ export class GameApp {
       case 'dev-add-item': {
         const select = this.root.querySelector<HTMLSelectElement>('[data-dev-item]');
         if (select) this.game?.debugAddItem(select.value as ItemId);
+        break;
+      }
+      case 'dev-encounter': {
+        const select = this.root.querySelector<HTMLSelectElement>('[data-dev-entity]');
+        if (select?.value) { this.devPanelOpen = false; this.game?.debugStartEncounter(select.value); }
         break;
       }
     }
@@ -1105,6 +1160,7 @@ export class GameApp {
     };
     const data = this.currentGameData();
     this.items = data.items;
+    this.entities = data.entities;
     this.levelName = data.levelName;
     this.worldRoomCount = Object.keys(data.world.rooms).length;
     this.immersive = character.mode === 'immersive';
@@ -1135,6 +1191,7 @@ export class GameApp {
     if (!slot?.game) return;
     const data = this.currentGameData();
     this.items = data.items;
+    this.entities = data.entities;
     this.levelName = data.levelName;
     this.worldRoomCount = Object.keys(data.world.rooms).length;
     this.activeSlot = index;
@@ -1393,6 +1450,67 @@ export class GameApp {
     const directions: Record<string, Direction> = { ArrowUp: 'forward', w: 'forward', ArrowDown: 'back', s: 'back', ArrowLeft: 'left', a: 'left', ArrowRight: 'right', d: 'right' };
     const direction = directions[event.key];
     if (direction) { this.move(direction); this.forcePaint = true; this.render(true); }
+  }
+
+  /**
+   * Onde o ponteiro está, em % da camada do encontro — as mesmas unidades que a
+   * mecânica usa. Sem a conversão o coração responderia a pixels, e a dificuldade
+   * mudaria com o tamanho da janela de quem está jogando.
+   */
+  private heartPoint(event: PointerEvent): { x: number; y: number } | null {
+    const layer = this.root.querySelector<HTMLElement>('[data-role="heart-layer"]');
+    if (!layer) return null;
+    const rect = layer.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    return { x: ((event.clientX - rect.left) / rect.width) * 100, y: ((event.clientY - rect.top) / rect.height) * 100 };
+  }
+
+  /** Fechar a mão só funciona em cima do coração; o resto da cena não o chama. */
+  private grabHeart(event: PointerEvent): void {
+    const heart = this.game?.encounter?.heart;
+    if (!heart || this.game?.encounter?.kind !== 'heart') return;
+    const point = this.heartPoint(event);
+    if (!point || !heartWithinGrip(heart, point.x, point.y)) return;
+    event.preventDefault();
+    this.game.setHeartGrab(point);
+    // A mão fecha na hora, e não no quadro seguinte: o peso da coisa está nessa resposta.
+    this.markHeartHeld(true);
+  }
+
+  private releaseHeart(): void {
+    if (!this.game?.heartHeld) return;
+    this.game.setHeartGrab(null);
+    this.markHeartHeld(false);
+  }
+
+  private markHeartHeld(held: boolean): void {
+    this.root.querySelector<HTMLElement>('[data-role="heart-piece"]')?.classList.toggle('held', held);
+  }
+
+  private dragHeart(event: PointerEvent): void {
+    if (!this.game?.heartHeld) return;
+    const point = this.heartPoint(event);
+    if (point) this.game.setHeartGrab(point);
+  }
+
+  /** O coração se move a cada quadro; redesenhar a cena inteira por isso seria absurdo. */
+  private updateHeartLayer(): void {
+    const encounter = this.game?.encounter;
+    const heart = encounter?.heart;
+    const layer = this.root.querySelector<HTMLElement>('[data-role="heart-layer"]');
+    if (!heart || !layer) return;
+    const config = { holdSeconds: heart.holdSeconds, escapeSeconds: heart.escapeSeconds, pull: heart.pull };
+    const piece = layer.querySelector<HTMLElement>('[data-role="heart-piece"]');
+    if (piece) {
+      piece.style.left = `${heart.x}%`;
+      piece.style.top = `${heart.y}%`;
+      piece.classList.toggle('held', this.game!.heartHeld);
+    }
+    layer.dataset.inside = String(heartInsideCage(heart.x, heart.y));
+    const hold = layer.querySelector<HTMLElement>('[data-role="heart-hold"]');
+    if (hold) hold.style.width = `${heartProgress(heart, config) * 100}%`;
+    const escape = layer.querySelector<HTMLElement>('[data-role="heart-escape"]');
+    if (escape) escape.style.width = `${heartExposure(heart, config) * 100}%`;
   }
 
   private updateReadouts(): void {

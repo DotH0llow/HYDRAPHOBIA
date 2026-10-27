@@ -1,5 +1,6 @@
 import { DEFAULT_WORLD, ENTITIES, ITEMS, type EntityDefinition, type HotspotDefinition, type ItemDefinition, type WorldDefinition } from '../config/world';
 import { anxietyTier, escalateAnxiety, type AnxietyTier } from './anxiety';
+import { createHeart, DEFAULT_HEART_CONFIG, stepHeart, type HeartConfig, type HeartGrab } from '../systems/heartEncounter';
 import type { CutsceneState, Direction, Encounter, EncounterAction, EntityId, GameSave, GameStatus, HideoutState, HotspotId, InventoryEntry, ItemId, RoomId, Stats } from '../types';
 
 export interface ActionResult {
@@ -36,6 +37,8 @@ export class Game {
   moveCount = 0;
   elapsed = 0;
   encounter: Encounter | null = null;
+  /** Onde o ponteiro segura o coração no encontro da caixa torácica. */
+  private heartGrab: HeartGrab | null = null;
   selectedItem: ItemId | null = null;
   /** A legenda começa vazia: nada comenta o início nem a retomada da exploração. */
   message = '';
@@ -109,6 +112,9 @@ export class Game {
     this.elapsed += capped;
 
     if (this.status === 'encounter' && this.encounter) {
+      // No encontro do coração não há relógio: o que termina a cena é o jogador ter
+      // segurado o medo tempo bastante, ou tê-lo deixado escapar.
+      if (this.encounter.kind === 'heart') { this.updateHeart(capped); return; }
       this.encounter.remaining = Math.max(0, this.encounter.remaining - capped);
       if (this.encounter.remaining === 0) this.receiveAttack('Você hesitou. A coisa alcançou você.');
       return;
@@ -465,11 +471,60 @@ export class Game {
   private startEncounter(id: EntityId): void {
     const definition = this.entities[id];
     if (!definition) return;
-    this.encounter = { id, name: definition.name, prompt: definition.prompt, hint: definition.hint, solution: definition.solution, remaining: definition.timeLimit, timeLimit: definition.timeLimit, image: definition.image, jumpscareDuration: definition.jumpscareSeconds };
+    const kind = definition.encounter === 'heart' ? 'heart' : 'choice';
+    this.encounter = {
+      id, name: definition.name, prompt: definition.prompt, hint: definition.hint,
+      kind, solution: definition.solution, remaining: definition.timeLimit, timeLimit: definition.timeLimit,
+      image: definition.image, sceneImage: definition.sceneImage, jumpscareDuration: definition.jumpscareSeconds,
+      heart: kind === 'heart' ? { ...createHeart(this.random), ...this.heartConfigOf(definition) } : undefined,
+    };
+    this.heartGrab = null;
     this.status = 'encounter';
     this.lastThreatElapsed = this.elapsed;
     this.message = this.encounter.prompt;
     this.stats.anxiety = this.clamp(this.stats.anxiety + 10);
+  }
+
+  /** Os ajustes da mecânica para esta entidade, com o padrão onde ela não disse nada. */
+  private heartConfigOf(definition: EntityDefinition): HeartConfig {
+    return {
+      holdSeconds: definition.heartHoldSeconds ?? DEFAULT_HEART_CONFIG.holdSeconds,
+      escapeSeconds: definition.heartEscapeSeconds ?? DEFAULT_HEART_CONFIG.escapeSeconds,
+      pull: definition.heartPull ?? DEFAULT_HEART_CONFIG.pull,
+    };
+  }
+
+  /**
+   * Onde o ponteiro está segurando o coração, em % da cena. A tela é quem sabe disso,
+   * então ela avisa antes de cada quadro; `null` é o jogador ter soltado.
+   */
+  setHeartGrab(grab: HeartGrab | null): void { this.heartGrab = grab; }
+
+  /** A tela pergunta isto para desenhar a mão aberta ou fechada. */
+  get heartHeld(): boolean { return this.heartGrab !== null; }
+
+  private updateHeart(delta: number): void {
+    const encounter = this.encounter;
+    const heart = encounter?.heart;
+    if (!encounter || !heart) return;
+    const config: HeartConfig = { holdSeconds: heart.holdSeconds, escapeSeconds: heart.escapeSeconds, pull: heart.pull };
+    const { state, outcome, released } = stepHeart(heart, config, delta, this.heartGrab, this.random);
+    Object.assign(heart, state);
+    // A mão escorregou: o jogador precisa alcançar o coração de novo para segurá-lo.
+    if (released) this.heartGrab = null;
+    // Segurar o medo custa: a ansiedade sobe enquanto ele está do lado de fora.
+    if (state.escaped > heart.escaped - delta) this.stats.anxiety = this.clamp(this.stats.anxiety + delta * 4);
+    if (outcome === 'held') {
+      this.encounter = null;
+      this.heartGrab = null;
+      this.status = 'exploring';
+      this.message = 'O medo volta para dentro do peito. A presença perde o interesse e se afasta.';
+      return;
+    }
+    if (outcome === 'escaped') {
+      this.heartGrab = null;
+      this.receiveAttack('O medo escapa do peito. A coisa percebe, e alcança você.');
+    }
   }
 
   private receiveAttack(message: string): ActionResult {

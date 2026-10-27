@@ -277,7 +277,7 @@ export class EditorProject {
   findEntity(id: string): EditorEntity | undefined { return this.data.entities.find((entity) => entity.id === id); }
 
   addEntity(): EditorEntity {
-    const entity: EditorEntity = { id: createId('entidade'), name: 'Nova entidade', prompt: 'Algo se aproxima no escuro.', hint: 'Decida rápido.', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg', jumpscareSeconds: undefined };
+    const entity: EditorEntity = { id: createId('entidade'), name: 'Nova entidade', prompt: 'Algo se aproxima no escuro.', hint: 'Decida rápido.', encounter: 'choice', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg', jumpscareSeconds: undefined };
     this.data.entities.push(entity);
     this.save();
     return entity;
@@ -611,10 +611,16 @@ export class EditorProject {
       name: String(entity.name ?? 'Entidade sem nome'),
       prompt: String(entity.prompt ?? 'Algo se aproxima no escuro.'),
       hint: String(entity.hint ?? 'Decida rápido.'),
+      // Entidades gravadas antes de a mecânica do coração existir continuam na decisão.
+      encounter: entity.encounter === 'heart' ? 'heart' : 'choice',
       solution: SOLUTIONS.has(entity.solution as EncounterAction) ? entity.solution as EncounterAction : 'hide',
       timeLimit: number(entity.timeLimit, 5, 1, 30),
       image: typeof entity.image === 'string' && entity.image ? entity.image : '/assets/entities/watcher.jpg',
+      sceneImage: typeof entity.sceneImage === 'string' && entity.sceneImage ? entity.sceneImage : undefined,
       jumpscareSeconds: typeof entity.jumpscareSeconds === 'number' && entity.jumpscareSeconds > 0 ? entity.jumpscareSeconds : undefined,
+      heartHoldSeconds: typeof entity.heartHoldSeconds === 'number' ? number(entity.heartHoldSeconds, 9, 2, 60) : undefined,
+      heartEscapeSeconds: typeof entity.heartEscapeSeconds === 'number' ? number(entity.heartEscapeSeconds, 3.4, 0.5, 20) : undefined,
+      heartPull: typeof entity.heartPull === 'number' ? number(entity.heartPull, 46, 8, 160) : undefined,
     }];
   }
 }

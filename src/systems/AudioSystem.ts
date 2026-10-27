@@ -100,6 +100,23 @@ export class AudioSystem {
   private lastEffect: { label: string; file: string; at: number } | null = null;
   constructor(private preferences: Preferences) {}
 
+  /**
+   * Prepara a trilha antes de o jogador tocar na página. O navegador só deixa o som
+   * sair depois de um gesto, mas nada impede de já buscar o manifesto e decodificar o
+   * arquivo: o `AudioContext` nasce suspenso e `decodeAudioData` funciona assim mesmo.
+   * Sem isto o clique no menu começava a baixar 4,5 MB de música e o menu ficava
+   * alguns segundos em silêncio; com o arquivo já decodificado, a faixa entra no gesto.
+   */
+  async prime(category: string): Promise<void> {
+    try {
+      if (!this.context) this.context = new AudioContext();
+      await this.loadLibrary();
+      const clips = this.library.get(category) ?? [];
+      // Uma categoria de música costuma ter uma faixa só; as poucas primeiras bastam.
+      await Promise.all(clips.slice(0, 3).map((clip) => this.ensureBuffer(clip.path)));
+    } catch { /* sem áudio preparado o jogo continua: a faixa entra quando carregar */ }
+  }
+
   async unlock(): Promise<void> {
     if (!this.context) this.context = new AudioContext();
     // Durante a pausa o contexto fica suspenso de propósito: nenhum clique o reacorda.

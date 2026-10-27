@@ -1,6 +1,6 @@
 import type { ItemEffect, RoomAudioMode } from '../config/world';
 import type { LightShape } from '../systems/lighting';
-import type { CutsceneMediaType, EncounterAction, EntityId, HotspotVisibility, ItemId } from '../types';
+import type { CutsceneMediaType, EncounterAction, EncounterKind, EntityId, HotspotVisibility, ItemId } from '../types';
 
 /**
  * O que um interagível faz. Mudar de sala não está aqui: o único caminho entre salas
@@ -172,11 +172,27 @@ export interface EditorEntity {
   name: string;
   prompt: string;
   hint: string;
+  /**
+   * Como o encontro e jogado. A entidade, a cena e a mecanica sao tres coisas soltas
+   * de proposito: a mesma entidade pode aparecer em outra cena, e a mesma mecanica
+   * pode servir a outra entidade, sem nada precisar ser desenhado de novo.
+   */
+  encounter: EncounterKind;
   solution: EncounterAction;
   timeLimit: number;
   image: string;
+  /** O lugar onde o encontro acontece; vazio deixa a sala atual como fundo. */
+  sceneImage?: string;
   jumpscareSeconds?: number;
+  heartHoldSeconds?: number;
+  heartEscapeSeconds?: number;
+  heartPull?: number;
 }
+
+export const ENCOUNTER_KINDS: ReadonlyArray<{ id: EncounterKind; label: string; hint: string }> = [
+  { id: 'choice', label: 'Decisao (correr ou esconder)', hint: 'A pergunta de duas respostas, com o tempo correndo.' },
+  { id: 'heart', label: 'Segure o medo (caixa toracica)', hint: 'O jogador segura o proprio coracao dentro das costelas enquanto a entidade esta ali.' },
+];
 
 export interface EditorProjectData {
   version: 1;
@@ -190,6 +206,7 @@ export interface EditorProjectData {
 
 export const IMAGE_LIBRARY = [
   '/assets/scenes/reception.jpg',
+  '/assets/scenes/lobbyEncounter.jpg',
   '/assets/scenes/corridor.jpg',
   '/assets/scenes/flooded.jpg',
   '/assets/scenes/maintenance.jpg',
@@ -235,6 +252,7 @@ export const DEFAULT_ITEMS: EditorItem[] = [
 ];
 
 export const DEFAULT_ENTITIES: EditorEntity[] = [
-  { id: 'watcher', name: 'O Observador', prompt: 'Uma silhueta bloqueia o corredor. Ela reage a movimento.', hint: 'Talvez seja melhor desaparecer da visão.', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg' },
-  { id: 'crawler', name: 'O Rastejante', prompt: 'Unhas batem no concreto atrás de você. Está se aproximando.', hint: 'Ficar parado significa ser alcançado.', solution: 'run', timeLimit: 4.2, image: '/assets/entities/crawler.jpg' },
+  { id: 'watcher', name: 'O Observador', prompt: 'Uma silhueta bloqueia o corredor. Ela reage a movimento.', hint: 'Talvez seja melhor desaparecer da visão.', encounter: 'choice', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg' },
+  { id: 'crawler', name: 'O Rastejante', prompt: 'Unhas batem no concreto atrás de você. Está se aproximando.', hint: 'Ficar parado significa ser alcançado.', encounter: 'choice', solution: 'run', timeLimit: 4.2, image: '/assets/entities/crawler.jpg' },
+  { id: 'vigia', name: 'O que espera no fim do corredor', prompt: 'O corredor não acaba, e há algo parado onde ele deveria acabar. Não se mexe. Está esperando você respirar.', hint: 'Prenda o medo dentro do peito.', encounter: 'heart', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg', sceneImage: '/assets/scenes/lobbyEncounter.jpg', heartHoldSeconds: 9, heartEscapeSeconds: 3.4, heartPull: 54 },
 ];
