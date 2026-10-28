@@ -134,6 +134,7 @@ export const entitiesToRuntime = (entities: EditorEntity[]): Record<EntityId, En
       encounter: entity.encounter, solution: entity.solution, timeLimit: entity.timeLimit,
       image: entity.image, sceneImage: entity.sceneImage, jumpscareSeconds: entity.jumpscareSeconds,
       heartHoldSeconds: entity.heartHoldSeconds, heartEscapeSeconds: entity.heartEscapeSeconds, heartPull: entity.heartPull,
+      heartJoltEvery: entity.heartJoltEvery, heartEntity: entity.heartEntity,
     };
   });
   return result;

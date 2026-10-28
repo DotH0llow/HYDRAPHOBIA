@@ -12,8 +12,8 @@ import {
 import { HUNGER_LOW_THRESHOLD, HUNGER_THRESHOLD, THIRST_LOW_THRESHOLD, THIRST_THRESHOLD } from '../config/thresholds';
 import { defaultArrowRotation, defaultPathPosition } from '../config/paths';
 import { drawRoomLighting, hasFlicker } from '../systems/lighting';
-import { CAGE, heartExposure, heartInsideCage, heartProgress, heartWithinGrip } from '../systems/heartEncounter';
-import { HEART_SVG, RIBCAGE_SVG } from '../systems/heartArt';
+import { CAGE, heartExposure, heartInsideCage, heartProgress } from '../systems/heartEncounter';
+import { HEART_ART, RIBCAGE_ART } from '../systems/heartArt';
 import { labelAnchorOf } from '../systems/hotspots';
 import { checkCharacterName } from '../config/nameFilter';
 import { legendTimings, SOLO_LEGEND_MS, splitLegend } from '../systems/legends';
@@ -22,6 +22,11 @@ import { createSlot, endCampaign, SaveSystem } from '../systems/SaveSystem';
 import { SAVE_SLOT_COUNT, type BooleanPreferenceKey, type CampaignEnding, type CharacterClassId, type EntityId, type CharacterGender, type CharacterMode, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type PhobiaId, type Preferences, type RoomId, type SaveData, type SaveSlot, type Screen } from '../types';
 
 type NumericPreferenceKey = Exclude<keyof Preferences, BooleanPreferenceKey>;
+
+/** A data gravada na fita, e a hora em que ela começou a rodar naquela noite. */
+const TAPE_DATE = 'SEP. 03 1985';
+const TAPE_START_SECONDS = 21 * 3600 + 14 * 60;
+
 /** Uma pergunta de sim/nao desenhada pelo proprio jogo, com a acao ja escolhida. */
 interface ConfirmRequest {
   title: string;
@@ -577,7 +582,7 @@ export class GameApp {
         <div class="scene-grade"></div><div class="scene-noise"></div>
       </section>
       <div class="blood-overlay" data-blood-level="${this.bloodLevel()}" aria-hidden="true"><i></i><i></i><i></i></div>
-      ${vhsMode ? '<div class="vhs-overlay" aria-hidden="true"><i class="vhs-grain"></i><i class="vhs-scan"></i><i class="vhs-chroma"></i><i class="vhs-band"></i></div>' : ''}
+      ${vhsMode ? `<div class="vhs-overlay" aria-hidden="true"><i class="vhs-grain"></i><i class="vhs-scan"></i><i class="vhs-chroma"></i><i class="vhs-band"></i></div>${this.vhsStampTemplate()}` : ''}
       ${filmMode ? '<div class="film-bars" aria-hidden="true"><i></i><i></i></div>' : ''}
       ${hud ? `<header class="game-header">
         <div class="room-id"><small>${room.code}</small><strong>${room.name}</strong></div>
@@ -670,6 +675,24 @@ export class GameApp {
   }
 
   /**
+   * O relógio da fita. Ele não conta a hora de quem está jogando: a gravação começou
+   * numa noite de 1985 e anda com o tempo da campanha, para a fita e o jogo contarem
+   * a mesma passagem. As horas e os minutos chegam à tela borrados — o único número
+   * que se lê de verdade são os segundos, e é a diferença entre os dois que faz a
+   * fita parecer gasta em vez de enfeitada.
+   */
+  private tapeClock(): { hm: string; ss: string } {
+    const total = Math.floor(TAPE_START_SECONDS + (this.game?.elapsed ?? 0));
+    const pad = (value: number): string => String(value).padStart(2, '0');
+    return { hm: `${pad(Math.floor(total / 3600) % 24)}:${pad(Math.floor(total / 60) % 60)}`, ss: `:${pad(total % 60)}` };
+  }
+
+  private vhsStampTemplate(): string {
+    const { hm, ss } = this.tapeClock();
+    return `<div class="vhs-stamp" aria-hidden="true"><span class="vhs-clock"><i class="vhs-hm" data-role="vhs-hm">${hm}</i><b class="vhs-ss" data-role="vhs-ss">${ss}</b></span><span class="vhs-date">${TAPE_DATE}</span></div>`;
+  }
+
+  /**
    * A classe da tela de jogo. O modo imersivo, o enquadramento de cinema e o VHS vivem
    * nela, e `updateReadouts` reescreve essa classe a cada quadro: sem um lugar só, cada
    * atualização apagava as marcas que o desenho tinha posto.
@@ -735,33 +758,40 @@ export class GameApp {
   }
 
   /**
-   * O encontro da caixa torácica. São três camadas soltas, empilhadas na ordem em que
-   * foram pensadas: a cena do encontro atrás, a entidade sobre ela e a mecânica por
-   * cima das duas. Nenhuma sabe das outras — trocar a cena não mexe na entidade, e a
-   * mesma mecânica serve a qualquer uma delas.
+   * O encontro da caixa torácica. São camadas soltas, empilhadas na ordem em que foram
+   * pensadas: a cena do encontro atrás, a entidade sobre ela — se o nível pediu uma — e
+   * a mecânica por cima das duas. Nenhuma sabe das outras, e por isso a cena pode ficar
+   * vazia sem que nada mais mude.
+   *
+   * Tudo isso vive dentro de `.heart-quake`, que treme o tempo inteiro. A camada de
+   * fora não treme de propósito: é dela que o ponteiro é medido, e medir num retângulo
+   * que balança faria a mão do jogador tremer junto com a tela.
    */
   private heartEncounterTemplate(): string {
     const encounter = this.game!.encounter!;
     const heart = encounter.heart!;
-    const config = { holdSeconds: heart.holdSeconds, escapeSeconds: heart.escapeSeconds, pull: heart.pull };
+    const config = { holdSeconds: heart.holdSeconds, escapeSeconds: heart.escapeSeconds, pull: heart.pull, joltEvery: heart.joltEvery };
     const inside = heartInsideCage(heart.x, heart.y);
     const exposure = heartExposure(heart, config);
     const scene = encounter.sceneImage || this.game!.room.image;
+    const entity = encounter.heartEntityImage;
     // Um PNG ou WebP pode trazer transparência; aí a entidade é um recorte e fica no
     // centro da cena, em vez de uma arte de tela inteira encaixada por mistura.
-    const cutout = /\.(png|webp|gif)$/i.test(encounter.image) || encounter.image.startsWith('data:image/png');
-    return `<div class="heart-layer" data-role="heart-layer" data-inside="${inside}" data-cutout="${cutout}">
-      <img class="heart-scene" src="${esc(scene)}" alt="" />
-      <img class="heart-entity" src="${esc(encounter.image)}" alt="${esc(encounter.name)}" />
-      <div class="heart-grade" aria-hidden="true"></div>
-      <div class="heart-stage" data-role="heart-stage">
-        <div class="heart-cage" style="left:${CAGE.x}%;top:${CAGE.y}%;width:${CAGE.rx * 2}%;height:${CAGE.ry * 2}%">${RIBCAGE_SVG}</div>
-        <button class="heart-piece" data-role="heart-piece" aria-label="Segure o coração no lugar" style="left:${heart.x}%;top:${heart.y}%">${HEART_SVG}</button>
-      </div>
-      <p class="heart-call" data-role="heart-call">Segure o medo lá dentro</p>
-      <div class="heart-meters">
-        <div class="heart-meter heart-hold"><em>DENTRO</em><i><u data-role="heart-hold" style="width:${heartProgress(heart, config) * 100}%"></u></i></div>
-        <div class="heart-meter heart-loose"><em>ESCAPANDO</em><i><u data-role="heart-escape" style="width:${exposure * 100}%"></u></i></div>
+    const cutout = Boolean(entity) && (/\.(png|webp|gif)$/i.test(entity!) || entity!.startsWith('data:image/png'));
+    return `<div class="heart-layer" data-role="heart-layer" data-inside="${inside}" data-cutout="${cutout}" data-jolt="false">
+      <div class="heart-quake" data-role="heart-quake">
+        <img class="heart-scene" src="${esc(scene)}" alt="" />
+        ${entity ? `<img class="heart-entity" src="${esc(entity)}" alt="${esc(encounter.name)}" />` : ''}
+        <div class="heart-grade" aria-hidden="true"></div>
+        <div class="heart-stage" data-role="heart-stage">
+          <div class="heart-cage" style="left:${CAGE.x}%;top:${CAGE.y}%;width:${CAGE.rx * 2}%;height:${CAGE.ry * 2}%">${RIBCAGE_ART}</div>
+          <div class="heart-piece" data-role="heart-piece" role="img" aria-label="O seu coração" style="left:${heart.x}%;top:${heart.y}%">${HEART_ART}</div>
+        </div>
+        <p class="heart-call" data-role="heart-call">Leve o medo de volta para dentro</p>
+        <div class="heart-meters">
+          <div class="heart-meter heart-hold"><em>DENTRO</em><i><u data-role="heart-hold" style="width:${heartProgress(heart, config) * 100}%"></u></i></div>
+          <div class="heart-meter heart-loose"><em>ESCAPANDO</em><i><u data-role="heart-escape" style="width:${exposure * 100}%"></u></i></div>
+        </div>
       </div>
     </div>`;
   }
@@ -937,10 +967,12 @@ export class GameApp {
       void this.audio.unlock();
       void this.handleAction(target.dataset.action ?? '', target.dataset);
     });
-    this.root.addEventListener('pointerdown', (event) => this.grabHeart(event));
-    window.addEventListener('pointermove', (event) => this.dragHeart(event));
-    window.addEventListener('pointerup', () => this.releaseHeart());
-    window.addEventListener('pointercancel', () => this.releaseHeart());
+    // O coração é o ponteiro: basta mexer o mouse, não há o que clicar nem o que soltar.
+    window.addEventListener('pointermove', (event) => this.aimHeart(event));
+    window.addEventListener('pointerdown', (event) => this.aimHeart(event));
+    // Sair da janela larga o coração à deriva, em vez de deixá-lo preso no último ponto.
+    window.addEventListener('pointercancel', () => this.game?.setHeartPointer(null));
+    document.addEventListener('pointerleave', () => this.game?.setHeartPointer(null));
     this.root.addEventListener('input', (event) => this.handleInput(event.target as HTMLInputElement));
     this.root.addEventListener('change', (event) => this.handleInput(event.target as HTMLInputElement));
     window.addEventListener('keydown', (event) => this.handleKey(event));
@@ -1465,32 +1497,11 @@ export class GameApp {
     return { x: ((event.clientX - rect.left) / rect.width) * 100, y: ((event.clientY - rect.top) / rect.height) * 100 };
   }
 
-  /** Fechar a mão só funciona em cima do coração; o resto da cena não o chama. */
-  private grabHeart(event: PointerEvent): void {
-    const heart = this.game?.encounter?.heart;
-    if (!heart || this.game?.encounter?.kind !== 'heart') return;
+  /** Para onde o jogador está levando o coração. Fora do encontro isto não custa nada. */
+  private aimHeart(event: PointerEvent): void {
+    if (this.game?.encounter?.kind !== 'heart') return;
     const point = this.heartPoint(event);
-    if (!point || !heartWithinGrip(heart, point.x, point.y)) return;
-    event.preventDefault();
-    this.game.setHeartGrab(point);
-    // A mão fecha na hora, e não no quadro seguinte: o peso da coisa está nessa resposta.
-    this.markHeartHeld(true);
-  }
-
-  private releaseHeart(): void {
-    if (!this.game?.heartHeld) return;
-    this.game.setHeartGrab(null);
-    this.markHeartHeld(false);
-  }
-
-  private markHeartHeld(held: boolean): void {
-    this.root.querySelector<HTMLElement>('[data-role="heart-piece"]')?.classList.toggle('held', held);
-  }
-
-  private dragHeart(event: PointerEvent): void {
-    if (!this.game?.heartHeld) return;
-    const point = this.heartPoint(event);
-    if (point) this.game.setHeartGrab(point);
+    if (point) this.game.setHeartPointer(point);
   }
 
   /** O coração se move a cada quadro; redesenhar a cena inteira por isso seria absurdo. */
@@ -1499,14 +1510,15 @@ export class GameApp {
     const heart = encounter?.heart;
     const layer = this.root.querySelector<HTMLElement>('[data-role="heart-layer"]');
     if (!heart || !layer) return;
-    const config = { holdSeconds: heart.holdSeconds, escapeSeconds: heart.escapeSeconds, pull: heart.pull };
+    const config = { holdSeconds: heart.holdSeconds, escapeSeconds: heart.escapeSeconds, pull: heart.pull, joltEvery: heart.joltEvery };
     const piece = layer.querySelector<HTMLElement>('[data-role="heart-piece"]');
     if (piece) {
       piece.style.left = `${heart.x}%`;
       piece.style.top = `${heart.y}%`;
-      piece.classList.toggle('held', this.game!.heartHeld);
     }
     layer.dataset.inside = String(heartInsideCage(heart.x, heart.y));
+    // O tranco dura um instante; é a classe que faz a tela sacudir mais forte nele.
+    layer.dataset.jolt = String(heart.jolt > 0);
     const hold = layer.querySelector<HTMLElement>('[data-role="heart-hold"]');
     if (hold) hold.style.width = `${heartProgress(heart, config) * 100}%`;
     const escape = layer.querySelector<HTMLElement>('[data-role="heart-escape"]');
@@ -1534,6 +1546,13 @@ export class GameApp {
     this.updateDevMeters();
     this.updateNowPlaying();
     this.applyGameScreenClass();
+    const seconds = this.root.querySelector<HTMLElement>('[data-role="vhs-ss"]');
+    if (seconds) {
+      const { hm, ss } = this.tapeClock();
+      if (seconds.textContent !== ss) seconds.textContent = ss;
+      const minutes = this.root.querySelector<HTMLElement>('[data-role="vhs-hm"]');
+      if (minutes && minutes.textContent !== hm) minutes.textContent = hm;
+    }
     const blood = this.root.querySelector<HTMLElement>('.blood-overlay');
     if (blood) blood.dataset.bloodLevel = String(this.bloodLevel());
     if (this.game.encounter) {

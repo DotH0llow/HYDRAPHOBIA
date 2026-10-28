@@ -187,6 +187,14 @@ export interface EditorEntity {
   heartHoldSeconds?: number;
   heartEscapeSeconds?: number;
   heartPull?: number;
+  /** De quantos em quantos segundos, em média, vem o tranco forte. */
+  heartJoltEvery?: number;
+  /**
+   * Qual entidade aparece desenhada na cena do encontro. Vazio ou ausente deixa a cena
+   * sem ninguém, que é o padrão: quem monta o nível escolhe se há alguém ali, e o
+   * encontro não arrasta ninguém para dentro da cena por conta própria.
+   */
+  heartEntity?: EntityId;
 }
 
 export const ENCOUNTER_KINDS: ReadonlyArray<{ id: EncounterKind; label: string; hint: string }> = [
@@ -207,6 +215,7 @@ export interface EditorProjectData {
 export const IMAGE_LIBRARY = [
   '/assets/scenes/reception.jpg',
   '/assets/scenes/lobbyEncounter.jpg',
+  '/assets/scenes/lobbyWall.jpg',
   '/assets/scenes/corridor.jpg',
   '/assets/scenes/flooded.jpg',
   '/assets/scenes/maintenance.jpg',
@@ -223,6 +232,7 @@ export const ASSET_FOLDERS = {
   items: 'public/assets/items',
   cutscenes: 'public/assets/cutscenes',
   icons: 'public/assets/icons',
+  props: 'public/assets/props',
 } as const;
 
 export const detectMediaType = (path: string): 'image' | 'gif' | 'video' => {
@@ -254,5 +264,5 @@ export const DEFAULT_ITEMS: EditorItem[] = [
 export const DEFAULT_ENTITIES: EditorEntity[] = [
   { id: 'watcher', name: 'O Observador', prompt: 'Uma silhueta bloqueia o corredor. Ela reage a movimento.', hint: 'Talvez seja melhor desaparecer da visão.', encounter: 'choice', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg' },
   { id: 'crawler', name: 'O Rastejante', prompt: 'Unhas batem no concreto atrás de você. Está se aproximando.', hint: 'Ficar parado significa ser alcançado.', encounter: 'choice', solution: 'run', timeLimit: 4.2, image: '/assets/entities/crawler.jpg' },
-  { id: 'vigia', name: 'O que espera no fim do corredor', prompt: 'O corredor não acaba, e há algo parado onde ele deveria acabar. Não se mexe. Está esperando você respirar.', hint: 'Prenda o medo dentro do peito.', encounter: 'heart', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg', sceneImage: '/assets/scenes/lobbyEncounter.jpg', heartHoldSeconds: 9, heartEscapeSeconds: 3.4, heartPull: 54 },
+  { id: 'vigia', name: 'O que espera no fim do corredor', prompt: 'O corredor não acaba, e há algo parado onde ele deveria acabar. Não se mexe. Está esperando você respirar.', hint: 'Prenda o medo dentro do peito.', encounter: 'heart', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg', sceneImage: '/assets/scenes/lobbyWall.jpg', heartHoldSeconds: 9, heartEscapeSeconds: 3.4, heartPull: 54, heartJoltEvery: 2.4 },
 ];

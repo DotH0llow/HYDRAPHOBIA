@@ -717,8 +717,15 @@ export class EditorApp {
         <label><span>Segurar por (s)</span><input type="number" min="2" max="60" step="0.5" data-entity-field="heartHoldSeconds" value="${entity.heartHoldSeconds ?? ''}" placeholder="9" /></label>
         <label><span>Escapa em (s)</span><input type="number" min="0.5" max="20" step="0.1" data-entity-field="heartEscapeSeconds" value="${entity.heartEscapeSeconds ?? ''}" placeholder="3.4" /></label>
       </div>
-      <label><span>Força da fuga</span><input type="number" min="8" max="160" step="2" data-entity-field="heartPull" value="${entity.heartPull ?? ''}" placeholder="54" /></label>
-      <p class="panel-hint">O coração e as costelas são desenhados pelo próprio jogo: a mecânica não precisa de arte nenhuma e serve a qualquer entidade.</p>`}
+      <div class="field-row">
+        <label><span>Resistência ao tórax</span><input type="number" min="8" max="160" step="2" data-entity-field="heartPull" value="${entity.heartPull ?? ''}" placeholder="54" /></label>
+        <label><span>Tranco a cada (s)</span><input type="number" min="0.5" max="20" step="0.1" data-entity-field="heartJoltEvery" value="${entity.heartJoltEvery ?? ''}" placeholder="2.4" /></label>
+      </div>
+      <p class="panel-hint">O coração é o ponteiro do jogador e resiste a ser levado até as costelas, cada vez mais perto delas. De tempos em tempos — nunca os mesmos — um tranco o arremessa para longe do tórax.</p>
+      <label><span>Entidade na cena</span><select data-entity-field="heartEntity"><option value="">Nenhuma</option>${this.project.data.entities.filter((other) => other.id !== entity.id).map((other) => `<option value="${esc(other.id)}" ${entity.heartEntity === other.id ? 'selected' : ''}>${esc(other.name)}</option>`).join('')}</select></label>
+      <p class="panel-hint">Quem aparece desenhado atrás do tórax. "Nenhuma" deixa a cena vazia, que é o padrão: este encontro não põe ninguém ali sozinho.</p>
+      ${entity.heartEntity && this.project.data.entities.find((other) => other.id === entity.heartEntity) ? `<div class="image-preview"><img src="${esc(this.project.data.entities.find((other) => other.id === entity.heartEntity)!.image)}" alt="Prévia da entidade na cena" /><span>${esc(this.project.data.entities.find((other) => other.id === entity.heartEntity)!.name)}</span></div>` : ''}
+      <p class="panel-hint">O coração e a caixa torácica são a arte recortada do gif que deu origem à cena, em <code>/assets/props</code>.</p>`}
       <label><span>Imagem da entidade</span><div class="input-with-browse"><input data-entity-field="image" list="entity-assets" value="${esc(entity.image)}" /><button type="button" data-action="browse-file" data-target-field="entity-image" data-accept="image/*,.gif">Procurar</button></div></label>
       <datalist id="entity-assets">${ENTITY_IMAGE_LIBRARY.map((image) => `<option value="${esc(image)}"></option>`).join('')}</datalist>
       <div class="image-preview"><img src="${esc(entity.image)}" alt="Prévia de ${esc(entity.name)}" /><span>${esc(entity.image)}</span></div>
@@ -1345,7 +1352,9 @@ export class EditorApp {
       const entity = this.selectedEntity;
       if (entityField === 'timeLimit') entity.timeLimit = Number(input.value);
       else if (entityField === 'jumpscareSeconds') entity.jumpscareSeconds = input.value ? Number(input.value) : undefined;
-      else if (entityField === 'heartHoldSeconds' || entityField === 'heartEscapeSeconds' || entityField === 'heartPull') entity[entityField] = input.value ? Number(input.value) : undefined;
+      else if (entityField === 'heartHoldSeconds' || entityField === 'heartEscapeSeconds' || entityField === 'heartPull' || entityField === 'heartJoltEvery') entity[entityField] = input.value ? Number(input.value) : undefined;
+      // A prévia da entidade escolhida só aparece depois de redesenhar o painel.
+      else if (entityField === 'heartEntity') { entity.heartEntity = input.value || undefined; this.project.save(); this.render(); return; }
       else if (entityField === 'solution') entity.solution = input.value as EncounterAction;
       // Trocar o tipo de encontro troca os campos do painel; por isso ele redesenha.
       else if (entityField === 'encounter') { entity.encounter = input.value === 'heart' ? 'heart' : 'choice'; this.project.save(); this.render(); return; }

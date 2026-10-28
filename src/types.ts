@@ -70,6 +70,11 @@ export interface Encounter {
   /** Cena por trás da entidade; sem ela o encontro acontece sobre a sala atual. */
   sceneImage?: string;
   jumpscareDuration?: number;
+  /**
+   * Só em `heart`: a arte da entidade que aparece na cena, escolhida no editor.
+   * Ausente é o caso normal — a cena fica vazia, e só o tórax e o coração estão nela.
+   */
+  heartEntityImage?: string;
   /** Só em `heart`: o estado da mecânica, que a tela desenha e alimenta. */
   heart?: HeartEncounter;
 }
@@ -85,9 +90,12 @@ export interface HeartEncounter {
   held: number;
   escaped: number;
   grace: number;
+  joltIn: number;
+  jolt: number;
   holdSeconds: number;
   escapeSeconds: number;
   pull: number;
+  joltEvery: number;
 }
 
 export interface HideoutState {

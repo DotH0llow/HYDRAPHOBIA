@@ -480,17 +480,24 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 
 /*
  * Modo filme: a cena fica entre duas barras pretas, no enquadramento largo de cinema.
- * As barras cobrem 12,2% da altura cada, que é o que transforma um 16:9 em 2,35:1.
+ * O enquadramento de 2,35:1 pediria 12,2% de altura por barra; estas são 20% menores
+ * (9,76%), porque o quadro cheio importa mais aqui do que a proporção exata.
  * Elas ficam acima da cena e abaixo dos caminhos (`.path-marker`, z-index 8) de
  * propósito: o recorte esconderia as setas do rodapé e deixaria o jogador preso na
  * sala. A interface desce para dentro do quadro pelo mesmo motivo.
  */
 .film-bars { position: absolute; z-index: 7; inset: 0; pointer-events: none; }
-.film-bars i { position: absolute; left: 0; right: 0; height: var(--film-bar, 12.2%); background: #000; box-shadow: 0 0 22px #000; }
+.film-bars i { position: absolute; left: 0; right: 0; height: var(--film-bar, 9.76%); background: #000; }
 .film-bars i:first-child { top: 0; }
 .film-bars i:last-child { bottom: 0; }
-.film-mode .game-header { top: var(--film-bar, 12.2%); }
-.film-mode .survival-bars, .film-mode .inventory-button, .film-mode .message-strip { bottom: calc(var(--film-bar, 12.2%) + 1.1rem); }
+.film-mode .game-header { top: var(--film-bar, 9.76%); }
+.film-mode .survival-bars, .film-mode .inventory-button, .film-mode .message-strip { bottom: calc(var(--film-bar, 9.76%) + 1.1rem); }
+/*
+ * No modo filme o escurecimento das bordas sai de cena. As barras já fecham o quadro
+ * em cima e embaixo, e a vinheta por baixo delas fechava uma segunda vez: o resultado
+ * era um túnel, não um enquadramento. Sem ela a cena chega inteira até a borda.
+ */
+.film-mode .scene-grade { display: none; }
 
 /*
  * Modo VHS: a cena passa a ser uma fita gasta. Tudo aqui é decoração sobre o jogo —
@@ -506,13 +513,45 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .vhs-overlay .vhs-chroma { inset: 0; opacity: .14; background: linear-gradient(90deg, #ff30304d, #30303000 38% 62%, #30ffff4d); mix-blend-mode: screen; animation: vhs-chroma 2.6s steps(2) infinite; }
 .vhs-overlay .vhs-band { left: 0; right: 0; height: 16%; background: linear-gradient(#ffffff00, #ffffff1c 42%, #ffffff0d 58%, #ffffff00); animation: vhs-roll 7.5s linear infinite; }
 
+/*
+ * O carimbo da fita, no alto: o horário em cima e a data embaixo, como o que uma
+ * câmera dos anos 80 gravava por cima da imagem. Ele desce para baixo do cabeçalho
+ * enquanto a interface está na tela — no canto de cima à direita moram as barras de
+ * sobrevivência, e o carimbo por cima delas ficaria ilegível. No modo imersivo, onde
+ * não há interface, ele sobe para a borda; no modo filme, para dentro do quadro.
+ */
+.vhs-stamp { position: absolute; z-index: 12; right: 1.2rem; top: calc(var(--film-bar, 0px) + 1rem); display: grid; justify-items: end; gap: .2rem; pointer-events: none; color: #eef3e4; font: 1.05rem/1 "Courier New", monospace; letter-spacing: .1em; }
+.game-screen:not(.immersive) .vhs-stamp { top: calc(var(--film-bar, 0px) + 96px); }
+.film-mode .vhs-stamp { --film-bar: 9.76vh; }
+.vhs-clock { display: flex; align-items: baseline; gap: .1em; }
+/*
+ * As horas e os minutos estão gravados por cima de si mesmos: a fita perdeu o
+ * sincronismo neles e eles tremem, borrados e com a cor fugindo para os lados. Os
+ * segundos, não: é o único número que ainda conta direito, e é por isso que o resto
+ * parecer quebrado funciona.
+ */
+.vhs-hm { font-style: normal; filter: blur(1.3px); text-shadow: 2px 0 #ff2d2dc4, -2px 0 #2ff5ffc4; animation: vhs-hm-glitch .34s steps(1) infinite; }
+.vhs-ss { font-weight: 400; text-shadow: 0 0 7px #e9ffe07a; }
+.vhs-date { color: #dfe6d3; font-size: .78rem; letter-spacing: .14em; text-shadow: 0 0 6px #0009; }
+
 /* ==========================================================================
    Encontro da caixa toracica — "segure o medo"
    Tres camadas soltas, empilhadas: a cena do encontro, a entidade sobre ela e a
    mecanica por cima das duas. O desenho da mecanica (costelas e coracao) e SVG,
    escrito em `systems/heartArt`, para poder ser posto sobre qualquer cena.
    ========================================================================== */
-.heart-layer { position: absolute; z-index: 40; inset: 0; overflow: hidden; background: #020302; animation: heart-enter .7s ease both; user-select: none; touch-action: none; }
+/*
+ * O coração é o ponteiro do jogador: o cursor do sistema sai de cena, senão haveria
+ * duas coisas sendo movidas pela mesma mão.
+ */
+.heart-layer { position: absolute; z-index: 40; inset: 0; overflow: hidden; background: #020302; animation: heart-enter .7s ease both; user-select: none; touch-action: none; cursor: none; }
+/*
+ * Tudo que se vê treme; o retângulo de fora, não. É dele que o ponteiro é medido, e
+ * medir num quadro que balança faria a mão do jogador tremer junto com a tela. O
+ * `scale` existe só para o deslocamento não descobrir as bordas da cena.
+ */
+.heart-quake { position: absolute; inset: 0; animation: heart-quake .22s steps(2) infinite; will-change: transform; }
+.heart-layer[data-jolt="true"] .heart-quake { animation: heart-quake-hard .1s steps(2) infinite; }
 .heart-scene { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: saturate(.62) brightness(.62) contrast(1.08); }
 /*
  * A entidade e uma camada propria: trocar a cena atras dela nao mexe no desenho dela.
@@ -526,19 +565,22 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .heart-grade { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 46%, #00000000 24%, #0000009e 70%, #000000e0 100%); }
 
 .heart-stage { position: absolute; inset: 0; }
-.heart-cage { position: absolute; transform: translate(-50%, -50%); color: #e9e7d2; opacity: .72; pointer-events: none; transition: color .25s, opacity .25s, filter .25s; filter: drop-shadow(0 0 14px #0009); }
-.heart-cage-art { display: block; width: 100%; height: 100%; overflow: visible; }
+/*
+ * A caixa e o coracao sao os dois PNG recortados do gif. `contain` em vez de esticar:
+ * a caixa que a mecanica mede e uma elipse em % da cena, e a janela de quem joga nem
+ * sempre e 16:9 — esticando, o desenho mentia sobre onde era "dentro". Contido, ele no
+ * maximo fica menor do que a elipse, e errar para o lado do jogador nao machuca.
+ */
+.heart-cage { position: absolute; transform: translate(-50%, -50%); opacity: .88; pointer-events: none; transition: opacity .25s, filter .25s; filter: drop-shadow(0 0 16px #000) brightness(1.15); }
+.heart-cage-art { display: block; width: 100%; height: 100%; object-fit: contain; }
 /* Com o coracao dentro as costelas acendem: e o unico aviso de que esta dando certo. */
-.heart-layer[data-inside="true"] .heart-cage { color: #fffdf0; opacity: .95; filter: drop-shadow(0 0 18px #d7df7755); }
+.heart-layer[data-inside="true"] .heart-cage { opacity: 1; filter: drop-shadow(0 0 24px #e8e2b0aa) brightness(1.35); }
 
-.heart-piece { position: absolute; z-index: 2; width: 7%; aspect-ratio: 5 / 6; padding: 0; border: 0; background: transparent; transform: translate(-50%, -50%); cursor: grab; }
-.heart-piece.held { cursor: grabbing; }
-.heart-art { display: block; width: 100%; height: 100%; filter: drop-shadow(0 0 16px #c0231c6b); animation: heart-beat 1.05s ease-in-out infinite; }
-.heart-piece.held .heart-art { animation-duration: .72s; }
-.heart-body { fill: #c9211b; }
-.heart-vessels { fill: #8e1812; }
-.heart-shade { fill: none; stroke: #7d120d; stroke-width: 3; stroke-linecap: round; opacity: .55; }
+.heart-piece { position: absolute; z-index: 2; width: 6%; aspect-ratio: 208 / 301; padding: 0; border: 0; background: transparent; transform: translate(-50%, -50%); pointer-events: none; }
+.heart-art { display: block; width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0 16px #c0231c6b); animation: heart-beat 1.05s ease-in-out infinite; }
 .heart-layer[data-inside="false"] .heart-art { filter: drop-shadow(0 0 22px #e23a2fa8); }
+/* No tranco o coracao bate mais rapido: o susto esta nele, nao so na tela. */
+.heart-layer[data-jolt="true"] .heart-art { animation-duration: .6s; }
 
 /* O pedido aparece no comeco e sai sozinho, como na cena que deu origem a isto. */
 .heart-call { position: absolute; left: 50%; bottom: 17%; width: max-content; max-width: 80vw; margin: 0; transform: translateX(-50%); color: #cfcdb4; font: italic 1rem/1.4 Georgia, serif; letter-spacing: .04em; text-shadow: 0 2px 14px #000; animation: heart-call 5.4s ease forwards; pointer-events: none; }
@@ -552,6 +594,23 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .heart-loose em { color: #a8776f; }
 .heart-loose u { background: #cf3b30; box-shadow: 0 0 12px #cf3b3066; }
 
+/*
+ * O tremor. Dois passos por quadro-chave e de proposito: um tremor suave parece uma
+ * camera na mao, e o que se quer aqui e a imagem nao conseguindo ficar parada. O
+ * `scale` fica em todos os passos para a cena nunca descobrir a borda.
+ */
+@keyframes heart-quake {
+  0% { transform: scale(1.035) translate(.28%, -.2%); }
+  25% { transform: scale(1.035) translate(-.24%, .3%); }
+  50% { transform: scale(1.035) translate(.18%, .26%); }
+  75% { transform: scale(1.035) translate(-.3%, -.16%); }
+}
+@keyframes heart-quake-hard {
+  0% { transform: scale(1.045) translate(1%, -.8%) rotate(.18deg); }
+  25% { transform: scale(1.045) translate(-.9%, 1.1%) rotate(-.22deg); }
+  50% { transform: scale(1.045) translate(.8%, .9%) rotate(.14deg); }
+  75% { transform: scale(1.045) translate(-1.1%, -.7%) rotate(-.16deg); }
+}
 @keyframes heart-enter { from { opacity: 0; } to { opacity: 1; } }
 @keyframes heart-beat { 0%, 100% { transform: scale(1); } 12% { transform: scale(1.14); } 24% { transform: scale(1); } 36% { transform: scale(1.07); } }
 @keyframes heart-breath { 50% { transform: translateX(-50%) scale(1.015); } }
@@ -572,6 +631,18 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 @keyframes jump-flash { 0% { transform: translate(0) scale(1); filter: invert(0); } 33% { transform: translate(-3%, 2%) scale(1.08); filter: invert(.2); } 66% { transform: translate(3%, -2%) scale(1.13); filter: invert(1); } }
 @keyframes splash-rise { from { opacity: 0; } to { opacity: 1; } }
 @keyframes splash-call { 0%, 58% { opacity: 1; } 59%, 100% { opacity: 0; } }
+/*
+ * O borrão tem piso: as horas precisam continuar sendo números na tela, só que
+ * números que não dá para ler. Apagar de vez transformava o canto num espaço vazio,
+ * e aí o que se via era um defeito do jogo, não um defeito da fita.
+ */
+@keyframes vhs-hm-glitch {
+  0% { transform: translate(0, 0); opacity: 1; filter: blur(1.1px); }
+  22% { transform: translate(-2px, .5px); opacity: .88; filter: blur(1.7px); }
+  44% { transform: translate(1.5px, -1px); opacity: 1; filter: blur(1px); }
+  66% { transform: translate(-1px, 0); opacity: .94; filter: blur(2px); }
+  88% { transform: translate(2px, 1px); opacity: .84; filter: blur(1.4px); }
+}
 @keyframes vhs-chroma { 0% { transform: translateX(-1px); } 50% { transform: translateX(1px); } }
 @keyframes vhs-roll { from { top: -18%; } to { top: 100%; } }
 @keyframes hunger-shake { 0%, 88%, 100% { transform: translate(0); } 90% { transform: translate(-3px, 1px); } 92% { transform: translate(4px, -2px); } 94% { transform: translate(-2px, 2px); } 96% { transform: translate(2px, -1px); } }

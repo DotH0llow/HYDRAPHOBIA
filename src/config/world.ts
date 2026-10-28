@@ -139,6 +139,13 @@ export interface EntityDefinition {
   heartHoldSeconds?: number;
   heartEscapeSeconds?: number;
   heartPull?: number;
+  heartJoltEvery?: number;
+  /**
+   * So no encontro do coracao: qual entidade aparece desenhada na cena. Vazio ou
+   * ausente deixa a cena sem ninguem, que e o padrao — a entidade desta cena e uma
+   * escolha de quem monta o nivel, nao algo que o encontro traga sozinho.
+   */
+  heartEntity?: EntityId;
 }
 
 export const ITEMS: Record<ItemId, ItemDefinition> = {
@@ -158,8 +165,8 @@ export const ENTITIES: Record<EntityId, EntityDefinition> = {
     hint: 'Prenda o medo dentro do peito.',
     encounter: 'heart', solution: 'hide', timeLimit: 5,
     image: '/assets/entities/watcher.jpg',
-    sceneImage: '/assets/scenes/lobbyEncounter.jpg',
-    heartHoldSeconds: 9, heartEscapeSeconds: 3.4, heartPull: 54,
+    sceneImage: '/assets/scenes/lobbyWall.jpg',
+    heartHoldSeconds: 9, heartEscapeSeconds: 3.4, heartPull: 54, heartJoltEvery: 2.4,
   },
 };
 
