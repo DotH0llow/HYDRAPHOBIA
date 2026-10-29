@@ -2,7 +2,7 @@
   "version": 1,
   "name": "Mapa HYDRAPHOBIA",
   "activeLevelId": "nivel-0",
-  "updatedAt": "2026-10-28T17:11:31.026Z",
+  "updatedAt": "2026-10-29T00:17:34.740Z",
   "levels": [
     {
       "id": "nivel-0",
@@ -708,11 +708,11 @@
       "solution": "hide",
       "timeLimit": 5,
       "image": "/assets/entities/watcher.jpg",
-      "sceneImage": "/assets/scenes/lobbyWall.jpg",
       "heartHoldSeconds": 9,
       "heartEscapeSeconds": 3.4,
       "heartPull": 54,
-      "heartJoltEvery": 2.4
+      "heartJoltEvery": 2.4,
+      "heartWall": "/assets/scenes/lobbyWall.jpg"
     }
   ]
 }

@@ -46,6 +46,15 @@ const FEMALE_CLASS_ART: Readonly<Partial<Record<CharacterClassId, string>>> = {
   cavaleiro: `${ART}/cavaleiro_feminino.webp`,
 };
 
+/**
+ * O personagem encostado na parede no encontro da caixa torácica: assustado, com as
+ * duas mãos tapando a boca. São oito desenhos, um por classe e gênero, e quem aparece
+ * ali é sempre o personagem que o jogador criou — é ele que está vendo aquilo.
+ * Os arquivos saem de `scripts/scaredArt.mjs`.
+ */
+export const scaredArtFor = (classId: CharacterClassId, gender: CharacterGender): string =>
+  `${ART}/scared/${classId}_${gender}.svg`;
+
 /** Arte da classe para o gênero escolhido. */
 export const classArtFor = (classId: CharacterClassId, gender: CharacterGender): string | undefined => {
   const base = CLASSES.find((option) => option.id === classId)?.image;

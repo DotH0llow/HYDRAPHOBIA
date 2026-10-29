@@ -729,10 +729,10 @@ export class EditorApp {
       <label><span>Imagem da entidade</span><div class="input-with-browse"><input data-entity-field="image" list="entity-assets" value="${esc(entity.image)}" /><button type="button" data-action="browse-file" data-target-field="entity-image" data-accept="image/*,.gif">Procurar</button></div></label>
       <datalist id="entity-assets">${ENTITY_IMAGE_LIBRARY.map((image) => `<option value="${esc(image)}"></option>`).join('')}</datalist>
       <div class="image-preview"><img src="${esc(entity.image)}" alt="Prévia de ${esc(entity.name)}" /><span>${esc(entity.image)}</span></div>
-      <label><span>Cena do encontro (opcional)</span><div class="input-with-browse"><input data-entity-field="sceneImage" list="scene-assets-entity" value="${esc(entity.sceneImage ?? '')}" placeholder="/assets/scenes/lobby-encontro.webp" /><button type="button" data-action="browse-file" data-target-field="entity-scene" data-accept="image/*">Procurar</button></div></label>
+      ${entity.encounter === 'heart' ? `<label><span>Parede sobre a cena</span><div class="input-with-browse"><input data-entity-field="heartWall" list="scene-assets-entity" value="${esc(entity.heartWall ?? '')}" placeholder="/assets/scenes/lobbyWall.jpg" /><button type="button" data-action="browse-file" data-target-field="entity-scene" data-accept="image/*">Procurar</button></div></label>
       <datalist id="scene-assets-entity">${IMAGE_LIBRARY.map((image) => `<option value="${esc(image)}"></option>`).join('')}</datalist>
-      <p class="panel-hint">O lugar onde o encontro acontece, sem a entidade desenhada nele. Em branco, o encontro usa a sala em que o jogador está.</p>
-      ${entity.sceneImage ? `<div class="image-preview"><img src="${esc(entity.sceneImage)}" alt="Prévia da cena" /><span>${esc(entity.sceneImage)}</span></div>` : ''}
+      <p class="panel-hint">O encontro acontece sempre na sala em que o jogador está. Esta parede é colada sobre o canto direito dela, e é nela que o personagem assustado fica encostado.</p>
+      ${entity.heartWall ? `<div class="image-preview"><img src="${esc(entity.heartWall)}" alt="Prévia da parede" /><span>${esc(entity.heartWall)}</span></div>` : ''}` : ''}
       <label><span>Duração do jumpscare (segundos, padrão 1.55)</span><input type="number" min="0.3" max="10" step="0.05" data-entity-field="jumpscareSeconds" value="${entity.jumpscareSeconds ?? ''}" placeholder="1.55" /></label>
       <p class="panel-hint">ID interno: <code>${esc(entity.id)}</code> · use este ID no campo "Evento" de um hotspot para disparar o encontro.</p>`;
   }
@@ -1311,7 +1311,7 @@ export class EditorApp {
       if (target === 'room-image' && this.selectedRoom) { this.selectedRoom.image = objectUrl; this.project.save(); }
       else if (target === 'item-image' && this.selectedItem) { this.selectedItem.image = objectUrl; this.project.save(); }
       else if (target === 'entity-image' && this.selectedEntity) { this.selectedEntity.image = objectUrl; this.project.save(); }
-      else if (target === 'entity-scene' && this.selectedEntity) { this.selectedEntity.sceneImage = objectUrl; this.project.save(); }
+      else if (target === 'entity-scene' && this.selectedEntity) { this.selectedEntity.heartWall = objectUrl; this.project.save(); }
       else if (target === 'cutscenePath') {
         const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId);
         if (hotspot) { hotspot.cutscenePath = objectUrl; hotspot.cutsceneMedia = detectMediaType(file.name); this.project.save(); }
@@ -1358,7 +1358,7 @@ export class EditorApp {
       else if (entityField === 'solution') entity.solution = input.value as EncounterAction;
       // Trocar o tipo de encontro troca os campos do painel; por isso ele redesenha.
       else if (entityField === 'encounter') { entity.encounter = input.value === 'heart' ? 'heart' : 'choice'; this.project.save(); this.render(); return; }
-      else if (entityField === 'sceneImage') entity.sceneImage = input.value.trim() || undefined;
+      else if (entityField === 'heartWall') entity.heartWall = input.value.trim() || undefined;
       else if (entityField === 'name' || entityField === 'prompt' || entityField === 'hint' || entityField === 'image') entity[entityField] = input.value;
       this.project.save(); this.render();
       return;

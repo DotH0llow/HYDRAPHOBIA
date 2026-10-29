@@ -67,8 +67,8 @@ export interface Encounter {
   remaining: number;
   timeLimit: number;
   image: string;
-  /** Cena por trás da entidade; sem ela o encontro acontece sobre a sala atual. */
-  sceneImage?: string;
+  /** Só em `heart`: a parede colada sobre o canto direito da sala onde o jogador está. */
+  heartWall?: string;
   jumpscareDuration?: number;
   /**
    * Só em `heart`: a arte da entidade que aparece na cena, escolhida no editor.

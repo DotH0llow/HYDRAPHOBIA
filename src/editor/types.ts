@@ -181,8 +181,11 @@ export interface EditorEntity {
   solution: EncounterAction;
   timeLimit: number;
   image: string;
-  /** O lugar onde o encontro acontece; vazio deixa a sala atual como fundo. */
-  sceneImage?: string;
+  /**
+   * Só no encontro do coração: a parede colada sobre o canto direito da cena. O
+   * encontro acontece sempre na sala em que o jogador está; esta parede vem por cima.
+   */
+  heartWall?: string;
   jumpscareSeconds?: number;
   heartHoldSeconds?: number;
   heartEscapeSeconds?: number;
@@ -264,5 +267,5 @@ export const DEFAULT_ITEMS: EditorItem[] = [
 export const DEFAULT_ENTITIES: EditorEntity[] = [
   { id: 'watcher', name: 'O Observador', prompt: 'Uma silhueta bloqueia o corredor. Ela reage a movimento.', hint: 'Talvez seja melhor desaparecer da visão.', encounter: 'choice', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg' },
   { id: 'crawler', name: 'O Rastejante', prompt: 'Unhas batem no concreto atrás de você. Está se aproximando.', hint: 'Ficar parado significa ser alcançado.', encounter: 'choice', solution: 'run', timeLimit: 4.2, image: '/assets/entities/crawler.jpg' },
-  { id: 'vigia', name: 'O que espera no fim do corredor', prompt: 'O corredor não acaba, e há algo parado onde ele deveria acabar. Não se mexe. Está esperando você respirar.', hint: 'Prenda o medo dentro do peito.', encounter: 'heart', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg', sceneImage: '/assets/scenes/lobbyWall.jpg', heartHoldSeconds: 9, heartEscapeSeconds: 3.4, heartPull: 54, heartJoltEvery: 2.4 },
+  { id: 'vigia', name: 'O que espera no fim do corredor', prompt: 'O corredor não acaba, e há algo parado onde ele deveria acabar. Não se mexe. Está esperando você respirar.', hint: 'Prenda o medo dentro do peito.', encounter: 'heart', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg', heartWall: '/assets/scenes/lobbyWall.jpg', heartHoldSeconds: 9, heartEscapeSeconds: 3.4, heartPull: 54, heartJoltEvery: 2.4 },
 ];

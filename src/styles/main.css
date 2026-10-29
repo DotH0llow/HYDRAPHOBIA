@@ -525,14 +525,25 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .film-mode .vhs-stamp { --film-bar: 9.76vh; }
 .vhs-clock { display: flex; align-items: baseline; gap: .1em; }
 /*
+ * A fita perdeu o sincronismo no carimbo inteiro: tudo treme, borrado e com a cor
+ * fugindo para os lados. A diferença está no ritmo — as horas e os minutos vibram no
+ * dobro da velocidade do resto, e são os únicos que o borrão apaga de vez.
+ */
+.vhs-ss, .vhs-date { animation: vhs-glitch .51s steps(1) infinite; }
+/*
  * As horas e os minutos estão gravados por cima de si mesmos: a fita perdeu o
  * sincronismo neles e eles tremem, borrados e com a cor fugindo para os lados. Os
  * segundos, não: é o único número que ainda conta direito, e é por isso que o resto
  * parecer quebrado funciona.
  */
-.vhs-hm { font-style: normal; filter: blur(1.3px); text-shadow: 2px 0 #ff2d2dc4, -2px 0 #2ff5ffc4; animation: vhs-hm-glitch .34s steps(1) infinite; }
-.vhs-ss { font-weight: 400; text-shadow: 0 0 7px #e9ffe07a; }
-.vhs-date { color: #dfe6d3; font-size: .78rem; letter-spacing: .14em; text-shadow: 0 0 6px #0009; }
+/*
+ * A hora não é para ser lida: é um borrão do tamanho de "00:00" no lugar onde um
+ * relógio estaria. O vulto ainda conta — é ele que diz que há um relógio ali —, mas
+ * nenhum quadro da animação devolve um algarismo.
+ */
+.vhs-hm { font-style: normal; filter: blur(5px); text-shadow: 3px 0 #ff2d2dd9, -3px 0 #2ff5ffd9; animation: vhs-hm-glitch .34s steps(1) infinite; }
+.vhs-ss { font-weight: 400; filter: blur(.9px); text-shadow: 1.6px 0 #ff2d2d9e, -1.6px 0 #2ff5ff9e; }
+.vhs-date { color: #dfe6d3; font-size: .78rem; letter-spacing: .14em; filter: blur(.8px); text-shadow: 1.4px 0 #ff2d2d94, -1.4px 0 #2ff5ff94; }
 
 /* ==========================================================================
    Encontro da caixa toracica — "segure o medo"
@@ -553,6 +564,20 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .heart-quake { position: absolute; inset: 0; animation: heart-quake .22s steps(2) infinite; will-change: transform; }
 .heart-layer[data-jolt="true"] .heart-quake { animation: heart-quake-hard .1s steps(2) infinite; }
 .heart-scene { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: saturate(.62) brightness(.62) contrast(1.08); }
+/*
+ * A parede que aparece sobre a sala, encostada na direita e cobrindo cerca de 70% do
+ * lado direito dela. A borda da esquerda desfaz num degradê em vez de cortar reto: um
+ * corte reto entregava que é uma imagem colada, e o que se quer é que alguma coisa
+ * tenha fechado aquele canto do corredor enquanto o jogador não olhava.
+ */
+.heart-wall { position: absolute; right: 0; top: 0; bottom: 0; width: 35%; overflow: hidden; -webkit-mask-image: linear-gradient(90deg, #0000 0, #000 16%); mask-image: linear-gradient(90deg, #0000 0, #000 16%); }
+.heart-wall > img { width: 100%; height: 100%; object-fit: cover; filter: saturate(.58) brightness(.58) contrast(1.1); }
+/*
+ * Quem está vendo isso. O desenho é do personagem que o jogador criou, encostado na
+ * parede e quase dentro dela: a borda acesa dele é a única coisa que o separa do
+ * fundo, e é de propósito que ele some quando a cena escurece.
+ */
+.heart-witness { position: absolute; right: -4%; bottom: 0; height: 70%; width: auto; max-width: 104%; object-fit: contain; opacity: .82; filter: brightness(.62) contrast(1.05) blur(.4px) drop-shadow(0 0 30px #000); animation: heart-witness 6.5s ease-in-out infinite; }
 /*
  * A entidade e uma camada propria: trocar a cena atras dela nao mexe no desenho dela.
  * `darken` e o que une as duas sem exigir um PNG recortado: onde a arte da entidade e
@@ -611,6 +636,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
   50% { transform: scale(1.045) translate(.8%, .9%) rotate(.14deg); }
   75% { transform: scale(1.045) translate(-1.1%, -.7%) rotate(-.16deg); }
 }
+/* Ele respira. É pouco, e é o que impede o desenho de virar um adesivo na parede. */
+@keyframes heart-witness { 50% { transform: translateY(-.7%) scale(1.008); } }
 @keyframes heart-enter { from { opacity: 0; } to { opacity: 1; } }
 @keyframes heart-beat { 0%, 100% { transform: scale(1); } 12% { transform: scale(1.14); } 24% { transform: scale(1); } 36% { transform: scale(1.07); } }
 @keyframes heart-breath { 50% { transform: translateX(-50%) scale(1.015); } }
@@ -632,16 +659,27 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 @keyframes splash-rise { from { opacity: 0; } to { opacity: 1; } }
 @keyframes splash-call { 0%, 58% { opacity: 1; } 59%, 100% { opacity: 0; } }
 /*
- * O borrão tem piso: as horas precisam continuar sendo números na tela, só que
- * números que não dá para ler. Apagar de vez transformava o canto num espaço vazio,
- * e aí o que se via era um defeito do jogo, não um defeito da fita.
+ * O borrão da hora tem piso e teto: nunca afrouxa a ponto de um algarismo voltar, e
+ * nunca apaga a ponto de o canto ficar vazio. O que fica é o vulto de um relógio.
  */
 @keyframes vhs-hm-glitch {
-  0% { transform: translate(0, 0); opacity: 1; filter: blur(1.1px); }
-  22% { transform: translate(-2px, .5px); opacity: .88; filter: blur(1.7px); }
-  44% { transform: translate(1.5px, -1px); opacity: 1; filter: blur(1px); }
-  66% { transform: translate(-1px, 0); opacity: .94; filter: blur(2px); }
-  88% { transform: translate(2px, 1px); opacity: .84; filter: blur(1.4px); }
+  0% { transform: translate(0, 0); opacity: .96; filter: blur(4.6px); }
+  22% { transform: translate(-3px, .5px); opacity: .86; filter: blur(5.6px); }
+  44% { transform: translate(2.5px, -1px); opacity: .96; filter: blur(4.4px); }
+  66% { transform: translate(-1.5px, 0); opacity: .9; filter: blur(6.2px); }
+  88% { transform: translate(3px, 1px); opacity: .82; filter: blur(5px); }
+}
+/*
+ * O mesmo defeito nos segundos e na data, metade da velocidade: o relógio da fita
+ * inteiro está gasto, não só a parte ilegível dele. Aqui o borrão é leve de propósito
+ * — estes continuam sendo números para ler.
+ */
+@keyframes vhs-glitch {
+  0% { transform: translate(0, 0); opacity: 1; filter: blur(.75px); }
+  22% { transform: translate(-1.4px, .4px); opacity: .9; filter: blur(1.1px); }
+  44% { transform: translate(1px, -.7px); opacity: 1; filter: blur(.7px); }
+  66% { transform: translate(-.7px, 0); opacity: .95; filter: blur(1.3px); }
+  88% { transform: translate(1.4px, .7px); opacity: .88; filter: blur(.95px); }
 }
 @keyframes vhs-chroma { 0% { transform: translateX(-1px); } 50% { transform: translateX(1px); } }
 @keyframes vhs-roll { from { top: -18%; } to { top: 100%; } }

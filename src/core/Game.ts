@@ -478,11 +478,18 @@ export class Game {
     this.encounter = {
       id, name: definition.name, prompt: definition.prompt, hint: definition.hint,
       kind, solution: definition.solution, remaining: definition.timeLimit, timeLimit: definition.timeLimit,
-      image: definition.image, sceneImage: definition.sceneImage, jumpscareDuration: definition.jumpscareSeconds,
+      image: definition.image, heartWall: kind === 'heart' ? definition.heartWall : undefined, jumpscareDuration: definition.jumpscareSeconds,
       heartEntityImage: companion?.image,
       heart: kind === 'heart' ? { ...createHeart(this.random), ...this.heartConfigOf(definition) } : undefined,
     };
-    this.heartPointer = null;
+    /*
+     * O ponteiro nasce em cima do coração, e não onde o mouse estava. Sem isto, quem
+     * já estivesse com o mouse parado no meio da tela quando o encontro começava via o
+     * coração voar sozinho para dentro do tórax: o susto virava um presente. A partir
+     * daqui a tela só soma o quanto o mouse andou, então o jogador começa sempre com a
+     * mão onde o coração está — numa borda qualquer, nunca a mesma.
+     */
+    this.heartPointer = this.encounter.heart ? { x: this.encounter.heart.x, y: this.encounter.heart.y } : null;
     this.status = 'encounter';
     this.lastThreatElapsed = this.elapsed;
     this.message = this.encounter.prompt;

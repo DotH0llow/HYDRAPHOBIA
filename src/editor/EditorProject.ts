@@ -616,7 +616,11 @@ export class EditorProject {
       solution: SOLUTIONS.has(entity.solution as EncounterAction) ? entity.solution as EncounterAction : 'hide',
       timeLimit: number(entity.timeLimit, 5, 1, 30),
       image: typeof entity.image === 'string' && entity.image ? entity.image : '/assets/entities/watcher.jpg',
-      sceneImage: typeof entity.sceneImage === 'string' && entity.sceneImage ? entity.sceneImage : undefined,
+      // `sceneImage` é como este campo se chamava enquanto o encontro tinha cena
+      // própria; projetos gravados naquela época continuam abrindo com a parede certa.
+      heartWall: typeof entity.heartWall === 'string' && entity.heartWall ? entity.heartWall
+        : typeof (entity as { sceneImage?: unknown }).sceneImage === 'string' ? (entity as { sceneImage?: string }).sceneImage || undefined
+        : undefined,
       jumpscareSeconds: typeof entity.jumpscareSeconds === 'number' && entity.jumpscareSeconds > 0 ? entity.jumpscareSeconds : undefined,
       heartHoldSeconds: typeof entity.heartHoldSeconds === 'number' ? number(entity.heartHoldSeconds, 9, 2, 60) : undefined,
       heartEscapeSeconds: typeof entity.heartEscapeSeconds === 'number' ? number(entity.heartEscapeSeconds, 3.4, 0.5, 20) : undefined,

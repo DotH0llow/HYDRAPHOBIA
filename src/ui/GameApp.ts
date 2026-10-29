@@ -1,5 +1,5 @@
 import { ENTITIES, ITEMS, type EntityDefinition, type ItemDefinition, type RoomDefinition } from '../config/world';
-import { allIllustrated, CLASSES, classArtFor, classLabelFor, DEFAULT_CHARACTER, GENDERS, labelOf, MAX_CHARACTER_NAME, MIN_CHARACTER_NAME, MODES, PHOBIAS, sanitizeCharacterName, STARTING_ITEMS } from '../config/character';
+import { allIllustrated, CLASSES, classArtFor, classLabelFor, DEFAULT_CHARACTER, GENDERS, labelOf, MAX_CHARACTER_NAME, MIN_CHARACTER_NAME, MODES, PHOBIAS, sanitizeCharacterName, scaredArtFor, STARTING_ITEMS } from '../config/character';
 import { Game } from '../core/Game';
 import { EditorProject } from '../editor/EditorProject';
 import { entitiesToRuntime, itemsToRuntime, projectToWorld } from '../editor/mapAdapter';
@@ -24,7 +24,7 @@ import { SAVE_SLOT_COUNT, type BooleanPreferenceKey, type CampaignEnding, type C
 type NumericPreferenceKey = Exclude<keyof Preferences, BooleanPreferenceKey>;
 
 /** A data gravada na fita, e a hora em que ela começou a rodar naquela noite. */
-const TAPE_DATE = 'SEP. 03 1985';
+const TAPE_DATE = '03/09/1985';
 const TAPE_START_SECONDS = 21 * 3600 + 14 * 60;
 
 /** Uma pergunta de sim/nao desenhada pelo proprio jogo, com a acao ja escolhida. */
@@ -93,6 +93,14 @@ export class GameApp {
   private jumpscareUntil = 0;
   private jumpscareImage = '/assets/entities/watcher.jpg';
   private seenAttackNonce = 0;
+  /**
+   * A mira do coração, em % da cena, e de onde o último movimento do mouse foi medido.
+   * As duas nascem vazias a cada encontro: a mira só existe a partir do ponto em que o
+   * coração apareceu, e não de onde o mouse estava parado.
+   */
+  private heartAim: { x: number; y: number } | null = null;
+  private heartLastClient: { x: number; y: number } | null = null;
+  private heartActive = false;
   private devPanelOpen = false;
   private dangerSoundTier = 0;
   private nextDangerSoundAt = 0;
@@ -160,7 +168,11 @@ export class GameApp {
     this.render();
     // O coração se move a cada quadro, e `render` só repinta de dez em dez: a posição
     // dele é escrita aqui, fora do desenho, como a escuridão que pisca.
-    if (this.screen === 'game' && this.game?.encounter?.kind === 'heart') this.updateHeartLayer();
+    const inHeart = this.screen === 'game' && this.game?.encounter?.kind === 'heart';
+    // Entrar ou sair do encontro zera a mira: cada encontro começa com a mão no
+    // coração, e o que sobrou do anterior não tem onde se encaixar neste.
+    if (inHeart !== this.heartActive) { this.heartActive = inHeart; this.heartAim = null; this.heartLastClient = null; }
+    if (inHeart) this.updateHeartLayer();
     // Luzes com flickering precisam de um quadro novo mesmo sem mudança de estado.
     if (this.screen === 'game' && this.game && hasFlicker((this.game.room as RoomDefinition).lights)) this.updateDarknessCanvas();
     requestAnimationFrame(this.tick);
@@ -759,9 +771,12 @@ export class GameApp {
 
   /**
    * O encontro da caixa torácica. São camadas soltas, empilhadas na ordem em que foram
-   * pensadas: a cena do encontro atrás, a entidade sobre ela — se o nível pediu uma — e
-   * a mecânica por cima das duas. Nenhuma sabe das outras, e por isso a cena pode ficar
-   * vazia sem que nada mais mude.
+   * pensadas: a sala onde o jogador está atrás de tudo, a parede colada sobre o canto
+   * direito dela, o personagem encostado nessa parede, a entidade — se o nível pediu
+   * uma — e a mecânica por cima. Nenhuma sabe das outras.
+   *
+   * O encontro acontece onde o jogador está, e não num lugar próprio: o que muda na
+   * sala é a parede que aparece do lado direito, e é ela que diz que algo entrou aqui.
    *
    * Tudo isso vive dentro de `.heart-quake`, que treme o tempo inteiro. A camada de
    * fora não treme de propósito: é dela que o ponteiro é medido, e medir num retângulo
@@ -773,14 +788,15 @@ export class GameApp {
     const config = { holdSeconds: heart.holdSeconds, escapeSeconds: heart.escapeSeconds, pull: heart.pull, joltEvery: heart.joltEvery };
     const inside = heartInsideCage(heart.x, heart.y);
     const exposure = heartExposure(heart, config);
-    const scene = encounter.sceneImage || this.game!.room.image;
     const entity = encounter.heartEntityImage;
+    const character = this.activeSlot === null ? undefined : this.save.slots[this.activeSlot]?.character;
     // Um PNG ou WebP pode trazer transparência; aí a entidade é um recorte e fica no
     // centro da cena, em vez de uma arte de tela inteira encaixada por mistura.
     const cutout = Boolean(entity) && (/\.(png|webp|gif)$/i.test(entity!) || entity!.startsWith('data:image/png'));
     return `<div class="heart-layer" data-role="heart-layer" data-inside="${inside}" data-cutout="${cutout}" data-jolt="false">
       <div class="heart-quake" data-role="heart-quake">
-        <img class="heart-scene" src="${esc(scene)}" alt="" />
+        <img class="heart-scene" src="${esc(this.game!.room.image)}" alt="" />
+        ${encounter.heartWall ? `<div class="heart-wall" aria-hidden="true"><img src="${esc(encounter.heartWall)}" alt="" />${character ? `<img class="heart-witness" src="${esc(scaredArtFor(character.classId, character.gender))}" alt="" />` : ''}</div>` : ''}
         ${entity ? `<img class="heart-entity" src="${esc(entity)}" alt="${esc(encounter.name)}" />` : ''}
         <div class="heart-grade" aria-hidden="true"></div>
         <div class="heart-stage" data-role="heart-stage">
@@ -970,9 +986,10 @@ export class GameApp {
     // O coração é o ponteiro: basta mexer o mouse, não há o que clicar nem o que soltar.
     window.addEventListener('pointermove', (event) => this.aimHeart(event));
     window.addEventListener('pointerdown', (event) => this.aimHeart(event));
-    // Sair da janela larga o coração à deriva, em vez de deixá-lo preso no último ponto.
-    window.addEventListener('pointercancel', () => this.game?.setHeartPointer(null));
-    document.addEventListener('pointerleave', () => this.game?.setHeartPointer(null));
+    // Sair e voltar à janela não teleporta a mira: só esquece de onde ela media, para
+    // o reencontro com o ponteiro não virar um pulo que o jogador não pediu.
+    window.addEventListener('pointercancel', () => { this.heartLastClient = null; });
+    document.addEventListener('pointerleave', () => { this.heartLastClient = null; });
     this.root.addEventListener('input', (event) => this.handleInput(event.target as HTMLInputElement));
     this.root.addEventListener('change', (event) => this.handleInput(event.target as HTMLInputElement));
     window.addEventListener('keydown', (event) => this.handleKey(event));
@@ -1461,6 +1478,24 @@ export class GameApp {
       return;
     }
     if (event.key === 'Escape') {
+      // Uma pergunta de sim/não na frente é o que o ESC fecha primeiro; sair da tela
+      // por baixo dela deixaria o jogador respondendo a uma coisa que não está mais ali.
+      if (this.confirm) { this.confirm = null; this.forcePaint = true; this.render(true); return; }
+      /*
+       * Sair das configurações com ESC não é desistir do que foi mexido: cada controle
+       * já grava ao ser tocado, e o ESC confirma isso e devolve o jogo correndo, em vez
+       * de largar o jogador na pausa de onde ele abriu as configurações.
+       */
+      if (this.screen === 'settings') {
+        this.persistSave();
+        if (this.game) {
+          this.screen = 'game';
+          if (this.game.status === 'paused') this.resumeFromPause();
+        } else this.screen = 'menu';
+        this.forcePaint = true;
+        this.render(true);
+        return;
+      }
       if (this.inventoryOpen) { this.inventoryOpen = false; this.focusedItem = null; this.forcePaint = true; this.render(true); return; }
       if (this.screen === 'create') { this.createPreviousStep(); this.forcePaint = true; this.render(true); return; }
       if (this.screen === 'slots') { this.screen = 'menu'; this.forcePaint = true; this.render(true); return; }
@@ -1485,23 +1520,33 @@ export class GameApp {
   }
 
   /**
-   * Onde o ponteiro está, em % da camada do encontro — as mesmas unidades que a
-   * mecânica usa. Sem a conversão o coração responderia a pixels, e a dificuldade
-   * mudaria com o tamanho da janela de quem está jogando.
+   * Para onde o jogador está levando o coração.
+   *
+   * O que conta aqui é o quanto o mouse andou, não onde ele está. O encontro começa
+   * com a mão em cima do coração, numa borda qualquer da cena, e cada movimento soma a
+   * partir dali — do contrário quem já estivesse com o mouse no meio da tela ganhava o
+   * tórax de graça no primeiro quadro. O deslocamento é convertido para % da cena para
+   * a dificuldade não mudar com o tamanho da janela de quem está jogando.
    */
-  private heartPoint(event: PointerEvent): { x: number; y: number } | null {
-    const layer = this.root.querySelector<HTMLElement>('[data-role="heart-layer"]');
-    if (!layer) return null;
-    const rect = layer.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return null;
-    return { x: ((event.clientX - rect.left) / rect.width) * 100, y: ((event.clientY - rect.top) / rect.height) * 100 };
-  }
-
-  /** Para onde o jogador está levando o coração. Fora do encontro isto não custa nada. */
   private aimHeart(event: PointerEvent): void {
-    if (this.game?.encounter?.kind !== 'heart') return;
-    const point = this.heartPoint(event);
-    if (point) this.game.setHeartPointer(point);
+    const heart = this.game?.encounter?.heart;
+    if (!heart || this.game?.encounter?.kind !== 'heart') { this.heartAim = null; this.heartLastClient = null; return; }
+    const layer = this.root.querySelector<HTMLElement>('[data-role="heart-layer"]');
+    if (!layer) return;
+    const rect = layer.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    if (!this.heartAim) this.heartAim = { x: heart.x, y: heart.y };
+    // O primeiro movimento só marca de onde medir; ele não arrasta nada.
+    if (!this.heartLastClient) { this.heartLastClient = { x: event.clientX, y: event.clientY }; return; }
+    const dx = ((event.clientX - this.heartLastClient.x) / rect.width) * 100;
+    const dy = ((event.clientY - this.heartLastClient.y) / rect.height) * 100;
+    this.heartLastClient = { x: event.clientX, y: event.clientY };
+    // A mira não sai da cena: longe demais, voltar custaria um tempo que não existe.
+    this.heartAim = {
+      x: Math.max(0, Math.min(100, this.heartAim.x + dx)),
+      y: Math.max(0, Math.min(100, this.heartAim.y + dy)),
+    };
+    this.game.setHeartPointer(this.heartAim);
   }
 
   /** O coração se move a cada quadro; redesenhar a cena inteira por isso seria absurdo. */

@@ -132,8 +132,12 @@ export interface EntityDefinition {
   solution: EncounterAction;
   timeLimit: number;
   image: string;
-  /** Cena por tras da entidade no encontro, separada da arte dela. */
-  sceneImage?: string;
+  /**
+   * So no encontro do coracao: a parede que cobre o canto direito da cena. O encontro
+   * acontece na sala em que o jogador esta, e esta parede e colada sobre ela — e nela
+   * que o personagem assustado fica encostado.
+   */
+  heartWall?: string;
   jumpscareSeconds?: number;
   /** So no encontro do coracao; ausente usa o padrao da mecanica. */
   heartHoldSeconds?: number;
@@ -165,7 +169,7 @@ export const ENTITIES: Record<EntityId, EntityDefinition> = {
     hint: 'Prenda o medo dentro do peito.',
     encounter: 'heart', solution: 'hide', timeLimit: 5,
     image: '/assets/entities/watcher.jpg',
-    sceneImage: '/assets/scenes/lobbyWall.jpg',
+    heartWall: '/assets/scenes/lobbyWall.jpg',
     heartHoldSeconds: 9, heartEscapeSeconds: 3.4, heartPull: 54, heartJoltEvery: 2.4,
   },
 };

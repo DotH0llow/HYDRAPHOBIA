@@ -132,7 +132,7 @@ export const entitiesToRuntime = (entities: EditorEntity[]): Record<EntityId, En
     result[entity.id] = {
       name: entity.name, prompt: entity.prompt, hint: entity.hint,
       encounter: entity.encounter, solution: entity.solution, timeLimit: entity.timeLimit,
-      image: entity.image, sceneImage: entity.sceneImage, jumpscareSeconds: entity.jumpscareSeconds,
+      image: entity.image, heartWall: entity.heartWall, jumpscareSeconds: entity.jumpscareSeconds,
       heartHoldSeconds: entity.heartHoldSeconds, heartEscapeSeconds: entity.heartEscapeSeconds, heartPull: entity.heartPull,
       heartJoltEvery: entity.heartJoltEvery, heartEntity: entity.heartEntity,
     };

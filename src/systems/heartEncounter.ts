@@ -97,22 +97,30 @@ const nextJolt = (config: HeartConfig, random: () => number): number =>
   Math.max(0.5, config.joltEvery) * (0.55 + random() * 0.9);
 
 /**
- * O coração entra pelo canto, como no susto: ele já está fora da caixa, e o primeiro
- * trabalho do jogador é trazê-lo para dentro.
+ * O coração entra por uma borda da cena, nunca a mesma: ele já nasce fora da caixa, e
+ * o primeiro trabalho do jogador é atravessar a cena atrás dele. Eram dois cantos
+ * fixos, e quem jogasse duas vezes já sabia para onde olhar.
  */
-export const createHeart = (random: () => number = Math.random): HeartState => ({
-  x: random() < 0.5 ? 92 : 8,
-  y: 12,
-  vx: 0,
-  vy: 0,
-  angle: Math.PI * 0.5,
-  turnIn: 0.4,
-  held: 0,
-  escaped: 0,
-  grace: GRACE_SECONDS,
-  joltIn: nextJolt(DEFAULT_HEART_CONFIG, random),
-  jolt: 0,
-});
+export const createHeart = (random: () => number = Math.random): HeartState => {
+  const along = 12 + random() * 76;
+  const side = Math.floor(random() * 4);
+  const rim = side === 0 ? { x: along, y: 8 }
+    : side === 1 ? { x: 92, y: along }
+    : side === 2 ? { x: along, y: 92 }
+    : { x: 8, y: along };
+  return {
+    ...rim,
+    vx: 0,
+    vy: 0,
+    angle: Math.atan2(rim.y - CAGE.y, rim.x - CAGE.x),
+    turnIn: 0.4,
+    held: 0,
+    escaped: 0,
+    grace: GRACE_SECONDS,
+    joltIn: nextJolt(DEFAULT_HEART_CONFIG, random),
+    jolt: 0,
+  };
+};
 
 export const heartInsideCage = (x: number, y: number): boolean => cageDistance(x, y) <= 1;
 
@@ -236,7 +244,10 @@ const advanceHeart = (
   let jolted = false;
   if (next.joltIn <= 0) {
     const angle = awayFromCage(next, random) + (random() * 2 - 1) * Math.PI * 0.45;
-    const kick = force * (1.7 + random() * 1.2);
+    // O tranco leva o coração para longe de verdade: com o arrasto da mão, este
+    // impulso vale perto de um quarto da cena. Menos do que isso e ele voltava para o
+    // tórax antes de o jogador perceber que tinha sido arremessado.
+    const kick = force * (3.4 + random() * 1.9);
     next.vx += Math.cos(angle) * kick;
     next.vy += Math.sin(angle) * kick;
     next.angle = angle;

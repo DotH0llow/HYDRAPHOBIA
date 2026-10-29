@@ -140,10 +140,12 @@ describe('o tranco', () => {
 
 describe('as barras do encontro', () => {
   it('voltar para dentro recupera parte do que escapou', () => {
-    const config: HeartConfig = { ...DEFAULT_HEART_CONFIG, holdSeconds: 30, escapeSeconds: 20 };
-    const solto = run(heartAt(CAGE.x, CAGE.y), config, 1.5, () => null);
+    // Sem trancos: o que este teste olha é a recuperação, e um tranco no meio do
+    // caminho joga o coração para longe de novo e esconde o que se queria medir.
+    const config: HeartConfig = { ...DEFAULT_HEART_CONFIG, holdSeconds: 30, escapeSeconds: 20, joltEvery: 20 };
+    const solto = run(calm(CAGE.x, CAGE.y), config, 1.5, () => null);
     expect(solto.state.escaped).toBeGreaterThan(0);
-    const recuperado = run(solto.state, config, 8, () => ({ x: CAGE.x, y: CAGE.y }));
+    const recuperado = run({ ...solto.state, joltIn: 99 }, config, 8, () => ({ x: CAGE.x, y: CAGE.y }));
     expect(recuperado.state.escaped).toBeLessThan(solto.state.escaped);
   });
 
