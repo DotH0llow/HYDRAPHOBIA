@@ -16,6 +16,35 @@
 
 * { box-sizing: border-box; }
 html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+
+/*
+ * O cursor e a seleção de texto.
+ *
+ * A seta é a do jogo, de pixels, e vale em qualquer estado: a mão do navegador sobre
+ * um botão era a única peça da interface que não tinha sido desenhada por nós. A ponta
+ * do desenho fica no canto de cima à esquerda, e é por isso que o recuo é `0 0`.
+ *
+ * Os dois usam `#app *` de propósito: é a única especificidade que ganha das regras
+ * soltas de `cursor: pointer` espalhadas pelo resto do arquivo sem ter de reescrever
+ * cada uma. O encontro do coração e os campos de texto voltam atrás disto logo abaixo.
+ *
+ * Nada do jogo é texto para copiar, e arrastar o mouse sobre uma fala deixava um
+ * rastro azul de seleção no meio da cena — ainda mais no encontro do coração, que é
+ * mouse arrastado o tempo inteiro. O editor fica fora: lá o texto é para ser lido,
+ * copiado e conferido.
+ */
+:root { --cursor-arrow: url('/assets/ui/cursor.png') 0 0, default; }
+html, body, #app, #app * {
+  cursor: var(--cursor-arrow);
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* Escrever o nome do personagem é escrever: ali a seleção e o cursor são os de sempre. */
+#app input, #app textarea {
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+}
 body { min-width: 320px; background: #030403; }
 button, input, select { font: inherit; }
 button { color: inherit; }
@@ -556,6 +585,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
  * duas coisas sendo movidas pela mesma mão.
  */
 .heart-layer { position: absolute; z-index: 40; inset: 0; overflow: hidden; background: #020302; animation: heart-enter .7s ease both; user-select: none; touch-action: none; cursor: none; }
+/* No encontro o coração é o ponteiro: a seta some, e some por cima da regra geral. */
+#app .heart-layer, #app .heart-layer * { cursor: none; }
 /*
  * Tudo que se vê treme; o retângulo de fora, não. É dele que o ponteiro é medido, e
  * medir num quadro que balança faria a mão do jogador tremer junto com a tela. O
