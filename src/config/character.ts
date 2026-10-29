@@ -48,13 +48,12 @@ const FEMALE_CLASS_ART: Readonly<Partial<Record<CharacterClassId, string>>> = {
 
 /**
  * O personagem encostado na parede no encontro da caixa torácica: assustado, com as
- * duas mãos tapando a boca. São oito artes, uma por classe e gênero, e quem aparece
- * ali é sempre o personagem que o jogador criou — é ele que está vendo aquilo.
- * São as mesmas artes de classe, no mesmo contraluz, só que nessa pose: por isso
- * ficam em `.webp` ao lado delas, e não num formato à parte.
+ * duas mãos tapando a boca. São duas artes, uma por gênero — a classe não entra
+ * aqui: na cena a figura aparece pequena e longe, e o que se lia dela era o susto,
+ * não a mochila nem o escudo.
  */
-export const scaredArtFor = (classId: CharacterClassId, gender: CharacterGender): string =>
-  `${ART}/scared/${classId}_${gender}.webp`;
+export const scaredArtFor = (gender: CharacterGender): string =>
+  `${ART}/scared/${gender}.webp`;
 
 /** Arte da classe para o gênero escolhido. */
 export const classArtFor = (classId: CharacterClassId, gender: CharacterGender): string | undefined => {

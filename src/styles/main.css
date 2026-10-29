@@ -573,15 +573,14 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .heart-wall { position: absolute; right: 0; top: 0; bottom: 0; width: 35%; overflow: hidden; }
 .heart-wall-art { width: 100%; height: 100%; object-fit: cover; filter: saturate(.58) brightness(.58) contrast(1.1); }
 /*
- * Quem está vendo isso: o personagem que o jogador criou, encostado na parede. A arte
- * é recortada e vem com transparência de verdade — tentar encaixá-la por mistura
- * apagava a pessoa, porque `screen` nunca escurece e a figura é escura contra uma
- * parede clara. Ela é mais larga que a parede de propósito: o que sobra é cortado
- * pela parede, e é isso que a põe dentro da cena em vez de em cima dela. O pé é
- * dissolvido porque o reflexo molhado da arte, deixado inteiro, virava uma poça
- * acesa onde o chão da sala não tem nenhuma.
+ * Quem está vendo isso: o personagem que o jogador criou, de corpo inteiro e de pé
+ * contra a parede. A arte já vem recortada, sem fundo nenhum, e por isso cabe dentro
+ * da parede em vez de ser aparada por ela. Nada de desfazer o pé: a figura acaba nas
+ * botas, e dissolvê-las deixava a pessoa flutuando. Ela entra escurecida de
+ * propósito — a arte é clara e a cena atrás dela está em 62% do brilho; no brilho
+ * cheio a pessoa saltava da sala como um adesivo.
  */
-.heart-witness { position: absolute; left: 50%; bottom: 0; width: 112%; height: auto; transform: translateX(-50%); object-fit: contain; opacity: .97; filter: brightness(.96) saturate(.82) contrast(1.04); -webkit-mask-image: linear-gradient(0deg, #0000 0, #000 9%); mask-image: linear-gradient(0deg, #0000 0, #000 9%); animation: heart-witness 6.5s ease-in-out infinite; }
+.heart-witness { position: absolute; left: 50%; bottom: 2%; width: 74%; height: auto; transform: translateX(-50%); object-fit: contain; opacity: .95; filter: brightness(.6) saturate(.72) contrast(1.06); animation: heart-witness 6.5s ease-in-out infinite; }
 /*
  * A entidade e uma camada propria: trocar a cena atras dela nao mexe no desenho dela.
  * `darken` e o que une as duas sem exigir um PNG recortado: onde a arte da entidade e

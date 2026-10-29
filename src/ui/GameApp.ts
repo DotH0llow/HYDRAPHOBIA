@@ -796,7 +796,7 @@ export class GameApp {
     return `<div class="heart-layer" data-role="heart-layer" data-inside="${inside}" data-cutout="${cutout}" data-jolt="false">
       <div class="heart-quake" data-role="heart-quake">
         <img class="heart-scene" src="${esc(this.game!.room.image)}" alt="" />
-        ${encounter.heartWall ? `<div class="heart-wall" aria-hidden="true"><img class="heart-wall-art" src="${esc(encounter.heartWall)}" alt="" />${character ? `<img class="heart-witness" src="${esc(scaredArtFor(character.classId, character.gender))}" alt="" />` : ''}</div>` : ''}
+        ${encounter.heartWall ? `<div class="heart-wall" aria-hidden="true"><img class="heart-wall-art" src="${esc(encounter.heartWall)}" alt="" />${character ? `<img class="heart-witness" src="${esc(scaredArtFor(character.gender))}" alt="" />` : ''}</div>` : ''}
         ${entity ? `<img class="heart-entity" src="${esc(entity)}" alt="${esc(encounter.name)}" />` : ''}
         <div class="heart-grade" aria-hidden="true"></div>
         <div class="heart-stage" data-role="heart-stage">
