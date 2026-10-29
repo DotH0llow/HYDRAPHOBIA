@@ -715,7 +715,7 @@ export class EditorApp {
       <label><span>Tempo para decidir (segundos)</span><input type="number" min="1" max="30" step="0.1" data-entity-field="timeLimit" value="${entity.timeLimit}" /></label>` : `
       <div class="field-row">
         <label><span>Segurar por (s)</span><input type="number" min="2" max="60" step="0.5" data-entity-field="heartHoldSeconds" value="${entity.heartHoldSeconds ?? ''}" placeholder="9" /></label>
-        <label><span>Escapa em (s)</span><input type="number" min="0.5" max="20" step="0.1" data-entity-field="heartEscapeSeconds" value="${entity.heartEscapeSeconds ?? ''}" placeholder="3.4" /></label>
+        <label><span>Escapa em (s)</span><input type="number" min="0.5" max="20" step="0.1" data-entity-field="heartEscapeSeconds" value="${entity.heartEscapeSeconds ?? ''}" placeholder="13.4" /></label>
       </div>
       <div class="field-row">
         <label><span>Resistência ao tórax</span><input type="number" min="8" max="160" step="2" data-entity-field="heartPull" value="${entity.heartPull ?? ''}" placeholder="54" /></label>

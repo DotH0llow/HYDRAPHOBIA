@@ -65,7 +65,7 @@ export interface HeartConfig {
   joltEvery: number;
 }
 
-export const DEFAULT_HEART_CONFIG: HeartConfig = { holdSeconds: 9, escapeSeconds: 3.4, pull: 54, joltEvery: 2.4 };
+export const DEFAULT_HEART_CONFIG: HeartConfig = { holdSeconds: 9, escapeSeconds: 13.4, pull: 54, joltEvery: 2.4 };
 
 export interface HeartState {
   /** Posição e velocidade do coração, em % da cena. */
@@ -79,6 +79,12 @@ export interface HeartState {
   /** Quanto o jogador já segurou dentro da caixa, e quanto o medo já escapou. */
   held: number;
   escaped: number;
+  /**
+   * Quanto tempo o encontro inteiro já dura, dentro ou fora da caixa. Nem `held` nem
+   * `escaped` servem para isso: os dois andam para trás. É este relógio que a tela usa
+   * para subir a batida — ela cresce com o encontro, não com o acerto do jogador.
+   */
+  elapsed: number;
   /** Segundos de perdão no começo: o coração nasce fora, e alcançá-lo leva um tempo. */
   grace: number;
   /** Quanto falta para o próximo tranco, e quanto resta do tremor forte do último. */
@@ -116,6 +122,7 @@ export const createHeart = (random: () => number = Math.random): HeartState => {
     turnIn: 0.4,
     held: 0,
     escaped: 0,
+    elapsed: 0,
     grace: GRACE_SECONDS,
     joltIn: nextJolt(DEFAULT_HEART_CONFIG, random),
     jolt: 0,
@@ -144,6 +151,14 @@ export const heartResistance = (x: number, y: number): number => {
 /** O quanto o medo já escapou, de 0 a 1 — é o que a barra da tela mostra. */
 export const heartExposure = (state: HeartState, config: HeartConfig): number =>
   Math.min(1, state.escaped / Math.max(0.1, config.escapeSeconds));
+
+/**
+ * O quanto o encontro já se arrastou, de 0 a 1, contado desde o primeiro quadro. É o
+ * que faz a batida de coração entrar muda e ir enchendo a sala: o aperto cresce com a
+ * demora, e quem resolve rápido quase não a ouve.
+ */
+export const heartIntensity = (state: HeartState, config: HeartConfig): number =>
+  Math.min(1, state.elapsed / Math.max(0.1, config.holdSeconds));
 
 /** O quanto do encontro já passou, de 0 a 1. */
 export const heartProgress = (state: HeartState, config: HeartConfig): number =>
@@ -276,6 +291,7 @@ const advanceHeart = (
   next.x = clamp(next.x, BOUNDS.minX, BOUNDS.maxX);
   next.y = clamp(next.y, BOUNDS.minY, BOUNDS.maxY);
 
+  next.elapsed += step;
   next.grace = Math.max(0, next.grace - step);
   if (heartInsideCage(next.x, next.y)) {
     next.held += step;

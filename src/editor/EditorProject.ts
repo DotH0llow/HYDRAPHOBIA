@@ -623,7 +623,7 @@ export class EditorProject {
         : undefined,
       jumpscareSeconds: typeof entity.jumpscareSeconds === 'number' && entity.jumpscareSeconds > 0 ? entity.jumpscareSeconds : undefined,
       heartHoldSeconds: typeof entity.heartHoldSeconds === 'number' ? number(entity.heartHoldSeconds, 9, 2, 60) : undefined,
-      heartEscapeSeconds: typeof entity.heartEscapeSeconds === 'number' ? number(entity.heartEscapeSeconds, 3.4, 0.5, 20) : undefined,
+      heartEscapeSeconds: typeof entity.heartEscapeSeconds === 'number' ? number(entity.heartEscapeSeconds, 13.4, 0.5, 20) : undefined,
       heartPull: typeof entity.heartPull === 'number' ? number(entity.heartPull, 46, 8, 160) : undefined,
       heartJoltEvery: typeof entity.heartJoltEvery === 'number' ? number(entity.heartJoltEvery, 2.4, 0.5, 20) : undefined,
       // A entidade da cena é resolvida pelo id na hora do encontro; aqui basta guardá-lo.

@@ -10,6 +10,14 @@ export type Cue = 'click' | 'step' | 'pickup' | 'use' | 'locked' | 'entity' | 'j
 const DANGER_CUES = new Set<Cue>(['discomfort', 'suspicion-step', 'suspicion-scratch', 'threat-step', 'threat-breath', 'danger-scrape']);
 
 const MANIFEST_URL = '/assets/audio/manifest.json';
+/**
+ * A batida do encontro do coração. É um arquivo só, em laço, e não uma categoria: ele
+ * não concorre com os batimentos de vida baixa nem espera a vez no espaçamento dos
+ * efeitos — enquanto o encontro dura, ele é a sala inteira.
+ */
+const HEARTBEAT_PATH = '/assets/audio/FX/Low Health/heartbeat_2.mp3';
+/** O volume da batida quando o encontro já se arrastou o bastante. */
+const HEARTBEAT_PEAK = 0.82;
 const SCHEDULER_INTERVAL_MS = 250;
 /** Com o leito sintético e uma música de arquivo tocando juntos, o leito recua. */
 const AMBIENCE_DUCK = 0.45;
@@ -94,6 +102,11 @@ export class AudioSystem {
   private gameplayPaused = false;
   /** Trilha presa à sala atual, quando o editor configurou uma. */
   private roomTrack: { path: string; mode: string; source: AudioBufferSourceNode; gain: GainNode } | null = null;
+  /** A batida em laço do encontro do coração, e o quanto dela está soando agora. */
+  private heartbeat: { source: AudioBufferSourceNode; gain: GainNode } | null = null;
+  private heartbeatIntensity = 0;
+  /** Carregar o arquivo demora; sem isto, dois pedidos seguidos viravam duas batidas. */
+  private heartbeatLoading = false;
   /** Trilha de sala pedida antes de o navegador liberar o áudio; toca ao liberar. */
   private pendingRoomTrack: { path: string; options: RoomTrackOptions } | null = null;
   private nowMusic: { label: string; file: string } | null = null;
@@ -282,6 +295,7 @@ export class AudioSystem {
   /** Volta ao menu: nada do jogo continua soando. */
   stopAll(): void {
     [...this.active].forEach((clip) => this.stopClip(clip));
+    this.stopHeartbeat();
     this.stopRoomTrack();
     this.setMusic(null);
     this.nowMusic = null;
@@ -337,6 +351,61 @@ export class AudioSystem {
 
   get roomTrackPath(): string | null { return this.roomTrack?.path ?? null; }
 
+  // --- a batida do encontro do coração ---
+
+  /**
+   * Começa a batida muda. Ela entra em laço e fica, e quem manda no volume é a tela,
+   * quadro a quadro, por `setHeartbeatIntensity`: o som não sabe o que está
+   * acontecendo no encontro, só obedece ao aperto que lhe passam.
+   */
+  async startHeartbeat(): Promise<void> {
+    const context = this.context;
+    if (!context || this.heartbeat || this.heartbeatLoading || this.gameplayPaused) return;
+    this.heartbeatLoading = true;
+    const buffer = await this.ensureBuffer(HEARTBEAT_PATH).finally(() => { this.heartbeatLoading = false; });
+    // Carregar demora; se o encontro acabou no meio disso, não há mais o que tocar.
+    if (!buffer || !this.effectsBus || this.heartbeat || this.gameplayPaused) return;
+    const source = context.createBufferSource();
+    const gain = context.createGain();
+    source.buffer = buffer;
+    source.loop = true;
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    source.connect(gain).connect(this.effectsBus);
+    source.start(context.currentTime);
+    this.heartbeat = { source, gain };
+    this.setHeartbeatIntensity(this.heartbeatIntensity);
+  }
+
+  /** O aperto do encontro, de 0 a 1: 0 é silêncio, 1 é a batida por cima de tudo. */
+  setHeartbeatIntensity(value: number): void {
+    this.heartbeatIntensity = Math.max(0, Math.min(1, value));
+    const context = this.context;
+    if (!this.heartbeat || !context) return;
+    // A subida é por degraus curtos, e não de um salto: a rampa cobre o quadro inteiro
+    // que vem, então o volume anda junto com o encontro em vez de estalar a cada vez.
+    const target = Math.max(0.0001, this.heartbeatIntensity * HEARTBEAT_PEAK);
+    const now = context.currentTime;
+    this.heartbeat.gain.gain.cancelScheduledValues(now);
+    this.heartbeat.gain.gain.setValueAtTime(Math.max(0.0001, this.heartbeat.gain.gain.value), now);
+    this.heartbeat.gain.gain.linearRampToValueAtTime(target, now + 0.25);
+  }
+
+  /** O encontro acabou: a batida some em meio segundo, ganhando ou perdendo. */
+  stopHeartbeat(): void {
+    const beat = this.heartbeat;
+    this.heartbeat = null;
+    this.heartbeatIntensity = 0;
+    const context = this.context;
+    if (!beat || !context) return;
+    const now = context.currentTime;
+    try {
+      beat.gain.gain.cancelScheduledValues(now);
+      beat.gain.gain.setValueAtTime(Math.max(0.0001, beat.gain.gain.value), now);
+      beat.gain.gain.linearRampToValueAtTime(0.0001, now + 0.45);
+      beat.source.stop(now + 0.5);
+    } catch { /* já parou */ }
+  }
+
   /** O que o painel DEV mostra: trilha atual, trilha da sala e último efeito ouvido. */
   nowPlaying(): NowPlaying {
     return {
@@ -379,6 +448,7 @@ export class AudioSystem {
   stop(): void {
     this.ambience?.source.stop();
     this.ambience = null;
+    this.stopHeartbeat();
     this.stopRoomTrack();
     this.setMusic(null);
     if (this.scheduler) { clearInterval(this.scheduler); this.scheduler = null; }

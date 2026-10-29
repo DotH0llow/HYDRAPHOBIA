@@ -89,6 +89,7 @@ export interface HeartEncounter {
   turnIn: number;
   held: number;
   escaped: number;
+  elapsed: number;
   grace: number;
   joltIn: number;
   jolt: number;

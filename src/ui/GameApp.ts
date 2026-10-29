@@ -12,7 +12,7 @@ import {
 import { HUNGER_LOW_THRESHOLD, HUNGER_THRESHOLD, THIRST_LOW_THRESHOLD, THIRST_THRESHOLD } from '../config/thresholds';
 import { defaultArrowRotation, defaultPathPosition } from '../config/paths';
 import { drawRoomLighting, hasFlicker } from '../systems/lighting';
-import { CAGE, heartExposure, heartInsideCage, heartProgress } from '../systems/heartEncounter';
+import { CAGE, heartExposure, heartInsideCage, heartIntensity, heartProgress } from '../systems/heartEncounter';
 import { HEART_ART, RIBCAGE_ART } from '../systems/heartArt';
 import { labelAnchorOf } from '../systems/hotspots';
 import { checkCharacterName } from '../config/nameFilter';
@@ -94,13 +94,19 @@ export class GameApp {
   private jumpscareImage = '/assets/entities/watcher.jpg';
   private seenAttackNonce = 0;
   /**
-   * A mira do coração, em % da cena, e de onde o último movimento do mouse foi medido.
-   * As duas nascem vazias a cada encontro: a mira só existe a partir do ponto em que o
-   * coração apareceu, e não de onde o mouse estava parado.
+   * A mira do coração, em % da cena. Ela nasce vazia a cada encontro: com o ponteiro
+   * preso, a mira só existe a partir de onde o coração apareceu, e não de onde o mouse
+   * estava parado.
    */
   private heartAim: { x: number; y: number } | null = null;
-  private heartLastClient: { x: number; y: number } | null = null;
   private heartActive = false;
+  /**
+   * O encontro prende o ponteiro do navegador. Sem isso o mouse continuava andando por
+   * fora da cena enquanto o coração batia na borda: a mão chegava ao canto da tela, os
+   * movimentos paravam de chegar, e o jogador ficava sem o que fazer até largar o mouse
+   * e recomeçar. Preso, o cursor não tem para onde escapar e só o deslocamento conta.
+   */
+  private heartLockPending = false;
   private devPanelOpen = false;
   private dangerSoundTier = 0;
   private nextDangerSoundAt = 0;
@@ -171,7 +177,12 @@ export class GameApp {
     const inHeart = this.screen === 'game' && this.game?.encounter?.kind === 'heart';
     // Entrar ou sair do encontro zera a mira: cada encontro começa com a mão no
     // coração, e o que sobrou do anterior não tem onde se encaixar neste.
-    if (inHeart !== this.heartActive) { this.heartActive = inHeart; this.heartAim = null; this.heartLastClient = null; }
+    if (inHeart !== this.heartActive) {
+      this.heartActive = inHeart;
+      this.heartAim = null;
+      if (inHeart) { this.lockHeartPointer(); void this.audio.startHeartbeat(); }
+      else { this.releaseHeartPointer(); this.audio.stopHeartbeat(); }
+    }
     if (inHeart) this.updateHeartLayer();
     // Luzes com flickering precisam de um quadro novo mesmo sem mudança de estado.
     if (this.screen === 'game' && this.game && hasFlicker((this.game.room as RoomDefinition).lights)) this.updateDarknessCanvas();
@@ -986,10 +997,9 @@ export class GameApp {
     // O coração é o ponteiro: basta mexer o mouse, não há o que clicar nem o que soltar.
     window.addEventListener('pointermove', (event) => this.aimHeart(event));
     window.addEventListener('pointerdown', (event) => this.aimHeart(event));
-    // Sair e voltar à janela não teleporta a mira: só esquece de onde ela media, para
-    // o reencontro com o ponteiro não virar um pulo que o jogador não pediu.
-    window.addEventListener('pointercancel', () => { this.heartLastClient = null; });
-    document.addEventListener('pointerleave', () => { this.heartLastClient = null; });
+    // Soltar a trava no meio do encontro (o Esc do navegador) só libera a próxima
+    // tentativa; a mira segue de onde estava, agora atrás do mouse de verdade.
+    document.addEventListener('pointerlockchange', () => { this.heartLockPending = false; });
     this.root.addEventListener('input', (event) => this.handleInput(event.target as HTMLInputElement));
     this.root.addEventListener('change', (event) => this.handleInput(event.target as HTMLInputElement));
     window.addEventListener('keydown', (event) => this.handleKey(event));
@@ -1527,26 +1537,74 @@ export class GameApp {
    * partir dali — do contrário quem já estivesse com o mouse no meio da tela ganhava o
    * tórax de graça no primeiro quadro. O deslocamento é convertido para % da cena para
    * a dificuldade não mudar com o tamanho da janela de quem está jogando.
+   *
+   * Isso vale com o ponteiro preso (`lockHeartPointer`): o deslocamento vem do próprio
+   * navegador, e o mouse deixa de existir como lugar — não encosta na borda da tela
+   * nem sai dela, por mais longe que o coração seja arremessado.
+   *
+   * Quando o navegador recusa a trava, somar deslocamentos deixa de servir: a mira
+   * para nas bordas da cena e o mouse não, e bastavam alguns trancos para a mão estar
+   * num canto da tela (ou fora dela) com o coração no meio — mexer o mouse não movia
+   * mais nada, e o encontro acabava sozinho. Aí a mira passa a ser simplesmente onde o
+   * mouse está, que é a única coisa que não pode se perder do que o jogador vê.
    */
   private aimHeart(event: PointerEvent): void {
     const heart = this.game?.encounter?.heart;
-    if (!heart || this.game?.encounter?.kind !== 'heart') { this.heartAim = null; this.heartLastClient = null; return; }
+    if (!heart || this.game?.encounter?.kind !== 'heart') { this.heartAim = null; return; }
     const layer = this.root.querySelector<HTMLElement>('[data-role="heart-layer"]');
     if (!layer) return;
     const rect = layer.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
     if (!this.heartAim) this.heartAim = { x: heart.x, y: heart.y };
-    // O primeiro movimento só marca de onde medir; ele não arrasta nada.
-    if (!this.heartLastClient) { this.heartLastClient = { x: event.clientX, y: event.clientY }; return; }
-    const dx = ((event.clientX - this.heartLastClient.x) / rect.width) * 100;
-    const dy = ((event.clientY - this.heartLastClient.y) / rect.height) * 100;
-    this.heartLastClient = { x: event.clientX, y: event.clientY };
-    // A mira não sai da cena: longe demais, voltar custaria um tempo que não existe.
-    this.heartAim = {
-      x: Math.max(0, Math.min(100, this.heartAim.x + dx)),
-      y: Math.max(0, Math.min(100, this.heartAim.y + dy)),
-    };
+    // Clique dentro do encontro: é o gesto que o navegador exige para prender o mouse,
+    // caso ele tenha recusado a trava quando o encontro começou.
+    if (event.type === 'pointerdown' && document.pointerLockElement !== layer) this.lockHeartPointer();
+    if (document.pointerLockElement === layer) {
+      // Preso, o navegador entrega o deslocamento puro, e é só isso que existe: não há
+      // mais um lugar na tela de onde medir, e também não há de onde o mouse fugir.
+      const dx = (event.movementX / rect.width) * 100;
+      const dy = (event.movementY / rect.height) * 100;
+      // A mira não sai da cena: longe demais, voltar custaria um tempo que não existe.
+      this.heartAim = {
+        x: Math.max(0, Math.min(100, this.heartAim.x + dx)),
+        y: Math.max(0, Math.min(100, this.heartAim.y + dy)),
+      };
+    } else {
+      // Sem a trava não dá para somar deslocamentos: o mouse de verdade ia ficando
+      // para trás da mira a cada vez que a cena a segurava na borda, até estar num
+      // canto da tela — ou fora dela — com o coração no meio da cena, e aí mexer o
+      // mouse não movia mais nada. Aqui a mira é o lugar do mouse, e os dois nunca
+      // mais se separam.
+      this.heartAim = {
+        x: Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)),
+        y: Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100)),
+      };
+    }
     this.game.setHeartPointer(this.heartAim);
+  }
+
+  /**
+   * Pede ao navegador o ponteiro só para o encontro. Ele pode recusar — a trava exige
+   * um gesto recente, e o encontro nem sempre começa num clique —, e por isso a recusa
+   * não é erro: o `aimHeart` volta a medir por posição, e o próximo clique do jogador
+   * tenta de novo.
+   */
+  private lockHeartPointer(): void {
+    if (this.heartLockPending) return;
+    const layer = this.root.querySelector<HTMLElement>('[data-role="heart-layer"]');
+    if (!layer || document.pointerLockElement === layer) return;
+    this.heartLockPending = true;
+    try {
+      const request = layer.requestPointerLock() as unknown;
+      if (request instanceof Promise) request.catch(() => undefined).finally(() => { this.heartLockPending = false; });
+      else this.heartLockPending = false;
+    } catch { this.heartLockPending = false; }
+  }
+
+  /** Fim do encontro: o mouse volta a ser do jogador. */
+  private releaseHeartPointer(): void {
+    this.heartLockPending = false;
+    if (document.pointerLockElement) document.exitPointerLock();
   }
 
   /** O coração se move a cada quadro; redesenhar a cena inteira por isso seria absurdo. */
@@ -1568,6 +1626,8 @@ export class GameApp {
     if (hold) hold.style.width = `${heartProgress(heart, config) * 100}%`;
     const escape = layer.querySelector<HTMLElement>('[data-role="heart-escape"]');
     if (escape) escape.style.width = `${heartExposure(heart, config) * 100}%`;
+    // A batida entra muda e vai enchendo a sala enquanto o encontro se arrasta.
+    this.audio.setHeartbeatIntensity(heartIntensity(heart, config));
   }
 
   private updateReadouts(): void {

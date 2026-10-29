@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CAGE, createHeart, DEFAULT_HEART_CONFIG, heartExposure, heartInsideCage, heartProgress,
+  CAGE, createHeart, DEFAULT_HEART_CONFIG, heartExposure, heartInsideCage, heartIntensity, heartProgress,
   heartResistance, JOLT_SECONDS, stepHeart, type HeartConfig, type HeartState,
 } from '../src/systems/heartEncounter';
 
@@ -54,6 +54,25 @@ describe('a caixa torácica', () => {
     // Passado o perdão, o mesmo descuido custa o encontro.
     const depois = run(inicio.state, config, 4, () => null);
     expect(depois.outcome).toBe('escaped');
+  });
+});
+
+describe('o aperto do encontro', () => {
+  it('conta o tempo corrido, dentro ou fora da caixa', () => {
+    const config: HeartConfig = { ...DEFAULT_HEART_CONFIG, holdSeconds: 99, escapeSeconds: 99 };
+    // Fora da caixa e sem ponteiro: `held` não anda, e o relógio do encontro anda assim mesmo.
+    const solto = run(calm(90, 90), config, 2, () => null);
+    expect(solto.state.held).toBe(0);
+    expect(solto.state.elapsed).toBeCloseTo(2, 1);
+  });
+
+  it('a batida entra muda e chega ao máximo quando o encontro se arrasta', () => {
+    const config: HeartConfig = { ...DEFAULT_HEART_CONFIG, holdSeconds: 4, escapeSeconds: 99 };
+    expect(heartIntensity(createHeart(fixedRandom()), config)).toBe(0);
+    const meio = run(calm(90, 90), config, 2, () => null);
+    expect(heartIntensity(meio.state, config)).toBeCloseTo(0.5, 1);
+    const fim = run(calm(90, 90), config, 9, () => null);
+    expect(heartIntensity(fim.state, config)).toBe(1);
   });
 });
 

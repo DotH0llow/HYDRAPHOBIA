@@ -170,7 +170,7 @@ export const ENTITIES: Record<EntityId, EntityDefinition> = {
     encounter: 'heart', solution: 'hide', timeLimit: 5,
     image: '/assets/entities/watcher.jpg',
     heartWall: '/assets/scenes/lobbyWall.jpg',
-    heartHoldSeconds: 9, heartEscapeSeconds: 3.4, heartPull: 54, heartJoltEvery: 2.4,
+    heartHoldSeconds: 9, heartEscapeSeconds: 13.4, heartPull: 54, heartJoltEvery: 2.4,
   },
 };
 
