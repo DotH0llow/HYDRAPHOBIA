@@ -566,18 +566,22 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .heart-scene { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: saturate(.62) brightness(.62) contrast(1.08); }
 /*
  * A parede que aparece sobre a sala, encostada na direita e cobrindo cerca de 70% do
- * lado direito dela. A borda da esquerda desfaz num degradê em vez de cortar reto: um
- * corte reto entregava que é uma imagem colada, e o que se quer é que alguma coisa
- * tenha fechado aquele canto do corredor enquanto o jogador não olhava.
+ * lado direito dela. A borda da esquerda corta reto, sem degradê: desfeita, a parede
+ * virava uma névoa sobre a sala, e o que se quer é o contrário — uma coisa sólida que
+ * fechou aquele canto do corredor enquanto o jogador não olhava.
  */
-.heart-wall { position: absolute; right: 0; top: 0; bottom: 0; width: 35%; overflow: hidden; -webkit-mask-image: linear-gradient(90deg, #0000 0, #000 16%); mask-image: linear-gradient(90deg, #0000 0, #000 16%); }
-.heart-wall > img { width: 100%; height: 100%; object-fit: cover; filter: saturate(.58) brightness(.58) contrast(1.1); }
+.heart-wall { position: absolute; right: 0; top: 0; bottom: 0; width: 35%; overflow: hidden; }
+.heart-wall-art { width: 100%; height: 100%; object-fit: cover; filter: saturate(.58) brightness(.58) contrast(1.1); }
 /*
- * Quem está vendo isso. O desenho é do personagem que o jogador criou, encostado na
- * parede e quase dentro dela: a borda acesa dele é a única coisa que o separa do
- * fundo, e é de propósito que ele some quando a cena escurece.
+ * Quem está vendo isso: o personagem que o jogador criou, encostado na parede. A arte
+ * é recortada e vem com transparência de verdade — tentar encaixá-la por mistura
+ * apagava a pessoa, porque `screen` nunca escurece e a figura é escura contra uma
+ * parede clara. Ela é mais larga que a parede de propósito: o que sobra é cortado
+ * pela parede, e é isso que a põe dentro da cena em vez de em cima dela. O pé é
+ * dissolvido porque o reflexo molhado da arte, deixado inteiro, virava uma poça
+ * acesa onde o chão da sala não tem nenhuma.
  */
-.heart-witness { position: absolute; right: -4%; bottom: 0; height: 70%; width: auto; max-width: 104%; object-fit: contain; opacity: .82; filter: brightness(.62) contrast(1.05) blur(.4px) drop-shadow(0 0 30px #000); animation: heart-witness 6.5s ease-in-out infinite; }
+.heart-witness { position: absolute; left: 50%; bottom: 0; width: 112%; height: auto; transform: translateX(-50%); object-fit: contain; opacity: .97; filter: brightness(.96) saturate(.82) contrast(1.04); -webkit-mask-image: linear-gradient(0deg, #0000 0, #000 9%); mask-image: linear-gradient(0deg, #0000 0, #000 9%); animation: heart-witness 6.5s ease-in-out infinite; }
 /*
  * A entidade e uma camada propria: trocar a cena atras dela nao mexe no desenho dela.
  * `darken` e o que une as duas sem exigir um PNG recortado: onde a arte da entidade e
@@ -637,7 +641,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
   75% { transform: scale(1.045) translate(-1.1%, -.7%) rotate(-.16deg); }
 }
 /* Ele respira. É pouco, e é o que impede o desenho de virar um adesivo na parede. */
-@keyframes heart-witness { 50% { transform: translateY(-.7%) scale(1.008); } }
+@keyframes heart-witness { 50% { transform: translate(-50%, -.7%) scale(1.008); } }
 @keyframes heart-enter { from { opacity: 0; } to { opacity: 1; } }
 @keyframes heart-beat { 0%, 100% { transform: scale(1); } 12% { transform: scale(1.14); } 24% { transform: scale(1); } 36% { transform: scale(1.07); } }
 @keyframes heart-breath { 50% { transform: translateX(-50%) scale(1.015); } }
