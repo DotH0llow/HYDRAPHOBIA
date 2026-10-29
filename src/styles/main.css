@@ -570,17 +570,34 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
  * virava uma névoa sobre a sala, e o que se quer é o contrário — uma coisa sólida que
  * fechou aquele canto do corredor enquanto o jogador não olhava.
  */
-.heart-wall { position: absolute; right: 0; top: 0; bottom: 0; width: 35%; overflow: hidden; }
-.heart-wall-art { width: 100%; height: 100%; object-fit: cover; filter: saturate(.58) brightness(.58) contrast(1.1); }
+.heart-wall { position: absolute; right: 0; top: 0; bottom: 0; z-index: 1; width: 35%; overflow: hidden; }
 /*
- * Quem está vendo isso: o personagem que o jogador criou, de corpo inteiro e de pé
- * contra a parede. A arte já vem recortada, sem fundo nenhum, e por isso cabe dentro
- * da parede em vez de ser aparada por ela. Nada de desfazer o pé: a figura acaba nas
- * botas, e dissolvê-las deixava a pessoa flutuando. Ela entra escurecida de
- * propósito — a arte é clara e a cena atrás dela está em 62% do brilho; no brilho
- * cheio a pessoa saltava da sala como um adesivo.
+ * A escurecida geral da cena (`.heart-grade`) chega a 88% de preto no canto direito, e
+ * a parede inteira morria dentro dela: nem o papel, nem a mancha, nem a pessoa. Por
+ * isso a parede passa por cima daquela camada e recebe a própria sombra aqui — o alto,
+ * o pé e a beirada da tela escurecem, o meio fica de pé. Como isto é filho da parede,
+ * a sombra também cai sobre a figura, que é o que a prende ali.
  */
-.heart-witness { position: absolute; left: 50%; bottom: 2%; width: 74%; height: auto; transform: translateX(-50%); object-fit: contain; opacity: .95; filter: brightness(.6) saturate(.72) contrast(1.06); animation: heart-witness 6.5s ease-in-out infinite; }
+.heart-wall::after { content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none;
+  background: linear-gradient(180deg, #0000005e, #0000 15% 56%, #000000bd),
+              linear-gradient(90deg, #0000 60%, #00000070); }
+/*
+ * `left` no recorte: a dobra do canto está pintada na borda esquerda da imagem, e com
+ * o enquadramento no centro ela era a primeira coisa a ser cortada fora.
+ */
+.heart-wall-art { width: 100%; height: 100%; object-fit: cover; object-position: left center; filter: saturate(.88) brightness(.76) contrast(1.04); }
+/*
+ * Quem está vendo isso: o personagem que o jogador criou, encostado na parede e perto
+ * demais da câmera para caber nela — a cabeça fica no alto e o corpo sai pelo pé da
+ * tela, cortado na altura da coxa. Em pé inteiro ele virava um adesivo pequeno no meio
+ * do papel de parede.
+ *
+ * O tamanho vem da altura da cena (`vh`), não da largura da parede: é a distância do
+ * chão ao teto que diz do tamanho de uma pessoa, e a parede ter 35% da janela é
+ * arbitrário. O teto de 208% é para janelas estreitas: de 214% em diante a borda da
+ * parede começa a aparar o braço direito da figura, e essa é a sobra.
+ */
+.heart-witness { position: absolute; left: 0; top: 10%; width: min(124.7vh, 208%); height: auto; transform: translateX(-23.5%); object-fit: contain; opacity: .95; filter: brightness(.62) saturate(.74) contrast(1.06); animation: heart-witness 6.5s ease-in-out infinite; }
 /*
  * A entidade e uma camada propria: trocar a cena atras dela nao mexe no desenho dela.
  * `darken` e o que une as duas sem exigir um PNG recortado: onde a arte da entidade e
@@ -639,8 +656,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
   50% { transform: scale(1.045) translate(.8%, .9%) rotate(.14deg); }
   75% { transform: scale(1.045) translate(-1.1%, -.7%) rotate(-.16deg); }
 }
-/* Ele respira. É pouco, e é o que impede o desenho de virar um adesivo na parede. */
-@keyframes heart-witness { 50% { transform: translate(-50%, -.7%) scale(1.008); } }
+/* Ele respira. É pouco, e é o que impede o desenho de virar um adesivo na parede.
+   Pouco mesmo: a conta é em por cento da própria figura, e ela agora é enorme — o
+   -.7% de antes dava dez pixels de sobe-e-desce, um boneco balançando. */
+@keyframes heart-witness { 50% { transform: translate(-23.5%, -.22%) scale(1.003); } }
 @keyframes heart-enter { from { opacity: 0; } to { opacity: 1; } }
 @keyframes heart-beat { 0%, 100% { transform: scale(1); } 12% { transform: scale(1.14); } 24% { transform: scale(1); } 36% { transform: scale(1.07); } }
 @keyframes heart-breath { 50% { transform: translateX(-50%) scale(1.015); } }
@@ -649,6 +668,14 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 @media (max-width: 760px) {
   .heart-piece { width: 15%; }
   .heart-call { font-size: .82rem; bottom: 21%; }
+  /*
+   * No telefone a parede é uma tira estreita e alta: o tamanho vem da largura dela, se
+   * não o personagem não caberia de lado nenhum. Como aí ele fica mais baixo do que a
+   * parede, quem segura é o pé e não a cabeça — preso pelo alto, ele ficava pendurado
+   * no ar com as botas no meio do papel.
+   */
+  .heart-wall { width: 44%; }
+  .heart-witness { width: min(62vh, 205%); top: auto; bottom: 0; }
 }
 
 @keyframes noise { to { transform: translate(3px, -2px); } }
