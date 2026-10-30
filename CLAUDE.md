@@ -60,6 +60,9 @@ Rode `npm run test` e `npx tsc -b` antes de commitar.
 - Comentários explicam **por que**, não o que o código faz; são escritos em português e
   costumam contar o problema que aquela linha resolve.
 - Sem framework: TypeScript puro, `innerHTML` com `esc()` em tudo que vem de dados.
-- O editor e o jogo compartilham o desenho dos caminhos (`src/styles/paths.css`) e o
-  enquadramento da cena (`src/systems/roomView.ts`) de propósito — mexer em um lugar
-  muda os dois juntos.
+- O editor e o jogo compartilham de propósito — mexer em um lugar muda os dois juntos:
+  o desenho dos caminhos (`src/styles/paths.css`), o enquadramento da cena
+  (`src/systems/roomView.ts`), e as camadas de gente e de desafio
+  (`src/ui/npcViews.ts` com `src/styles/people.css`): o balão de fala, a tela de
+  trocas, o histórico da conversa e o painel de fios. O modo de teste do editor é onde
+  um nível se prova; o que aparece lá tem de ser o que o jogador vai ver.
