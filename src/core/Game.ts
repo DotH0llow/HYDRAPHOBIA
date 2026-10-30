@@ -1,13 +1,21 @@
-import { DEFAULT_WORLD, ENTITIES, ITEMS, type EntityDefinition, type HotspotDefinition, type ItemDefinition, type WorldDefinition } from '../config/world';
+import { DEFAULT_ATTACK, DEFAULT_WORLD, ENTITIES, ITEMS, type AttackDefinition, type ChallengeOutcome, type EntityDefinition, type HotspotDefinition, type ItemDefinition, type NpcDefinition, type NpcLine, type WorldDefinition } from '../config/world';
 import { anxietyTier, escalateAnxiety, type AnxietyTier } from './anxiety';
 import { createHeart, DEFAULT_HEART_CONFIG, stepHeart, type HeartConfig, type HeartPointer } from '../systems/heartEncounter';
-import type { CutsceneState, Direction, Encounter, EncounterAction, EntityId, GameSave, GameStatus, HideoutState, HotspotId, InventoryEntry, ItemId, RoomId, Stats } from '../types';
+import { addToStock, buyPrice, sellPrice, shiftReputation, startingReputation, stockQuantity, takeFromStock, TRADE_REPUTATION_GAIN } from '../systems/npc';
+import { connectWire, createWirePanel, DEFAULT_SHOCK_DAMAGE, wiresSolved } from '../systems/wires';
+import type { ChallengeState, CutsceneState, DialogueEntry, DialogueState, Direction, Encounter, EncounterAction, EntityId, GameSave, GameStatus, HideoutState, HotspotId, InventoryEntry, ItemId, NpcId, NpcMemory, RoomId, Stats } from '../types';
 
 export interface ActionResult {
   changed: boolean;
   message: string;
   pickup?: ItemId;
   attack?: boolean;
+}
+
+/** O que uma ligação de fio devolveu, para a tela saber o que mostrar e o que tocar. */
+export interface WireResult {
+  kind: 'none' | 'linked' | 'shock' | 'solved';
+  outcome?: ChallengeOutcome;
 }
 
 /** Fome e sede caem três vezes mais devagar do que na versão original do jogo. */
@@ -25,6 +33,23 @@ const ANXIETY_RISE_SECONDS = 20;
 const ANXIETY_CALM_SECONDS = 10;
 /** Ansiedade somada a cada travessia de sala. */
 const ANXIETY_PER_ROOM_CHANGE = 1;
+
+/** Vida que um corte aberto leva por segundo enquanto não for fechado. */
+const BLEED_PER_SECOND = 0.85;
+/** De quantos em quantos segundos de sangramento a ansiedade sobe 1 ponto. */
+const BLEED_ANXIETY_SECONDS = 6;
+/** Quanto tempo um ferimento sangra quando o golpe não disse outra coisa. */
+const DEFAULT_BLEED_SECONDS = 25;
+
+/**
+ * Conversar protege. Enquanto um NPC está falando nada alcança o jogador, e ele ainda
+ * sai da conversa com cinco segundos de folga — tempo de dar dois passos antes de o
+ * corredor voltar a cobrar. Nada na tela diz isso; é para ser descoberto.
+ */
+const DIALOGUE_SHIELD_SECONDS = 5;
+
+/** Acima desta escuridão a lanterna acende sozinha; abaixo dela, se apaga. */
+const LANTERN_DARKNESS = 0.45;
 
 export class Game {
   status: GameStatus = 'exploring';
@@ -47,6 +72,22 @@ export class Game {
   roomTime: Record<RoomId, number> = {};
   cutscene: CutsceneState | null = null;
   hideout: HideoutState | null = null;
+  /** Conversa em andamento, o painel de fios aberto e o que cada NPC guarda. */
+  dialogue: DialogueState | null = null;
+  challenge: ChallengeState | null = null;
+  npcMemories: Record<NpcId, NpcMemory> = {};
+  dialogueLog: DialogueEntry[] = [];
+  /** Segundos de corte ainda aberto, e a carga da lanterna de 0 a 1. */
+  bleeding = 0;
+  battery = 1;
+  lanternOn = false;
+  /** O último golpe recebido, para a tela contar o que aconteceu. */
+  lastAttack: AttackDefinition | null = null;
+  /** Até que ponto do relógio de jogo o jogador ainda sai ileso. */
+  private shieldUntil = Number.NEGATIVE_INFINITY;
+  private bleedAnxietyTimer = 0;
+  /** O que o editor escreveu para o desafio aberto agora. */
+  private challengeConfig: HotspotDefinition['challenge'] | null = null;
 
   private roomDwellTimer = 0;
   private dangerTickTimer = 0;
@@ -63,6 +104,7 @@ export class Game {
     startRoomId?: RoomId,
     private readonly items: Record<ItemId, ItemDefinition> = ITEMS,
     private readonly entities: Record<EntityId, EntityDefinition> = ENTITIES,
+    private readonly npcs: Record<NpcId, NpcDefinition> = {},
   ) {
     const initialRoom = startRoomId && world.rooms[startRoomId] ? startRoomId : world.startRoomId;
     this.position = initialRoom;
@@ -110,6 +152,15 @@ export class Game {
       return;
     }
     this.elapsed += capped;
+    // O corte continua aberto no meio de qualquer coisa: numa conversa, num painel
+    // de fios, numa cutscene. É o que faz dele uma condição e não um dano a mais.
+    this.updateWound(capped);
+    this.updateLantern(capped);
+    // O sangramento pode ter levado o último ponto de vida no meio de qualquer coisa.
+    if ((this.status as GameStatus) === 'gameover') return;
+
+    if (this.status === 'dialogue') return;
+    if (this.status === 'challenge') { this.updateChallenge(capped); return; }
 
     if (this.status === 'encounter' && this.encounter) {
       // No encontro do coração não há relógio: o que termina a cena é o jogador ter
@@ -141,7 +192,51 @@ export class Game {
     this.updateAnxiety(capped);
   }
 
+  /**
+   * O ferimento que sangra. Ele não é um susto a mais: é um relógio que só para com
+   * um curativo. Enquanto corre, leva vida devagar e aperta a ansiedade de tempos em
+   * tempos — a pressa de achar o kit é a mecânica inteira.
+   */
+  private updateWound(delta: number): void {
+    if (this.bleeding <= 0) return;
+    this.bleeding = Math.max(0, this.bleeding - delta);
+    if (this.invincible) return;
+    this.stats.health = this.clamp(this.stats.health - delta * BLEED_PER_SECOND);
+    this.bleedAnxietyTimer += delta;
+    if (this.bleedAnxietyTimer >= BLEED_ANXIETY_SECONDS) {
+      this.bleedAnxietyTimer -= BLEED_ANXIETY_SECONDS;
+      this.stats.anxiety = this.clamp(this.stats.anxiety + 1);
+    }
+    if (this.stats.health === 0) this.status = 'gameover';
+  }
+
+  /** O item de luz que o jogador carrega, se carregar algum. */
+  private lanternItem(): ItemDefinition | null {
+    for (const entry of this.inventory) {
+      const definition = this.items[entry.id];
+      if (definition?.effect === 'light') return definition;
+    }
+    return null;
+  }
+
+  /**
+   * A lanterna não tem botão: ela acende onde a cena é escura e se apaga onde não
+   * precisa. Quem decide o custo é a sala — ficar no escuro gasta pilha, e a pilha
+   * não volta sozinha.
+   */
+  private updateLantern(delta: number): void {
+    const lantern = this.lanternItem();
+    if (!lantern) { this.lanternOn = false; return; }
+    const dark = (this.room.darknessLevel ?? 0) >= LANTERN_DARKNESS;
+    this.lanternOn = dark && this.battery > 0;
+    if (!this.lanternOn) return;
+    const seconds = Math.max(10, lantern.batterySeconds ?? 240);
+    this.battery = Math.max(0, this.battery - delta / seconds);
+    if (this.battery === 0) this.lanternOn = false;
+  }
+
   private updateHidden(delta: number): void {
+    this.updateWound(delta);
     this.stats.hunger = this.clamp(this.stats.hunger - delta * HIDDEN_HUNGER_DRAIN);
     this.stats.thirst = this.clamp(this.stats.thirst - delta * HIDDEN_THIRST_DRAIN);
     this.stats.anxiety = this.clamp(this.stats.anxiety - delta * 2);
@@ -238,10 +333,17 @@ export class Game {
       return { changed: true, message: this.message };
     }
     if (hotspot.visibility === 'invisible') this.flags[revealKey] = true;
-    this.addDanger(hotspot.kind === 'examine' ? 2 : 1);
-    // A batida de perigo pode ter estourado o medidor e aberto um encontro: ele tem
-    // prioridade. Seguir daqui sobrescreveria o status e deixaria a carta da ameaça
-    // na tela sem cronômetro e sem resposta possível.
+    /*
+     * O objeto que o jogador clicou pode trazer o próprio encontro. Quando traz, a
+     * batida de perigo desta interação não pode abrir outro: era isso que fazia um
+     * interagível de evento chamar uma entidade sorteada — quase sempre a primeira da
+     * lista — em vez da entidade escolhida para ele. O medidor fica cheio e cobra na
+     * próxima batida, depois que esta cena passar.
+     */
+    const ownEncounter = hotspot.kind === 'event' && Boolean(hotspot.event);
+    this.addDanger(hotspot.kind === 'examine' ? 2 : 1, !ownEncounter);
+    // Sem encontro próprio, o que o perigo abriu tem prioridade: seguir daqui
+    // sobrescreveria o status e deixaria a carta da ameaça sem cronômetro na tela.
     if (this.encounter) return { changed: true, message: this.message };
 
     if (hotspot.kind === 'collect' && hotspot.item) {
@@ -275,6 +377,18 @@ export class Game {
       this.stats.anxiety = this.clamp(this.stats.anxiety - 5);
       return { changed: true, message: this.message };
     }
+    if (hotspot.kind === 'npc' && hotspot.npc) {
+      if (hotspot.once) this.flags[usedFlag] = true;
+      if (this.startDialogue(hotspot.npc)) return { changed: true, message: hotspot.message };
+      this.message = hotspot.message || 'Não há ninguém aqui para conversar.';
+      return { changed: false, message: this.message };
+    }
+    if (hotspot.kind === 'challenge' && hotspot.challenge) {
+      if (hotspot.once) this.flags[usedFlag] = true;
+      this.startChallenge(hotspot.id, hotspot.challenge);
+      this.message = hotspot.message;
+      return { changed: true, message: this.message };
+    }
     if (hotspot.kind === 'event' && hotspot.event) {
       if (hotspot.once) this.flags[usedFlag] = true;
       if (hotspot.event === 'jumpscare') return this.receiveAttack(hotspot.message || 'Algo surge perto demais para reagir.');
@@ -303,11 +417,22 @@ export class Game {
       return { changed: false, message: `${this.message} Item selecionado para uso no cenário.` };
     }
 
+    // A lanterna não se gasta ao ser usada: ela liga sozinha no escuro, e o que o
+    // jogador consegue aqui é só olhar quanta pilha ainda sobrou.
+    if (definition.effect === 'light') {
+      const charge = Math.round(this.battery * 100);
+      this.message = charge > 0 ? `${definition.useText} Pilha em ${charge}%.` : 'A pilha acabou. A lente só devolve o seu reflexo.';
+      return { changed: false, message: this.message };
+    }
+
     const statKey = definition.effect === 'heal' ? 'health' : definition.effect === 'hydrate' ? 'thirst' : 'hunger';
     this.stats[statKey] = this.clamp(this.stats[statKey] + definition.effectAmount);
+    // Curar é também fechar o corte: é isto que dá ao kit um motivo além do número.
+    const wasBleeding = definition.effect === 'heal' && this.bleeding > 0;
+    if (wasBleeding) { this.bleeding = 0; this.bleedAnxietyTimer = 0; }
     this.removeItem(id);
     this.selectedItem = null;
-    this.message = definition.useText;
+    this.message = wasBleeding ? `${definition.useText} O sangramento parou.` : definition.useText;
     return { changed: true, message: this.message };
   }
 
@@ -336,10 +461,285 @@ export class Game {
     return this.receiveAttack('A escolha foi errada. Algo rasga seu ombro antes de desaparecer.' );
   }
 
+  // --- conversa, troca e desafio ---
+
+  /** Verdadeiro enquanto nada consegue machucar o jogador. Ele nunca fica sabendo. */
+  get shielded(): boolean { return this.status === 'dialogue' || this.elapsed < this.shieldUntil; }
+
+  /** O que este NPC guarda nesta campanha; na primeira vez, nasce do que o editor escreveu. */
+  npcMemory(id: NpcId): NpcMemory {
+    const existing = this.npcMemories[id];
+    if (existing) return existing;
+    const definition = this.npcs[id];
+    const memory: NpcMemory = {
+      reputation: definition ? startingReputation(definition) : 50,
+      stock: definition ? definition.stock.map((entry) => ({ ...entry })) : [],
+      met: false,
+    };
+    this.npcMemories[id] = memory;
+    return memory;
+  }
+
+  npcDefinition(id: NpcId): NpcDefinition | undefined { return this.npcs[id]; }
+
+  /** Quem está visível nesta sala agora; um NPC pode esperar uma bandeira para aparecer. */
+  get presentNpcs(): Array<{ npcId: NpcId; definition: NpcDefinition }> {
+    return (this.room.npcs ?? [])
+      .filter((entry) => !entry.requiresFlag || this.flags[entry.requiresFlag])
+      .flatMap((entry) => {
+        const definition = this.npcs[entry.npcId];
+        return definition ? [{ npcId: entry.npcId, definition }] : [];
+      });
+  }
+
+  /** A fala que está no balão agora. */
+  get dialogueLine(): NpcLine | null {
+    const dialogue = this.dialogue;
+    if (!dialogue) return null;
+    return this.npcs[dialogue.npcId]?.lines.find((line) => line.id === dialogue.lineId) ?? null;
+  }
+
+  /** As respostas que o jogador pode dar: as que a campanha já destravou. */
+  get dialogueAnswers(): NpcLine['answers'] {
+    return (this.dialogueLine?.answers ?? []).filter((answer) => !answer.requiresFlag || this.flags[answer.requiresFlag]);
+  }
+
+  startDialogue(id: NpcId): boolean {
+    if (this.status !== 'exploring') return false;
+    const definition = this.npcs[id];
+    const first = definition?.lines[0];
+    if (!definition || !first) return false;
+    const memory = this.npcMemory(id);
+    memory.met = true;
+    this.dialogue = { npcId: id, lineId: first.id, trading: false, offer: [], ask: [] };
+    this.status = 'dialogue';
+    this.selectedItem = null;
+    this.logLine(id, 'npc', definition.name, first.text);
+    return true;
+  }
+
+  /**
+   * O jogador responde. A resposta pode pedir um item, dar outro, acender uma bandeira
+   * e mexer na reputação — e é isso que faz a conversa ser jogo, e não texto.
+   */
+  answerDialogue(answerId: string): ActionResult {
+    const dialogue = this.dialogue;
+    const definition = dialogue ? this.npcs[dialogue.npcId] : undefined;
+    const answer = this.dialogueAnswers.find((entry) => entry.id === answerId);
+    if (!dialogue || !definition || !answer) return { changed: false, message: '' };
+    if (answer.requiresItem && !this.hasItem(answer.requiresItem)) {
+      this.message = `Você não tem ${this.items[answer.requiresItem]?.name ?? answer.requiresItem}.`;
+      return { changed: false, message: this.message };
+    }
+    const memory = this.npcMemory(dialogue.npcId);
+    this.logLine(dialogue.npcId, 'player', 'Você', answer.text);
+    if (answer.takesItem) this.removeItem(answer.takesItem);
+    if (answer.givesItem) this.addItem(answer.givesItem);
+    if (answer.grantsFlag) this.flags[answer.grantsFlag] = true;
+    if (answer.reputation) shiftReputation(memory, answer.reputation);
+    if (answer.opensTrade && definition.trades) { dialogue.trading = true; return { changed: true, message: '' }; }
+
+    const next = answer.to ? definition.lines.find((line) => line.id === answer.to) : undefined;
+    if (!next) { this.endDialogue(); return { changed: true, message: this.message }; }
+    dialogue.lineId = next.id;
+    this.logLine(dialogue.npcId, 'npc', definition.name, next.text);
+    return { changed: true, message: '' };
+  }
+
+  /** Sair da conversa deixa cinco segundos de folga atrás de si. */
+  endDialogue(): void {
+    if (!this.dialogue) return;
+    this.dialogue = null;
+    this.shieldUntil = this.elapsed + DIALOGUE_SHIELD_SECONDS;
+    if (this.status === 'dialogue') this.status = 'exploring';
+  }
+
+  openTrade(): void { if (this.dialogue && this.npcs[this.dialogue.npcId]?.trades) this.dialogue.trading = true; }
+
+  closeTrade(): void {
+    if (!this.dialogue) return;
+    this.dialogue.trading = false;
+    this.dialogue.offer = [];
+    this.dialogue.ask = [];
+  }
+
+  /** Quanto o vendedor cobra por um item dele, com o humor dele e o estado do jogador. */
+  askPriceOf(id: ItemId): number {
+    const reputation = this.dialogue ? this.npcMemory(this.dialogue.npcId).reputation : 50;
+    return buyPrice(this.items[id]?.value ?? 1, reputation, this.stats.anxiety);
+  }
+
+  /** Quanto ele paga por um item do jogador. */
+  offerPriceOf(id: ItemId): number {
+    const reputation = this.dialogue ? this.npcMemory(this.dialogue.npcId).reputation : 50;
+    return sellPrice(this.items[id]?.value ?? 1, reputation);
+  }
+
+  /** O que o jogador está pedindo, e o que está dando, somados na mesma escala. */
+  get tradeTotals(): { ask: number; offer: number } {
+    const dialogue = this.dialogue;
+    if (!dialogue) return { ask: 0, offer: 0 };
+    const ask = dialogue.ask.reduce((sum, entry) => sum + this.askPriceOf(entry.id) * entry.quantity, 0);
+    const offer = dialogue.offer.reduce((sum, entry) => sum + this.offerPriceOf(entry.id) * entry.quantity, 0);
+    return { ask, offer };
+  }
+
+  /** Põe mais uma unidade na pilha de um dos lados, ou tira uma dela. */
+  adjustTrade(side: 'ask' | 'offer', id: ItemId, amount: number): void {
+    const dialogue = this.dialogue;
+    if (!dialogue) return;
+    const list = side === 'ask' ? dialogue.ask : dialogue.offer;
+    const available = side === 'ask'
+      ? stockQuantity(this.npcMemory(dialogue.npcId), id)
+      : (this.inventory.find((entry) => entry.id === id)?.quantity ?? 0);
+    const entry = list.find((item) => item.id === id);
+    const next = Math.max(0, Math.min(available, (entry?.quantity ?? 0) + amount));
+    if (next === 0) {
+      const filtered = list.filter((item) => item.id !== id);
+      if (side === 'ask') dialogue.ask = filtered; else dialogue.offer = filtered;
+      return;
+    }
+    if (entry) entry.quantity = next;
+    else list.push({ id, quantity: next });
+  }
+
+  /**
+   * Fecha a troca. Não há moeda: o que o jogador oferece precisa somar o que ele
+   * pede, na escala de valor do próprio jogo. Dar mais do que se pede não troca o
+   * excedente por nada: troca por consideração, que é o que move o preço na próxima vez.
+   */
+  confirmTrade(): ActionResult {
+    const dialogue = this.dialogue;
+    if (!dialogue) return { changed: false, message: '' };
+    const { ask, offer } = this.tradeTotals;
+    if (dialogue.ask.length === 0 && dialogue.offer.length === 0) return { changed: false, message: 'Nada foi posto sobre a mesa.' };
+    if (offer < ask) {
+      this.message = 'Ele balança a cabeça: não é o bastante.';
+      return { changed: false, message: this.message };
+    }
+    const memory = this.npcMemory(dialogue.npcId);
+    dialogue.offer.forEach((entry) => {
+      for (let count = 0; count < entry.quantity; count += 1) this.removeItem(entry.id);
+      addToStock(memory, entry.id, entry.quantity);
+    });
+    dialogue.ask.forEach((entry) => {
+      takeFromStock(memory, entry.id, entry.quantity);
+      for (let count = 0; count < entry.quantity; count += 1) this.addItem(entry.id);
+    });
+    // Quem paga a mais é lembrado: a generosidade é o único caminho rápido de reputação.
+    shiftReputation(memory, TRADE_REPUTATION_GAIN + Math.min(4, Math.floor((offer - ask) / 3)));
+    dialogue.ask = [];
+    dialogue.offer = [];
+    this.message = 'A troca está feita.';
+    return { changed: true, message: this.message };
+  }
+
+  private logLine(npcId: NpcId, side: 'npc' | 'player', speaker: string, text: string): void {
+    this.dialogueLog.push({ npcId, side, speaker, text, at: this.elapsed });
+    // O histórico é longo de propósito, mas não infinito: o save tem de caber.
+    if (this.dialogueLog.length > 240) this.dialogueLog = this.dialogueLog.slice(-240);
+  }
+
+  private startChallenge(hotspotId: HotspotId, challenge: NonNullable<HotspotDefinition['challenge']>): void {
+    this.challenge = {
+      hotspotId,
+      kind: challenge.kind,
+      intro: challenge.introPath ? {
+        hotspotId,
+        mediaType: challenge.introMedia ?? 'image',
+        mediaPath: challenge.introPath,
+        holdSeconds: challenge.introSeconds ?? 3.5,
+        repeatCount: 1,
+        elapsed: 0,
+        loopsCompleted: 0,
+      } : null,
+      wires: createWirePanel(challenge, this.random),
+    };
+    this.challengeConfig = challenge;
+    this.status = 'challenge';
+  }
+
+  /** Carrega alguma fonte de luz; a tela usa isto para mostrar a pilha. */
+  get carriesLantern(): boolean { return this.lanternItem() !== null; }
+
+  /**
+   * Põe uma imagem na tela por alguns segundos. É a consequência de um desafio, e ela
+   * reaproveita a cutscene: a cutscene já sabe segurar uma foto e devolver o jogo.
+   */
+  showConsequence(path: string, seconds = 3.5): void {
+    if (this.status !== 'exploring' || !path) return;
+    this.cutscene = {
+      hotspotId: 'consequencia', mediaType: 'image', mediaPath: path,
+      holdSeconds: Math.max(0.2, seconds), repeatCount: 1, elapsed: 0, loopsCompleted: 0,
+    };
+    this.status = 'cutscene';
+  }
+
+  /** A cutscene de abertura do desafio corre antes do painel; depois ela some. */
+  private updateChallenge(delta: number): void {
+    const intro = this.challenge?.intro;
+    if (!intro || intro.mediaType === 'video') return;
+    intro.elapsed += delta;
+    if (intro.elapsed >= intro.holdSeconds) this.challenge!.intro = null;
+  }
+
+  /** O vídeo de abertura terminou sozinho. */
+  endChallengeIntro(): void { if (this.challenge) this.challenge.intro = null; }
+
+  /** O jogador pega a ponta de um fio; pegar outro simplesmente troca o que está na mão. */
+  holdWire(from: string): void {
+    const wires = this.challenge?.wires;
+    if (!wires || wires.linked[from]) return;
+    wires.holding = wires.holding === from ? null : from;
+  }
+
+  /** Encosta o fio da mão em um conector. Errar dá choque; acertar prende ali. */
+  linkWire(connector: string): WireResult {
+    const challenge = this.challenge;
+    if (!challenge) return { kind: 'none' };
+    const result = connectWire(challenge.wires, connector);
+    if (result === 'none') return { kind: 'none' };
+    if (result === 'shock') {
+      const damage = Math.max(0, this.challengeConfig?.shockDamage ?? DEFAULT_SHOCK_DAMAGE);
+      if (!this.invincible && !this.shielded) {
+        this.stats.health = this.clamp(this.stats.health - damage);
+        this.stats.anxiety = this.clamp(this.stats.anxiety + 2);
+        if (this.stats.health === 0) { this.closeChallenge(); this.status = 'gameover'; }
+      }
+      return { kind: 'shock' };
+    }
+    if (!wiresSolved(challenge.wires)) return { kind: 'linked' };
+    const outcome = this.challengeConfig?.success;
+    this.applyOutcome(outcome);
+    this.closeChallenge();
+    return { kind: 'solved', outcome };
+  }
+
+  /** Largar o painel no meio não é de graça: a consequência de desistir também é escrita. */
+  giveUpChallenge(): ChallengeOutcome | undefined {
+    const outcome = this.challengeConfig?.giveUp;
+    this.applyOutcome(outcome);
+    this.closeChallenge();
+    return outcome;
+  }
+
+  private applyOutcome(outcome?: ChallengeOutcome): void {
+    if (!outcome) return;
+    if (outcome.grantsFlag) this.flags[outcome.grantsFlag] = true;
+    if (outcome.item) this.addItem(outcome.item);
+    if (outcome.message) this.message = outcome.message;
+  }
+
+  private closeChallenge(): void {
+    this.challenge = null;
+    this.challengeConfig = null;
+    if (this.status === 'challenge') this.status = 'exploring';
+  }
+
   pause(value?: boolean): void {
     // Esconderijo também não pausa: sair da pausa devolveria o jogador a 'exploring'
     // com o esconderijo ainda aberto, um estado que a tela não sabe desenhar.
-    if (this.status === 'gameover' || this.status === 'escaped' || this.status === 'encounter' || this.status === 'cutscene' || this.status === 'hidden') return;
+    if (this.status === 'gameover' || this.status === 'escaped' || this.status === 'encounter' || this.status === 'cutscene' || this.status === 'hidden' || this.status === 'dialogue' || this.status === 'challenge') return;
     const shouldPause = value ?? this.status !== 'paused';
     this.status = shouldPause ? 'paused' : 'exploring';
   }
@@ -355,6 +755,15 @@ export class Game {
       elapsed: this.elapsed,
       danger: this.danger,
       roomTime: { ...this.roomTime },
+      bleeding: this.bleeding,
+      battery: this.battery,
+      npcs: Object.fromEntries(Object.entries(this.npcMemories).map(([id, memory]) => [id, {
+        reputation: memory.reputation,
+        met: memory.met,
+        stock: memory.stock.map((entry) => ({ ...entry })),
+      }])),
+      dialogueLog: this.dialogueLog.map((entry) => ({ ...entry })),
+      shieldUntil: this.shieldUntil,
     };
   }
 
@@ -377,6 +786,9 @@ export class Game {
 
   debugSetDanger(value: number): void { this.danger = this.clamp(value); }
 
+  /** Abre um ferimento à mão, para afinar o quanto um corte custa. */
+  debugBleed(seconds: number): void { this.bleeding = Math.max(0, seconds); this.bleedAnxietyTimer = 0; }
+
   setInvincible(value: boolean): void { this.invincible = value; }
 
   private updateRoomTimers(delta: number): void {
@@ -390,13 +802,14 @@ export class Game {
     this.revealDueHotspots();
   }
 
-  private addDanger(amount: number): void {
+  private addDanger(amount: number, mayInterrupt = true): void {
     this.danger = this.clamp(this.danger + amount);
-    if (this.danger >= 100 && this.status === 'exploring') {
-      this.danger = 0;
-      const ids = Object.keys(this.entities);
-      if (ids.length > 0) this.startEncounter(ids[Math.min(ids.length - 1, Math.floor(this.random() * ids.length))]!);
-    }
+    if (this.danger < 100 || this.status !== 'exploring') return;
+    // Quem chamou já tem a própria cena para mostrar: o medidor espera a vez dele.
+    if (!mayInterrupt) { this.danger = 99; return; }
+    this.danger = 0;
+    const ids = Object.keys(this.entities);
+    if (ids.length > 0) this.startEncounter(ids[Math.min(ids.length - 1, Math.floor(this.random() * ids.length))]!);
   }
 
   /**
@@ -538,17 +951,51 @@ export class Game {
     }
   }
 
+  /**
+   * Qual golpe esta entidade dá desta vez. Cada monstro tem a própria lista, sorteada
+   * pelo peso de cada golpe; quem não tem lista continua dando o golpe de fábrica.
+   */
+  private pickAttack(id?: EntityId): AttackDefinition {
+    const list = (id ? this.entities[id]?.attacks : undefined)?.filter((attack) => attack.damage >= 0) ?? [];
+    if (list.length === 0) return DEFAULT_ATTACK;
+    const weightOf = (attack: AttackDefinition): number => Math.max(0.01, attack.weight ?? 1);
+    let roll = this.random() * list.reduce((total, attack) => total + weightOf(attack), 0);
+    for (const attack of list) {
+      roll -= weightOf(attack);
+      if (roll <= 0) return attack;
+    }
+    return list[list.length - 1]!;
+  }
+
   private receiveAttack(message: string): ActionResult {
-    if (!this.invincible) {
-      this.stats.health = this.clamp(this.stats.health - 34);
+    const attack = this.pickAttack(this.encounter?.id);
+    this.lastAttack = attack;
+    // Conversar protege, e a proteção dura um pouco depois da conversa. O golpe
+    // acontece na tela do mesmo jeito; o que não acontece é o estrago.
+    if (!this.invincible && !this.shielded) {
+      this.stats.health = this.clamp(this.stats.health - attack.damage);
       // Levar um ataque joga o personagem para o início do nível de ansiedade seguinte.
       this.stats.anxiety = this.clamp(escalateAnxiety(this.stats.anxiety));
+      if (attack.effects.includes('panic')) this.stats.anxiety = this.clamp(escalateAnxiety(this.stats.anxiety));
+      if (attack.effects.includes('bleed')) {
+        // Um corte novo não se soma ao antigo: fica valendo o que demora mais a fechar.
+        this.bleeding = Math.max(this.bleeding, attack.bleedSeconds ?? DEFAULT_BLEED_SECONDS);
+      }
+      // O que estava na mão cai: quem apanha segurando alguma coisa larga o que segurava.
+      if (attack.effects.includes('drop') && this.selectedItem) {
+        this.removeItem(this.selectedItem);
+        this.selectedItem = null;
+      }
     }
     this.attackNonce += 1;
     this.lastThreatElapsed = this.elapsed;
     this.encounter = null;
     this.status = this.stats.health === 0 ? 'gameover' : 'exploring';
-    this.message = this.status === 'gameover' ? 'Você não consegue mais se levantar.' : message;
+    // Com um corte aberto, a legenda conta o que ficou doendo além do golpe em si.
+    const bleeding = this.bleeding > 0 && attack.effects.includes('bleed');
+    this.message = this.status === 'gameover'
+      ? 'Você não consegue mais se levantar.'
+      : bleeding ? `${message} O corte não para de sangrar.` : message;
     return { changed: true, message: this.message, attack: true };
   }
 
@@ -577,6 +1024,16 @@ export class Game {
     this.elapsed = save.elapsed;
     this.danger = save.danger ?? 0;
     this.roomTime = { ...(save.roomTime ?? {}) };
+    this.bleeding = Math.max(0, save.bleeding ?? 0);
+    this.battery = Math.max(0, Math.min(1, save.battery ?? 1));
+    this.npcMemories = Object.fromEntries(Object.entries(save.npcs ?? {}).map(([id, memory]) => [id, {
+      reputation: Math.max(0, Math.min(100, memory.reputation)),
+      met: memory.met === true,
+      stock: (memory.stock ?? []).map((entry) => ({ ...entry })),
+    }]));
+    this.dialogueLog = (save.dialogueLog ?? []).map((entry) => ({ ...entry }));
+    // A folga de uma conversa não atravessa o fechar do jogo.
+    this.shieldUntil = Number.NEGATIVE_INFINITY;
     this.message = '';
   }
 

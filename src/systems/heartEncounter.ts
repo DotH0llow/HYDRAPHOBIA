@@ -72,7 +72,7 @@ export interface HeartConfig {
   joltEvery: number;
 }
 
-export const DEFAULT_HEART_CONFIG: HeartConfig = { holdSeconds: 9, escapeSeconds: 13.4, pull: 54, joltEvery: 2.4 };
+export const DEFAULT_HEART_CONFIG: HeartConfig = { holdSeconds: 17, escapeSeconds: 21.4, pull: 54, joltEvery: 2.4 };
 
 export interface HeartState {
   /** Posição e velocidade do coração, em % da cena. */

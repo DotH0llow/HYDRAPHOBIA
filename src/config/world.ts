@@ -1,4 +1,4 @@
-import type { CutsceneMediaType, Direction, EncounterAction, EncounterKind, EntityId, HotspotId, HotspotVisibility, ItemId, RoomId } from '../types';
+import type { CutsceneMediaType, Direction, EncounterAction, EncounterKind, EntityId, HotspotId, HotspotVisibility, InventoryEntry, ItemId, NpcId, RoomId } from '../types';
 
 export interface ExitDefinition {
   to: RoomId;
@@ -15,6 +15,42 @@ export interface HotspotShape {
   points: Array<{ x: number; y: number }>;
 }
 
+/**
+ * Um desafio: a cutscene que abre, o mini-jogo em si e a consequência de vencê-lo.
+ * A consequência pode ser um texto, um som, uma imagem — ou as três ao mesmo tempo.
+ */
+export type ChallengeKind = 'wires';
+
+export interface ChallengeOutcome {
+  message?: string;
+  sound?: string;
+  soundVolume?: number;
+  image?: string;
+  /** Segundos que a imagem da consequência fica na tela. */
+  imageSeconds?: number;
+  grantsFlag?: string;
+  item?: ItemId;
+}
+
+export interface ChallengeDefinition {
+  kind: ChallengeKind;
+  /** A cutscene que abre o desafio; sem arquivo, o painel entra direto. */
+  introPath?: string;
+  introMedia?: CutsceneMediaType;
+  introSeconds?: number;
+  /**
+   * Só nos fios: quantos fios o painel tem (3 a 6) e, quando quem monta o nível quis
+   * escolher, para onde cada letra vai. Vazio sorteia um painel novo a cada partida.
+   */
+  wireCount?: number;
+  wirePairs?: Array<{ from: string; to: string }>;
+  /** Dano de cada ligação errada. */
+  shockDamage?: number;
+  success?: ChallengeOutcome;
+  /** O que acontece quando o jogador desiste do painel. */
+  giveUp?: ChallengeOutcome;
+}
+
 export interface HotspotDefinition {
   id: HotspotId;
   label: string;
@@ -22,7 +58,7 @@ export interface HotspotDefinition {
   y: number;
   width: number;
   height: number;
-  kind: 'examine' | 'collect' | 'use' | 'event' | 'cutscene' | 'hideout';
+  kind: 'examine' | 'collect' | 'use' | 'event' | 'cutscene' | 'hideout' | 'challenge' | 'npc';
   message: string;
   item?: ItemId;
   requiresItem?: ItemId;
@@ -46,6 +82,76 @@ export interface HotspotDefinition {
   sound?: string;
   /** Ganho do som do interagível (0 a 1); ausente é cheio. */
   soundVolume?: number;
+  /** Só em `challenge`: qual mini-jogo abre e o que ele deixa para trás. */
+  challenge?: ChallengeDefinition;
+  /** Só em `npc`: com quem o jogador começa a conversar ao clicar aqui. */
+  npc?: NpcId;
+}
+
+/** Como o NPC recebe quem chega. A personalidade decide a reputação inicial dele. */
+export type NpcPersonality = 'acolhedor' | 'cordial' | 'desconfiado' | 'hostil';
+
+export const NPC_PERSONALITIES: ReadonlyArray<{ id: NpcPersonality; label: string; reputation: number; hint: string }> = [
+  { id: 'acolhedor', label: 'Acolhedor', reputation: 75, hint: 'Começa gostando de você; cobra barato e paga bem.' },
+  { id: 'cordial', label: 'Cordial', reputation: 55, hint: 'Nem amigo nem inimigo: preço de tabela.' },
+  { id: 'desconfiado', label: 'Desconfiado', reputation: 32, hint: 'Cobra caro até você provar que vale a pena.' },
+  { id: 'hostil', label: 'Hostil', reputation: 12, hint: 'Negocia a contragosto, e o preço mostra isso.' },
+];
+
+/** Uma resposta que o jogador pode dar. */
+export interface NpcAnswer {
+  id: string;
+  text: string;
+  /** Para qual fala ir. Vazio encerra a conversa. */
+  to?: string;
+  /** Abre a tela de trocas em vez de seguir para outra fala. */
+  opensTrade?: boolean;
+  requiresItem?: ItemId;
+  givesItem?: ItemId;
+  takesItem?: ItemId;
+  grantsFlag?: string;
+  requiresFlag?: string;
+  /** Quanto esta resposta mexe na reputação do NPC (pode ser negativo). */
+  reputation?: number;
+}
+
+export interface NpcLine {
+  id: string;
+  text: string;
+  answers: NpcAnswer[];
+}
+
+export interface NpcDefinition {
+  name: string;
+  /** A linha pequena acima do nome, no balão: ofício, cargo, o que for. */
+  title?: string;
+  /**
+   * A arte do NPC. Vazio deixa o boneco de teste em SVG, que é desenhado pelo jogo e
+   * serve para montar a cena antes de a arte de verdade existir.
+   */
+  art?: string;
+  personality: NpcPersonality;
+  /** Reputação inicial (0 a 100). Ausente usa a da personalidade. */
+  reputation?: number;
+  trades: boolean;
+  /** O que ele carrega para trocar. */
+  stock: InventoryEntry[];
+  lines: NpcLine[];
+  /** Som curto a cada fala dele. */
+  voice?: string;
+}
+
+/** Onde um NPC está plantado dentro de uma cena, em % dela. */
+export interface RoomNpc {
+  npcId: NpcId;
+  x: number;
+  y: number;
+  /** Altura do boneco em % da cena; a largura vem da proporção da arte. */
+  height: number;
+  /** Espelhado na horizontal, para ele olhar para o outro lado. */
+  flip?: boolean;
+  /** Fora da cena até uma bandeira acender. */
+  requiresFlag?: string;
 }
 
 export interface RoomLight {
@@ -110,15 +216,22 @@ export interface RoomDefinition {
   audio?: RoomAudio;
   media?: RoomMedia[];
   view?: RoomView;
+  /** Quem está nesta sala. */
+  npcs?: RoomNpc[];
 }
 
 export interface WorldDefinition {
   rooms: Record<RoomId, RoomDefinition>;
+  npcs?: Record<NpcId, NpcDefinition>;
   startRoomId: RoomId;
   escapeRoomId?: RoomId;
 }
 
-export type ItemEffect = 'none' | 'heal' | 'hydrate' | 'feed';
+/**
+ * O que o item faz ao ser usado. `light` é a lanterna: ela não se gasta de uma vez
+ * como um curativo, fica acesa consumindo bateria enquanto a cena estiver escura.
+ */
+export type ItemEffect = 'none' | 'heal' | 'hydrate' | 'feed' | 'light';
 
 export interface ItemDefinition {
   name: string;
@@ -128,7 +241,41 @@ export interface ItemDefinition {
   effect: ItemEffect;
   effectAmount: number;
   image?: string;
+  /**
+   * Quanto este item vale na troca. Não existe dinheiro no jogo: o preço de tudo é
+   * medido nesta escala, e quem compra entrega itens que somem o valor pedido.
+   */
+  value?: number;
+  /** Só na lanterna: segundos de luz com a bateria cheia. */
+  batterySeconds?: number;
 }
+
+/** O que um ataque deixa para trás, além do dano. */
+export type AttackEffectId = 'bleed' | 'panic' | 'drop';
+
+export const ATTACK_EFFECTS: ReadonlyArray<{ id: AttackEffectId; label: string; hint: string }> = [
+  { id: 'bleed', label: 'Ferimento que sangra', hint: 'A vida continua caindo até um curativo fechar o corte.' },
+  { id: 'panic', label: 'Pânico', hint: 'A ansiedade salta para o começo do nível seguinte.' },
+  { id: 'drop', label: 'Derruba o que está na mão', hint: 'O item selecionado cai e sai do inventário.' },
+];
+
+/**
+ * Um golpe de uma entidade. Cada monstro tem a própria lista; quando ela está vazia,
+ * o golpe é o de sempre — 34 de dano e nada mais.
+ */
+export interface AttackDefinition {
+  id: string;
+  name: string;
+  damage: number;
+  effects: AttackEffectId[];
+  /** Só com `bleed`: por quantos segundos o corte continua sangrando. */
+  bleedSeconds?: number;
+  /** Peso no sorteio entre os golpes da entidade. */
+  weight?: number;
+}
+
+/** O golpe de fábrica, usado por toda entidade que não tem lista de ataques. */
+export const DEFAULT_ATTACK: AttackDefinition = { id: 'golpe', name: 'Golpe', damage: 34, effects: [], weight: 1 };
 
 export interface EntityDefinition {
   name: string;
@@ -157,19 +304,22 @@ export interface EntityDefinition {
    * escolha de quem monta o nivel, nao algo que o encontro traga sozinho.
    */
   heartEntity?: EntityId;
+  /** Os golpes desta entidade. Vazio ou ausente usa o golpe de fábrica. */
+  attacks?: AttackDefinition[];
 }
 
 export const ITEMS: Record<ItemId, ItemDefinition> = {
-  accessCard: { name: 'Cartão sem nome', icon: '▣', description: 'Um cartão magnético amarelado. A tarja ainda parece intacta.', useText: 'Ele deve abrir algum leitor próximo.', effect: 'none', effectAmount: 0, image: '/assets/items/accessCard.webp' },
-  almondWater: { name: 'Água de amêndoas', icon: '◒', description: 'Uma garrafa lacrada. O líquido tem um cheiro doce e vagamente familiar.', useText: 'A sede recua. Por enquanto.', effect: 'hydrate', effectAmount: 58, image: '/assets/items/almondWater.webp' },
-  ration: { name: 'Ração selada', icon: '▰', description: 'Uma barra de emergência dura, mas ainda comestível.', useText: 'Sem gosto. Ainda assim, alimento.', effect: 'feed', effectAmount: 48, image: '/assets/items/ration.webp' },
-  fuse: { name: 'Fusível industrial', icon: '⌁', description: 'Pesado demais para o tamanho. Os contatos não estão oxidados.', useText: 'Talvez pertença a um painel elétrico.', effect: 'none', effectAmount: 0 },
-  medkit: { name: 'Kit de primeiros socorros', icon: '✚', description: 'Gaze, antisséptico e analgésicos dentro do prazo.', useText: 'Os ferimentos foram tratados.', effect: 'heal', effectAmount: 52, image: '/assets/items/medkit.webp' },
+  accessCard: { name: 'Cartão sem nome', icon: '▣', description: 'Um cartão magnético amarelado. A tarja ainda parece intacta.', useText: 'Ele deve abrir algum leitor próximo.', effect: 'none', effectAmount: 0, image: '/assets/items/accessCard.webp', value: 6 },
+  almondWater: { name: 'Água de amêndoas', icon: '◒', description: 'Uma garrafa lacrada. O líquido tem um cheiro doce e vagamente familiar.', useText: 'A sede recua. Por enquanto.', effect: 'hydrate', effectAmount: 58, image: '/assets/items/almondWater.webp', value: 4 },
+  ration: { name: 'Ração selada', icon: '▰', description: 'Uma barra de emergência dura, mas ainda comestível.', useText: 'Sem gosto. Ainda assim, alimento.', effect: 'feed', effectAmount: 48, image: '/assets/items/ration.webp', value: 4 },
+  fuse: { name: 'Fusível industrial', icon: '⌁', description: 'Pesado demais para o tamanho. Os contatos não estão oxidados.', useText: 'Talvez pertença a um painel elétrico.', effect: 'none', effectAmount: 0, value: 5 },
+  medkit: { name: 'Kit de primeiros socorros', icon: '✚', description: 'Gaze, antisséptico e analgésicos dentro do prazo.', useText: 'Os ferimentos foram tratados.', effect: 'heal', effectAmount: 52, image: '/assets/items/medkit.webp', value: 9 },
+  lantern: { name: 'Lanterna de mão', icon: '⌾', description: 'Corpo de borracha gasto e uma lente trincada. A pilha ainda tem carga.', useText: 'Ela acende sozinha onde está escuro, e se apaga onde não precisa.', effect: 'light', effectAmount: 0, value: 12, batterySeconds: 240 },
 };
 
 export const ENTITIES: Record<EntityId, EntityDefinition> = {
-  watcher: { name: 'O Observador', prompt: 'Uma silhueta bloqueia o corredor. Ela reage a movimento.', hint: 'Talvez seja melhor desaparecer da visão.', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg' },
-  crawler: { name: 'O Rastejante', prompt: 'Unhas batem no concreto atrás de você. Está se aproximando.', hint: 'Ficar parado significa ser alcançado.', solution: 'run', timeLimit: 4.2, image: '/assets/entities/crawler.jpg' },
+  watcher: { name: 'O Observador', prompt: 'Uma silhueta bloqueia o corredor. Ela reage a movimento.', hint: 'Talvez seja melhor desaparecer da visão.', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg', attacks: [{ id: 'empurrao', name: 'Empurrão', damage: 28, effects: ['panic'], weight: 2 }, { id: 'unhada', name: 'Unhada', damage: 22, effects: ['bleed'], bleedSeconds: 22, weight: 1 }] },
+  crawler: { name: 'O Rastejante', prompt: 'Unhas batem no concreto atrás de você. Está se aproximando.', hint: 'Ficar parado significa ser alcançado.', solution: 'run', timeLimit: 4.2, image: '/assets/entities/crawler.jpg', attacks: [{ id: 'mordida', name: 'Mordida', damage: 26, effects: ['bleed'], bleedSeconds: 30, weight: 3 }, { id: 'rasgo', name: 'Rasgo', damage: 34, effects: ['bleed', 'drop'], bleedSeconds: 18, weight: 1 }] },
   vigia: {
     name: 'O que espera no fim do corredor',
     prompt: 'O corredor não acaba, e há algo parado onde ele deveria acabar. Não se mexe. Está esperando você respirar.',
@@ -177,7 +327,7 @@ export const ENTITIES: Record<EntityId, EntityDefinition> = {
     encounter: 'heart', solution: 'hide', timeLimit: 5,
     image: '/assets/entities/watcher.jpg',
     heartWall: '/assets/scenes/lobbyWall.jpg',
-    heartHoldSeconds: 9, heartEscapeSeconds: 13.4, heartPull: 54, heartJoltEvery: 2.4,
+    heartHoldSeconds: 17, heartEscapeSeconds: 21.4, heartPull: 54, heartJoltEvery: 2.4,
   },
 };
 

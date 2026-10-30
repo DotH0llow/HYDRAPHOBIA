@@ -1,5 +1,5 @@
 export type Screen = 'splash' | 'menu' | 'slots' | 'create' | 'game' | 'settings' | 'gameover' | 'escaped' | 'exit';
-export type GameStatus = 'exploring' | 'encounter' | 'paused' | 'gameover' | 'escaped' | 'cutscene' | 'hidden';
+export type GameStatus = 'exploring' | 'encounter' | 'paused' | 'gameover' | 'escaped' | 'cutscene' | 'hidden' | 'dialogue' | 'challenge';
 export type CutsceneMediaType = 'image' | 'gif' | 'video';
 export type Direction = string;
 export type RoomId = string;
@@ -12,6 +12,7 @@ export type EncounterAction = 'run' | 'hide';
  */
 export type EncounterKind = 'choice' | 'heart';
 export type EntityId = string;
+export type NpcId = string;
 export type HotspotVisibility = 'visible' | 'hidden' | 'invisible';
 
 export type CharacterGender = 'male' | 'female';
@@ -99,6 +100,67 @@ export interface HeartEncounter {
   joltEvery: number;
 }
 
+/**
+ * Uma conversa em andamento. Enquanto ela existe o jogador está protegido: nada o
+ * ataca com um NPC falando, e isso não é dito em lugar nenhum da tela.
+ */
+export interface DialogueState {
+  npcId: NpcId;
+  lineId: string;
+  /** A tela de trocas aberta por cima da conversa. */
+  trading: boolean;
+  /** O que o jogador está oferecendo e o que está pedindo, por item. */
+  offer: InventoryEntry[];
+  ask: InventoryEntry[];
+}
+
+/** Uma fala guardada no histórico da conversa. */
+export interface DialogueEntry {
+  npcId: NpcId;
+  /** Nome de quem falou: o NPC ou o personagem. */
+  speaker: string;
+  text: string;
+  /** Quem falou, para o histórico alinhar os dois lados. */
+  side: 'npc' | 'player';
+  /** Tempo de jogo, em segundos, em que a fala aconteceu. */
+  at: number;
+}
+
+/** O que cada NPC guarda entre uma conversa e outra, dentro de uma campanha. */
+export interface NpcMemory {
+  reputation: number;
+  stock: InventoryEntry[];
+  /** Já falou com este NPC alguma vez. */
+  met: boolean;
+}
+
+/** O painel de fios aberto agora. */
+export interface WireEnd { label: string; color: string }
+
+export interface WireChallengeState {
+  /** Os fios que saem da esquerda, na ordem em que aparecem. */
+  wires: Array<{ from: string; color: string }>;
+  /** Os conectores da direita, embaralhados. */
+  connectors: string[];
+  /** A ligação certa: de qual letra para qual número. */
+  solution: Record<string, string>;
+  /** O que o jogador já ligou e acertou. */
+  linked: Record<string, string>;
+  /** A letra que o jogador pegou agora, esperando um conector. */
+  holding: string | null;
+  /** A última ligação errada, para a tela dar o choque e esquecer. */
+  shockAt: number;
+  mistakes: number;
+}
+
+export interface ChallengeState {
+  hotspotId: HotspotId;
+  kind: 'wires';
+  /** A cutscene de abertura, enquanto ela ainda está na tela. */
+  intro: CutsceneState | null;
+  wires: WireChallengeState;
+}
+
 export interface HideoutState {
   hotspotId: HotspotId;
   image?: string;
@@ -124,6 +186,16 @@ export interface GameSave {
   elapsed: number;
   danger: number;
   roomTime: Record<RoomId, number>;
+  /** Segundos que o corte ainda tem de sangrar. */
+  bleeding?: number;
+  /** Carga da lanterna, de 0 a 1. */
+  battery?: number;
+  /** Reputação e estoque de cada NPC nesta campanha. */
+  npcs?: Record<NpcId, NpcMemory>;
+  /** Tudo o que foi dito nas conversas, na ordem. */
+  dialogueLog?: DialogueEntry[];
+  /** Até quando (em tempo de jogo) o jogador ainda sai ileso depois de uma conversa. */
+  shieldUntil?: number;
 }
 
 /**

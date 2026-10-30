@@ -9,10 +9,10 @@ import { labelAnchorOf } from '../systems/hotspots';
 import { localSyncAvailable, pushToRepository } from '../systems/localSync';
 import { roomMediaMarkup, sceneFrameStyle } from '../systems/roomView';
 import type { EncounterAction, ItemId } from '../types';
-import { EditorProject } from './EditorProject';
-import { entitiesToRuntime, itemsToRuntime, projectToWorld } from './mapAdapter';
-import { createLight, createRoomMedia, DEFAULT_SHAPE_POINT_COUNT, ENCOUNTER_KINDS, ENTITY_IMAGE_LIBRARY, FULL_ROOM_VIEW, IMAGE_LIBRARY, isFullRoomView, ROOM_AUDIO_MODES, detectMediaType, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorLight, type EditorRoom, type EditorRoomMedia, type EditorRoomView } from './types';
-import type { RoomAudioMode } from '../config/world';
+import { createId, EditorProject } from './EditorProject';
+import { entitiesToRuntime, itemsToRuntime, npcsToRuntime, projectToWorld } from './mapAdapter';
+import { createChallenge, createLight, createRoomMedia, CHALLENGE_KINDS, DEFAULT_SHAPE_POINT_COUNT, ENCOUNTER_KINDS, ENTITY_IMAGE_LIBRARY, FULL_ROOM_VIEW, IMAGE_LIBRARY, isFullRoomView, ROOM_AUDIO_MODES, detectMediaType, type EditorConnection, type EditorEntity, type EditorHotspot, type EditorItem, type EditorLight, type EditorNpc, type EditorRoom, type EditorRoomMedia, type EditorRoomView } from './types';
+import { ATTACK_EFFECTS, NPC_PERSONALITIES, type AttackDefinition, type AttackEffectId, type RoomAudioMode } from '../config/world';
 
 /** O que a área de transferência do editor está guardando. */
 type ClipboardEntry =
@@ -27,7 +27,7 @@ const CLIPBOARD_LABELS: Record<ClipboardEntry['kind'], string> = {
   hotspot: 'interagível', light: 'foco de luz', media: 'mídia', room: 'sala', item: 'item', entity: 'entidade',
 };
 
-type Panel = 'map' | 'items' | 'entities';
+type Panel = 'map' | 'items' | 'entities' | 'npcs';
 
 /**
  * Por onde a janela do jogador está sendo arrastada: `move` é o corpo dela, as demais
@@ -84,6 +84,7 @@ export class EditorApp {
   private selectedConnectionId: string | null = null;
   private selectedItemId: string | null = this.project.data.items[0]?.id ?? null;
   private selectedEntityId: string | null = this.project.data.entities[0]?.id ?? null;
+  private selectedNpcId: string | null = this.project.data.npcs[0]?.id ?? null;
   private hotspotEditorOpen = false;
   private selectedLightId: string | null = null;
   private selectedMediaId: string | null = null;
@@ -95,6 +96,8 @@ export class EditorApp {
   private connectionSource: string | null = null;
   private connectionPointer = { x: 0, y: 0 };
   private testGame: Game | null = null;
+  /** De onde o teste começou, para o botão de reiniciar voltar ao mesmo lugar. */
+  private testStartRoom: string | null = null;
   private testMode = false;
   private testInventoryOpen = false;
   private testJumpscareUntil = 0;
@@ -108,7 +111,12 @@ export class EditorApp {
   /** Arquivos de áudio encontrados em `public/assets/audio`, para a trilha das salas. */
   private audioFiles: string[] = [];
   /** Nível que está na mão agora, enquanto a lista é reordenada por arrasto. */
-  private levelDragId: string | null = null;
+  /** O que está sendo arrastado agora, e de qual lista: níveis, salas, itens, pessoas. */
+  private dragId: string | null = null;
+  private dragKind = '';
+  /** O salto rápido (Ctrl+P): aberto ou não, e o que está escrito nele. */
+  private paletteOpen = false;
+  private paletteQuery = '';
   /**
    * As imagens do palco já decodificadas, por caminho de arquivo. `render()` reescreve a
    * cena inteira com `innerHTML`, e isso jogava fora o `<img>` do GIF a cada edição: o
@@ -146,6 +154,7 @@ export class EditorApp {
   private get selectedRoom(): EditorRoom | undefined { return this.project.findRoom(this.selectedRoomId); }
   private get selectedItem(): EditorItem | undefined { return this.project.findItem(this.selectedItemId ?? ''); }
   private get selectedEntity(): EditorEntity | undefined { return this.project.findEntity(this.selectedEntityId ?? ''); }
+  private get selectedNpc(): EditorNpc | undefined { return this.project.findNpc(this.selectedNpcId ?? ''); }
 
   private render(): void {
     this.root.innerHTML = this.testMode ? this.playtestTemplate() : this.editorTemplate();
@@ -196,8 +205,12 @@ export class EditorApp {
           <button data-action="panel-map" class="${this.activePanel === 'map' ? 'primary' : ''}">Mapa</button>
           <button data-action="panel-items" class="${this.activePanel === 'items' ? 'primary' : ''}">Itens</button>
           <button data-action="panel-entities" class="${this.activePanel === 'entities' ? 'primary' : ''}">Entidades</button>
+          <button data-action="panel-npcs" class="${this.activePanel === 'npcs' ? 'primary' : ''}">Pessoas</button>
           ${this.activePanel === 'map' ? '<button data-action="new-level">Novo nível</button><button data-action="new-room">Nova sala</button>' : ''}
-          <button data-action="save">Salvar</button><button data-action="export">Exportar JSON</button><button data-action="import">Importar</button>${localSyncAvailable() ? `<button data-action="push-repo" ${this.pushing ? 'disabled' : ''}>${this.pushing ? 'Enviando…' : 'Enviar à main'}</button>` : ''}<button class="primary" data-action="test">Testar</button>
+          <button data-action="undo" title="Desfazer (Ctrl+Z)" ${this.project.canUndo ? '' : 'disabled'}>&#8630;</button>
+          <button data-action="redo" title="Refazer (Ctrl+Shift+Z)" ${this.project.canRedo ? '' : 'disabled'}>&#8631;</button>
+          <button data-action="palette" title="Salto rápido (Ctrl+P)">Ir para…</button>
+          <button data-action="save">Salvar</button><button data-action="export">Exportar JSON</button><button data-action="import">Importar</button>${localSyncAvailable() ? `<button data-action="push-repo" ${this.pushing ? 'disabled' : ''}>${this.pushing ? 'Enviando…' : 'Enviar à main'}</button>` : ''}<button data-action="test-here" title="Começa o teste na perspectiva selecionada">Testar daqui</button><button class="primary" data-action="test">Testar</button>
         </nav>
         <input class="visually-hidden" type="file" accept="application/json,.json" data-role="import-file" />
         <input class="visually-hidden" type="file" accept="image/*" data-role="browse-image" />
@@ -206,7 +219,9 @@ export class EditorApp {
       ${this.activePanel === 'map' ? `<div class="editor-layout">${this.leftPanelTemplate()}${this.canvasTemplate()}${this.propertiesTemplate()}</div>` : ''}
       ${this.activePanel === 'items' ? this.itemsPanelTemplate() : ''}
       ${this.activePanel === 'entities' ? this.entitiesPanelTemplate() : ''}
+      ${this.activePanel === 'npcs' ? this.npcsPanelTemplate() : ''}
       ${this.hotspotEditorOpen ? this.hotspotEditorTemplate() : ''}
+      ${this.paletteOpen ? this.paletteTemplate() : ''}
       ${this.confirmTemplate()}
     </main>`;
   }
@@ -237,11 +252,11 @@ export class EditorApp {
     const active = this.project.activeLevel;
     return `<aside class="editor-sidebar editor-left">
       <section><div class="panel-title"><span>Níveis</span><b>${this.project.data.levels.length}</b></div>
-        <div class="level-list">${this.project.data.levels.map((level) => `<div class="level-row ${level.id === active.id ? 'active' : ''}" draggable="true" data-level-row="${esc(level.id)}">
+        <div class="level-list">${this.project.data.levels.map((level) => `<div class="level-row ${level.id === active.id ? 'active' : ''}" draggable="true" data-drag-row="${esc(level.id)}" data-drag-kind="level">
           <button data-action="select-level" data-level="${esc(level.id)}"><i></i><span>${esc(level.name)}</span><small>${level.rooms.length} ${level.rooms.length === 1 ? 'sala' : 'salas'}</small></button>
           <button class="level-rename" data-action="rename-level" data-level="${esc(level.id)}" title="Renomear nível" aria-label="Renomear ${esc(level.name)}">&#9998;</button>
         </div>`).join('')}</div>
-        ${this.project.data.levels.length > 1 ? '<p class="panel-hint">Arraste um nível pela linha dele para mudar a ordem da lista.</p>' : ''}
+        ${this.project.data.levels.length > 1 ? '<p class="panel-hint">Arraste um nível pela linha dele para mudar a ordem da lista. O mesmo vale para as perspectivas, os itens, as entidades e as pessoas.</p>' : ''}
         <div class="level-tools">
           <label><span>Nome do nível aberto</span><input data-level-field="name" data-level="${esc(active.id)}" value="${esc(active.name)}" maxlength="64" /></label>
           <div class="level-tool-row">
@@ -251,7 +266,7 @@ export class EditorApp {
         </div>
       </section>
       <section class="room-browser"><div class="panel-title"><span>Perspectivas</span><b>${active.rooms.length}</b></div>
-        <div class="room-list">${active.rooms.map((room) => `<button class="${room.id === this.selectedRoomId ? 'active' : ''}" data-action="select-room" data-room="${esc(room.id)}"><img src="${esc(room.image)}" alt="" /><span><b>${esc(room.name)}</b><small>${esc(room.id)}</small></span>${active.startRoomId === room.id ? '<em>INÍCIO</em>' : ''}</button>`).join('')}</div>
+        <div class="room-list">${active.rooms.map((room) => `<button class="${room.id === this.selectedRoomId ? 'active' : ''}" draggable="true" data-drag-row="${esc(room.id)}" data-drag-kind="room" data-action="select-room" data-room="${esc(room.id)}"><img src="${esc(room.image)}" alt="" /><span><b>${esc(room.name)}</b><small>${esc(room.id)}</small></span>${active.startRoomId === room.id ? '<em>INÍCIO</em>' : ''}</button>`).join('')}</div>
       </section>
       <section><div class="panel-title"><span>Imagens do projeto</span><b>${IMAGE_LIBRARY.length}</b></div>
         <div class="asset-grid">${IMAGE_LIBRARY.map((image) => `<button data-action="choose-image" data-image="${esc(image)}" title="${esc(image)}"><img src="${esc(image)}" alt="" /><small>${esc(image.split('/').pop())}</small></button>`).join('')}</div>
@@ -330,9 +345,10 @@ export class EditorApp {
         ${connections.length ? connections.map((connection) => this.connectionEditorTemplate(connection, room.id)).join('') : '<p class="empty-note">Arraste o ponto ◉ deste bloco até outra sala para criar um caminho.</p>'}
         <button class="wide-button" data-action="add-connection">+ Novo caminho a partir desta sala</button>
       </section>
+      ${this.roomNpcsTemplate(room)}
       <section class="property-section"><div class="panel-title"><span>Interações</span><b>${room.hotspots.length}</b></div>
         <button class="wide-button primary" data-action="open-hotspots">Editar hotspots na imagem</button>
-        <div class="hotspot-summary">${room.hotspots.map((hotspot) => `<button data-action="open-hotspot" data-hotspot="${esc(hotspot.id)}"><i style="background:${esc(hotspot.highlightColor)}"></i><span>${esc(hotspot.label)}</span><small>${esc(hotspot.action)}${hotspot.visibility !== 'visible' ? ` · ${hotspot.visibility === 'hidden' ? 'escondido' : 'invisível'}` : ''}</small></button>`).join('') || '<p class="empty-note">Nenhuma área interativa criada.</p>'}</div>
+        <div class="hotspot-summary">${room.hotspots.map((hotspot) => `<button draggable="true" data-drag-row="${esc(hotspot.id)}" data-drag-kind="hotspot" data-action="open-hotspot" data-hotspot="${esc(hotspot.id)}"><i style="background:${esc(hotspot.highlightColor)}"></i><span>${esc(hotspot.label)}</span><small>${esc(hotspot.action)}${hotspot.visibility !== 'visible' ? ` · ${hotspot.visibility === 'hidden' ? 'escondido' : 'invisível'}` : ''}</small></button>`).join('') || '<p class="empty-note">Nenhuma área interativa criada.</p>'}</div>
       </section>
     </aside>`;
   }
@@ -567,7 +583,7 @@ export class EditorApp {
     const mode: RoomAudioMode = audio?.mode ?? 'every-entry';
     return `<section class="property-section">
       <div class="panel-title"><span>Áudio da sala</span>${path ? '<b>ativo</b>' : ''}</div>
-      <label><span>Arquivo</span><input data-room-audio-field="path" list="room-audio-files" value="${esc(path)}" placeholder="/assets/audio/Music/..." /></label>
+      <label><span>Arquivo</span><div class="input-with-browse"><input data-room-audio-field="path" list="room-audio-files" value="${esc(path)}" placeholder="/assets/audio/Music/..." />${this.listenButtons()}</div></label>
       <datalist id="room-audio-files">${this.audioFiles.map((file) => `<option value="${esc(file)}"></option>`).join('')}</datalist>
       <p class="panel-hint">${this.audioFiles.length ? `${this.audioFiles.length} arquivos encontrados em public/assets/audio — comece a digitar para filtrar.` : 'Rode <code>npm run audio:manifest</code> para listar os arquivos de public/assets/audio aqui.'}</p>
       ${path ? `<div class="room-audio-modes">${ROOM_AUDIO_MODES.map((entry) => `<label class="check"><input type="checkbox" data-room-audio-field="mode" value="${entry.id}" ${mode === entry.id ? 'checked' : ''} /><span>${esc(entry.label)}<small>${esc(entry.hint)}</small></span></label>`).join('')}</div>
@@ -610,7 +626,7 @@ export class EditorApp {
   private hotspotFieldsTemplate(hotspot: EditorHotspot): string {
     return `<div class="properties-heading"><div><small>HOTSPOT</small><h3>${esc(hotspot.label)}</h3></div><button class="danger" data-action="delete-hotspot">Excluir</button></div>
       <label><span>Etiqueta</span><input data-hotspot-field="label" value="${esc(hotspot.label)}" /></label>
-      <label><span>Ação</span><select data-hotspot-field="action"><option value="examine" ${hotspot.action === 'examine' ? 'selected' : ''}>Examinar</option><option value="collect" ${hotspot.action === 'collect' ? 'selected' : ''}>Coletar item</option><option value="use" ${hotspot.action === 'use' ? 'selected' : ''}>Abrir / utilizar</option><option value="event" ${hotspot.action === 'event' ? 'selected' : ''}>Evento / entidade</option><option value="cutscene" ${hotspot.action === 'cutscene' ? 'selected' : ''}>Cutscene</option><option value="hideout" ${hotspot.action === 'hideout' ? 'selected' : ''}>Esconderijo</option></select></label>
+      <label><span>Ação</span><select data-hotspot-field="action"><option value="examine" ${hotspot.action === 'examine' ? 'selected' : ''}>Examinar</option><option value="collect" ${hotspot.action === 'collect' ? 'selected' : ''}>Coletar item</option><option value="use" ${hotspot.action === 'use' ? 'selected' : ''}>Abrir / utilizar</option><option value="event" ${hotspot.action === 'event' ? 'selected' : ''}>Evento / entidade</option><option value="cutscene" ${hotspot.action === 'cutscene' ? 'selected' : ''}>Cutscene</option><option value="hideout" ${hotspot.action === 'hideout' ? 'selected' : ''}>Esconderijo</option><option value="challenge" ${hotspot.action === 'challenge' ? 'selected' : ''}>Desafio (mini-jogo)</option><option value="npc" ${hotspot.action === 'npc' ? 'selected' : ''}>Conversar com alguém</option></select></label>
       <p class="panel-hint">Para levar o jogador a outra sala, arraste o ponto ◉ do bloco desta sala até a sala de destino no mapa: isso cria um caminho, o único interagível que muda de sala.</p>
       <label><span>Mensagem ao jogador</span><textarea data-hotspot-field="message" rows="4">${esc(hotspot.message)}</textarea></label>
       ${hotspot.action === 'collect' ? `<label><span>Item coletado</span><select data-hotspot-field="item">${this.itemOptions(hotspot.item)}</select></label>` : ''}
@@ -618,6 +634,9 @@ export class EditorApp {
       ${hotspot.action === 'event' ? `<label><span>Evento</span><select data-hotspot-field="event">${this.eventOptions(hotspot.event)}</select></label>` : ''}
       ${hotspot.action === 'cutscene' ? this.cutsceneFieldsTemplate(hotspot) : ''}
       ${hotspot.action === 'hideout' ? this.hideoutFieldsTemplate(hotspot) : ''}
+      ${hotspot.action === 'challenge' ? this.challengeFieldsTemplate(hotspot) : ''}
+      ${hotspot.action === 'npc' ? `<label><span>Pessoa</span><select data-hotspot-field="npcId"><option value="">Nenhuma</option>${this.npcOptions(hotspot.npcId)}</select></label>
+      <p class="panel-hint">${this.project.data.npcs.length === 0 ? 'Nenhuma pessoa criada ainda — crie uma no painel "Pessoas".' : 'Clicar aqui começa a conversa. Para a pessoa também aparecer desenhada na cena, plante-a na seção "Pessoas na cena" das propriedades da sala.'}</p>` : ''}
       <div class="field-row"><label><span>Cor do highlight</span><input type="color" data-hotspot-field="highlightColor" value="${esc(hotspot.highlightColor)}" /></label><label><span>Opacidade</span><input type="range" min="0.05" max="0.65" step="0.05" data-hotspot-field="highlightOpacity" value="${hotspot.highlightOpacity}" /></label></div>
       <label class="check"><input type="checkbox" data-hotspot-field="once" ${hotspot.once ? 'checked' : ''} /><span>Executar apenas uma vez</span></label>
       ${this.hotspotSoundTemplate(hotspot)}
@@ -652,13 +671,70 @@ export class EditorApp {
     const path = hotspot.sound ?? '';
     return `<section class="property-section">
       <div class="panel-title"><span>Som ao interagir</span></div>
-      <label><span>Arquivo</span><input data-hotspot-field="sound" list="hotspot-sound-files" value="${esc(path)}" placeholder="/assets/audio/FX/..." /></label>
+      <label><span>Arquivo</span><div class="input-with-browse"><input data-hotspot-field="sound" list="hotspot-sound-files" value="${esc(path)}" placeholder="/assets/audio/FX/..." />${this.listenButtons()}</div></label>
       <datalist id="hotspot-sound-files">${this.audioFiles.map((file) => `<option value="${esc(file)}"></option>`).join('')}</datalist>
       ${path
         ? `<label><span>Volume</span><div class="slider-row"><input type="range" min="0" max="1" step="0.05" data-hotspot-field="soundVolume" value="${hotspot.soundVolume ?? 1}" /><b data-role="hotspot-sound-volume">${Math.round((hotspot.soundVolume ?? 1) * 100)}%</b></div></label>
            <button class="wide-button danger" data-action="clear-hotspot-sound">Remover o som</button>`
         : `<p class="panel-hint">${this.audioFiles.length ? `${this.audioFiles.length} arquivos encontrados em public/assets/audio — comece a digitar para filtrar.` : 'Rode <code>npm run audio:manifest</code> para listar os arquivos de public/assets/audio aqui.'} Em branco, clicar neste interagível não faz som nenhum.`}
     </section>`;
+  }
+
+  /**
+   * Ouvir o arquivo sem sair do editor. Antes disso, a única forma de conferir um som
+   * era entrar no jogo e chegar até o objeto; para acertar o volume de um clique, isso
+   * custava uma travessia inteira por tentativa.
+   */
+  private listenButtons(): string {
+    return `<button type="button" class="listen-button" data-action="preview-audio" title="Ouvir este arquivo">&#9654;</button><button type="button" class="listen-button" data-action="preview-stop" title="Parar">&#9632;</button>`;
+  }
+
+  /** Os campos do desafio preso a este interagível. */
+  private challengeFieldsTemplate(hotspot: EditorHotspot): string {
+    const challenge = hotspot.challenge ?? createChallenge();
+    const kind = CHALLENGE_KINDS.find((entry) => entry.id === challenge.kind);
+    const used = new Set(challenge.wirePairs.map((pair) => pair.from));
+    return `<section class="property-section">
+      <div class="panel-title"><span>Desafio</span></div>
+      <label><span>Mini-jogo</span><select data-challenge-field="kind">${CHALLENGE_KINDS.map((entry) => `<option value="${entry.id}" ${challenge.kind === entry.id ? 'selected' : ''}>${esc(entry.label)}</option>`).join('')}</select></label>
+      <p class="panel-hint">${esc(kind?.hint ?? '')}</p>
+      <label><span>Cutscene de abertura (opcional)</span><div class="input-with-browse"><input data-challenge-field="introPath" value="${esc(challenge.introPath)}" placeholder="/assets/cutscenes/painel.jpg" /><button type="button" data-action="browse-file" data-target-field="challengeIntro" data-accept="image/*,video/*,.gif">Procurar</button></div></label>
+      ${challenge.introPath ? `<label><span>Duração da abertura (s)</span><input type="number" min="0.2" step="0.1" data-challenge-field="introSeconds" value="${challenge.introSeconds}" /></label>` : '<p class="panel-hint">Em branco, o painel abre direto.</p>'}
+      <div class="field-row">
+        <label><span>Fios (3 a 6)</span><input type="number" min="3" max="6" data-challenge-field="wireCount" value="${challenge.wireCount}" ${challenge.wirePairs.length >= 3 ? 'disabled' : ''} /></label>
+        <label><span>Dano do choque</span><input type="number" min="0" max="100" data-challenge-field="shockDamage" value="${challenge.shockDamage}" /></label>
+      </div>
+      <div class="panel-title"><span>Ligações certas</span><b>${challenge.wirePairs.length}</b></div>
+      <p class="panel-hint">Em branco (ou com menos de três), o jogo sorteia um painel novo a cada partida. Nada disso aparece na tela do jogador: a ligação certa só se descobre tentando, e cada erro custa o choque.</p>
+      <div class="wire-pairs">${['A', 'B', 'C', 'D', 'E', 'F'].map((letter) => {
+        const pair = challenge.wirePairs.find((entry) => entry.from === letter);
+        const taken = new Set(challenge.wirePairs.filter((entry) => entry.from !== letter).map((entry) => entry.to));
+        return `<label class="wire-pair"><span>${letter}</span><select data-challenge-wire="${letter}"><option value="">—</option>${['1', '2', '3', '4', '5', '6'].map((number) => `<option value="${number}" ${pair?.to === number ? 'selected' : ''} ${taken.has(number) ? 'disabled' : ''}>${number}</option>`).join('')}</select></label>`;
+      }).join('')}</div>
+      ${used.size > 0 && used.size < 3 ? '<p class="panel-hint warn">Com menos de três ligações escritas o jogo ignora todas elas e sorteia o painel.</p>' : ''}
+      ${this.outcomeFieldsTemplate(hotspot, 'success', 'Consequência de fechar o painel')}
+      ${this.outcomeFieldsTemplate(hotspot, 'giveUp', 'Consequência de largar o painel')}
+    </section>`;
+  }
+
+  /**
+   * A consequência: um texto, um som, uma imagem — ou as três ao mesmo tempo. Nada
+   * escrito aqui significa que nada acontece, e o jogo simplesmente volta à sala.
+   */
+  private outcomeFieldsTemplate(hotspot: EditorHotspot, side: 'success' | 'giveUp', title: string): string {
+    const outcome = (hotspot.challenge ?? createChallenge())[side];
+    return `<div class="outcome-block">
+      <div class="panel-title"><span>${esc(title)}</span></div>
+      <label><span>Texto na tela</span><textarea rows="2" data-outcome-field="message" data-outcome-side="${side}">${esc(outcome.message)}</textarea></label>
+      <label><span>Som</span><div class="input-with-browse"><input data-outcome-field="sound" data-outcome-side="${side}" list="hotspot-sound-files" value="${esc(outcome.sound)}" placeholder="/assets/audio/FX/..." />${this.listenButtons()}</div></label>
+      ${outcome.sound ? `<label><span>Volume do som</span><input type="range" min="0" max="1" step="0.05" data-outcome-field="soundVolume" data-outcome-side="${side}" value="${outcome.soundVolume}" /></label>` : ''}
+      <label><span>Imagem</span><div class="input-with-browse"><input data-outcome-field="image" data-outcome-side="${side}" value="${esc(outcome.image)}" placeholder="/assets/cutscenes/..." /><button type="button" data-action="browse-file" data-target-field="outcome-${side}" data-accept="image/*">Procurar</button></div></label>
+      ${outcome.image ? `<label><span>Segundos da imagem</span><input type="number" min="0.2" step="0.1" data-outcome-field="imageSeconds" data-outcome-side="${side}" value="${outcome.imageSeconds}" /></label>` : ''}
+      <div class="field-row">
+        <label><span>Acende a bandeira</span><input data-outcome-field="grantsFlag" data-outcome-side="${side}" value="${esc(outcome.grantsFlag)}" placeholder="painelReparado" /></label>
+        <label><span>Dá o item</span><select data-outcome-field="item" data-outcome-side="${side}"><option value="">Nenhum</option>${this.itemOptions(outcome.item)}</select></label>
+      </div>
+    </div>`;
   }
 
   private hideoutFieldsTemplate(hotspot: EditorHotspot): string {
@@ -687,7 +763,7 @@ export class EditorApp {
     return `<div class="side-panel-layout">
       <aside class="editor-sidebar editor-left">
         <section><div class="panel-title"><span>Itens</span><b>${items.length}</b></div>
-          <div class="level-list">${items.map((entry) => `<button class="${entry.id === item?.id ? 'active' : ''}" data-action="select-item" data-item="${esc(entry.id)}"><i></i><span>${esc(entry.icon)} ${esc(entry.name)}</span><small>${esc(entry.effect)}</small></button>`).join('')}</div>
+          <div class="level-list">${items.map((entry) => `<button class="${entry.id === item?.id ? 'active' : ''}" draggable="true" data-drag-row="${esc(entry.id)}" data-drag-kind="item" data-action="select-item" data-item="${esc(entry.id)}"><i></i><span>${esc(entry.icon)} ${esc(entry.name)}</span><small>${esc(entry.effect)} · vale ${entry.value}</small></button>`).join('')}</div>
           <button class="wide-button primary" data-action="new-item">+ Novo item</button>
         </section>
       </aside>
@@ -705,8 +781,13 @@ export class EditorApp {
       ${item.image ? `<div class="image-preview"><img src="${esc(item.image)}" alt="Prévia de ${esc(item.name)}" /><span>${esc(item.image)}</span></div>` : ''}
       <label><span>Descrição</span><textarea data-item-field="description" rows="3">${esc(item.description)}</textarea></label>
       <label><span>Texto ao usar</span><textarea data-item-field="useText" rows="2">${esc(item.useText)}</textarea></label>
-      <label><span>Efeito ao usar</span><select data-item-field="effect"><option value="none" ${item.effect === 'none' ? 'selected' : ''}>Nenhum (item de cenário)</option><option value="heal" ${item.effect === 'heal' ? 'selected' : ''}>Cura vida</option><option value="hydrate" ${item.effect === 'hydrate' ? 'selected' : ''}>Mata a sede</option><option value="feed" ${item.effect === 'feed' ? 'selected' : ''}>Mata a fome</option></select></label>
-      ${item.effect !== 'none' ? `<label><span>Quantidade recuperada</span><input type="number" min="1" max="100" data-item-field="effectAmount" value="${item.effectAmount}" /></label>` : ''}
+      <label><span>Efeito ao usar</span><select data-item-field="effect"><option value="none" ${item.effect === 'none' ? 'selected' : ''}>Nenhum (item de cenário)</option><option value="heal" ${item.effect === 'heal' ? 'selected' : ''}>Cura vida</option><option value="hydrate" ${item.effect === 'hydrate' ? 'selected' : ''}>Mata a sede</option><option value="feed" ${item.effect === 'feed' ? 'selected' : ''}>Mata a fome</option><option value="light" ${item.effect === 'light' ? 'selected' : ''}>Ilumina (lanterna com pilha)</option></select></label>
+      ${item.effect !== 'none' && item.effect !== 'light' ? `<label><span>Quantidade recuperada</span><input type="number" min="1" max="100" data-item-field="effectAmount" value="${item.effectAmount}" /></label>` : ''}
+      ${item.effect === 'heal' ? '<p class="panel-hint">Curar também fecha um ferimento que esteja sangrando.</p>' : ''}
+      ${item.effect === 'light' ? `<label><span>Segundos de pilha</span><input type="number" min="10" max="7200" data-item-field="batterySeconds" value="${item.batterySeconds ?? 240}" /></label>
+      <p class="panel-hint">A lanterna não tem botão: acende sozinha nas salas escuras (escuridão de 45% para cima) e se apaga nas claras. A pilha só gasta acesa, e não volta sozinha.</p>` : ''}
+      <label><span>Valor na troca</span><input type="number" min="0" max="999" data-item-field="value" value="${item.value}" /></label>
+      <p class="panel-hint">Não existe dinheiro no jogo: este número é a moeda. O vendedor cobra mais ou menos que ele conforme a disposição dele, e soma 1 a cada item quando o jogador chega com 60 ou mais de ansiedade.</p>
       <p class="panel-hint">ID interno: <code>${esc(item.id)}</code></p>`;
   }
 
@@ -716,7 +797,7 @@ export class EditorApp {
     return `<div class="side-panel-layout">
       <aside class="editor-sidebar editor-left">
         <section><div class="panel-title"><span>Entidades</span><b>${entities.length}</b></div>
-          <div class="level-list">${entities.map((entry) => `<button class="${entry.id === entity?.id ? 'active' : ''}" data-action="select-entity" data-entity="${esc(entry.id)}"><i></i><span>${esc(entry.name)}</span><small>${entry.encounter === 'heart' ? 'segure o medo' : entry.solution === 'hide' ? 'esconder-se' : 'correr'}</small></button>`).join('')}</div>
+          <div class="level-list">${entities.map((entry) => `<button class="${entry.id === entity?.id ? 'active' : ''}" draggable="true" data-drag-row="${esc(entry.id)}" data-drag-kind="entity" data-action="select-entity" data-entity="${esc(entry.id)}"><i></i><span>${esc(entry.name)}</span><small>${entry.encounter === 'heart' ? 'segure o medo' : entry.solution === 'hide' ? 'esconder-se' : 'correr'}</small></button>`).join('')}</div>
           <button class="wide-button primary" data-action="new-entity">+ Nova entidade</button>
         </section>
       </aside>
@@ -755,8 +836,136 @@ export class EditorApp {
       <datalist id="scene-assets-entity">${IMAGE_LIBRARY.map((image) => `<option value="${esc(image)}"></option>`).join('')}</datalist>
       <p class="panel-hint">O encontro acontece sempre na sala em que o jogador está. Esta parede é colada sobre o canto direito dela, e é nela que o personagem assustado fica encostado.</p>
       ${entity.heartWall ? `<div class="image-preview"><img src="${esc(entity.heartWall)}" alt="Prévia da parede" /><span>${esc(entity.heartWall)}</span></div>` : ''}` : ''}
+      ${this.attacksTemplate(entity)}
       <label><span>Duração do jumpscare (segundos, padrão 1.55)</span><input type="number" min="0.3" max="10" step="0.05" data-entity-field="jumpscareSeconds" value="${entity.jumpscareSeconds ?? ''}" placeholder="1.55" /></label>
       <p class="panel-hint">ID interno: <code>${esc(entity.id)}</code> · use este ID no campo "Evento" de um hotspot para disparar o encontro.</p>`;
+  }
+
+  /**
+   * Os golpes desta entidade. Com a lista vazia ela continua dando o golpe de sempre,
+   * de 34 e nada mais; com dois ou mais golpes, o que ela dá é sorteado pelo peso de
+   * cada um — é assim que um monstro passa a ter um jeito de atacar, e não um número.
+   */
+  private attacksTemplate(entity: EditorEntity): string {
+    const attacks = entity.attacks ?? [];
+    return `<section class="property-section">
+      <div class="panel-title"><span>Ataques</span><b>${attacks.length}</b></div>
+      ${attacks.length === 0 ? '<p class="panel-hint">Sem nenhum golpe escrito, esta entidade dá o golpe de fábrica: 34 de dano e nada além disso.</p>' : ''}
+      ${attacks.map((attack, index) => `<div class="attack-entry">
+        <header><b>Golpe ${String(index + 1).padStart(2, '0')}</b><button class="danger" data-action="delete-attack" data-attack="${esc(attack.id)}" aria-label="Excluir golpe">×</button></header>
+        <label><span>Nome</span><input data-attack-field="name" data-attack="${esc(attack.id)}" value="${esc(attack.name)}" maxlength="48" /></label>
+        <div class="field-row">
+          <label><span>Dano</span><input type="number" min="0" max="100" data-attack-field="damage" data-attack="${esc(attack.id)}" value="${attack.damage}" /></label>
+          <label><span>Peso no sorteio</span><input type="number" min="0.1" max="20" step="0.1" data-attack-field="weight" data-attack="${esc(attack.id)}" value="${attack.weight ?? 1}" /></label>
+        </div>
+        <div class="attack-effects">${ATTACK_EFFECTS.map((effect) => `<label class="check"><input type="checkbox" data-attack-effect="${effect.id}" data-attack="${esc(attack.id)}" ${attack.effects.includes(effect.id) ? 'checked' : ''} /><span>${esc(effect.label)}<small>${esc(effect.hint)}</small></span></label>`).join('')}</div>
+        ${attack.effects.includes('bleed') ? `<label><span>Segundos sangrando</span><input type="number" min="2" max="600" data-attack-field="bleedSeconds" data-attack="${esc(attack.id)}" value="${attack.bleedSeconds ?? 25}" /></label><p class="panel-hint">O corte leva vida devagar até um item de cura fechá-lo.</p>` : ''}
+      </div>`).join('')}
+      <button class="wide-button" data-action="add-attack">+ Novo golpe</button>
+    </section>`;
+  }
+
+  // --- pessoas ---
+
+  private npcOptions(selected?: string): string {
+    return this.project.data.npcs.map((npc) => `<option value="${esc(npc.id)}" ${selected === npc.id ? 'selected' : ''}>${esc(npc.name)}</option>`).join('');
+  }
+
+  private npcsPanelTemplate(): string {
+    const npcs = this.project.data.npcs;
+    const npc = this.selectedNpc ?? npcs[0];
+    return `<div class="side-panel-layout">
+      <aside class="editor-sidebar editor-left">
+        <section><div class="panel-title"><span>Pessoas</span><b>${npcs.length}</b></div>
+          <div class="level-list">${npcs.map((entry) => `<button class="${entry.id === npc?.id ? 'active' : ''}" draggable="true" data-drag-row="${esc(entry.id)}" data-drag-kind="npc" data-action="select-npc" data-npc="${esc(entry.id)}"><i></i><span>${esc(entry.name)}</span><small>${esc(NPC_PERSONALITIES.find((item) => item.id === entry.personality)?.label ?? entry.personality)}${entry.trades ? ' · troca' : ''}</small></button>`).join('') || '<p class="empty-note">Nenhuma pessoa criada.</p>'}</div>
+          <button class="wide-button primary" data-action="new-npc">+ Nova pessoa</button>
+          <p class="panel-hint">Uma pessoa não ataca e não tem cronômetro: ela fala, e pode trocar itens. Enquanto o jogador conversa, nada o alcança — e ele continua protegido por cinco segundos depois de encerrar.</p>
+        </section>
+      </aside>
+      <section class="editor-properties-wide">
+        ${npc ? this.npcFieldsTemplate(npc) : '<p class="empty-note">Crie uma pessoa para começar a escrever a conversa dela.</p>'}
+      </section>
+    </div>`;
+  }
+
+  private npcFieldsTemplate(npc: EditorNpc): string {
+    const personality = NPC_PERSONALITIES.find((entry) => entry.id === npc.personality);
+    return `<div class="properties-heading"><div><small>PESSOA</small><h2>${esc(npc.name)}</h2></div><button class="danger" data-action="delete-npc" data-npc="${esc(npc.id)}">Excluir</button></div>
+      <div class="field-row">
+        <label><span>Nome</span><input data-npc-field="name" value="${esc(npc.name)}" maxlength="64" /></label>
+        <label><span>Ofício (linha de cima do balão)</span><input data-npc-field="title" value="${esc(npc.title)}" maxlength="64" placeholder="vendedor de restos" /></label>
+      </div>
+      <label><span>Arte (opcional)</span><div class="input-with-browse"><input data-npc-field="art" value="${esc(npc.art)}" placeholder="/assets/props/vendedor.webp" /><button type="button" data-action="browse-file" data-target-field="npc-art" data-accept="image/*,.gif">Procurar</button></div></label>
+      ${npc.art ? `<div class="image-preview"><img src="${esc(npc.art)}" alt="Prévia de ${esc(npc.name)}" /><span>${esc(npc.art)}</span></div>` : '<p class="panel-hint">Em branco, o jogo desenha o boneco de teste em SVG — um manequim de madeira, sem rosto. Ele serve para a cena já poder ser jogada antes de a arte existir.</p>'}
+      <label><span>Som a cada fala (opcional)</span><div class="input-with-browse"><input data-npc-field="voice" list="hotspot-sound-files" value="${esc(npc.voice)}" placeholder="/assets/audio/FX/..." />${this.listenButtons()}</div></label>
+      <datalist id="hotspot-sound-files">${this.audioFiles.map((file) => `<option value="${esc(file)}"></option>`).join('')}</datalist>
+      <section class="property-section">
+        <div class="panel-title"><span>Negócio</span></div>
+        <label><span>Personalidade</span><select data-npc-field="personality">${NPC_PERSONALITIES.map((entry) => `<option value="${entry.id}" ${npc.personality === entry.id ? 'selected' : ''}>${esc(entry.label)}</option>`).join('')}</select></label>
+        <p class="panel-hint">${esc(personality?.hint ?? '')}</p>
+        <label><span>Reputação inicial</span><div class="slider-row"><input type="range" min="0" max="100" step="1" data-npc-field="reputation" value="${npc.reputation}" /><b data-role="npc-reputation">${npc.reputation}</b></div></label>
+        <p class="panel-hint">Com reputação baixa ele cobra um terço a mais que o valor do item e paga pouco pelo seu; na metade da escala cobra o valor de tabela; com reputação cheia cobra dois terços e paga quase tudo. Cada troca fechada aproxima um pouco, e pagar a mais aproxima mais.</p>
+        <label class="check"><input type="checkbox" data-npc-field="trades" ${npc.trades ? 'checked' : ''} /><span>Aceita trocar itens</span></label>
+        <div class="panel-title"><span>O que ele carrega</span><b>${npc.stock.reduce((total, entry) => total + entry.quantity, 0)}</b></div>
+        <div class="npc-stock">${this.project.data.items.map((item) => {
+          const quantity = npc.stock.find((entry) => entry.id === item.id)?.quantity ?? 0;
+          return `<label class="npc-stock-row ${quantity > 0 ? 'has' : ''}"><span>${esc(item.icon)} ${esc(item.name)}<small>vale ${item.value}</small></span><input type="number" min="0" max="99" data-npc-stock="${esc(item.id)}" value="${quantity}" /></label>`;
+        }).join('')}</div>
+      </section>
+      <section class="property-section">
+        <div class="panel-title"><span>Conversa</span><b>${npc.lines.length}</b></div>
+        <p class="panel-hint">A primeira fala é por onde a conversa começa. Cada resposta pode levar a outra fala, abrir a troca, pedir ou dar um item, acender uma bandeira e mexer na reputação. Uma resposta sem destino encerra a conversa.</p>
+        ${npc.lines.map((line, index) => `<div class="npc-line">
+          <header><b>${index === 0 ? 'Primeira fala' : `Fala ${String(index + 1).padStart(2, '0')}`}</b><code>${esc(line.id)}</code><button class="danger" data-action="delete-npc-line" data-line="${esc(line.id)}" ${npc.lines.length <= 1 ? 'disabled' : ''} aria-label="Excluir fala">×</button></header>
+          <label><span>O que ele diz</span><textarea rows="3" data-npc-line-field="text" data-line="${esc(line.id)}">${esc(line.text)}</textarea></label>
+          ${line.answers.map((answer) => `<div class="npc-answer">
+            <header><b>Resposta</b><button class="danger" data-action="delete-npc-answer" data-line="${esc(line.id)}" data-answer="${esc(answer.id)}" aria-label="Excluir resposta">×</button></header>
+            <label><span>O que o jogador diz</span><input data-npc-answer-field="text" data-line="${esc(line.id)}" data-answer="${esc(answer.id)}" value="${esc(answer.text)}" maxlength="240" /></label>
+            <div class="field-row">
+              <label><span>Leva para</span><select data-npc-answer-field="to" data-line="${esc(line.id)}" data-answer="${esc(answer.id)}"><option value="">Encerra a conversa</option>${npc.lines.filter((other) => other.id !== line.id).map((other) => `<option value="${esc(other.id)}" ${answer.to === other.id ? 'selected' : ''}>${esc(other.text.slice(0, 40) || other.id)}</option>`).join('')}</select></label>
+              <label><span>Reputação</span><input type="number" min="-50" max="50" data-npc-answer-field="reputation" data-line="${esc(line.id)}" data-answer="${esc(answer.id)}" value="${answer.reputation}" /></label>
+            </div>
+            <label class="check"><input type="checkbox" data-npc-answer-field="opensTrade" data-line="${esc(line.id)}" data-answer="${esc(answer.id)}" ${answer.opensTrade ? 'checked' : ''} /><span>Abre a tela de trocas</span></label>
+            <div class="field-row">
+              <label><span>Exige o item</span><select data-npc-answer-field="requiresItem" data-line="${esc(line.id)}" data-answer="${esc(answer.id)}"><option value="">Nenhum</option>${this.itemOptions(answer.requiresItem)}</select></label>
+              <label><span>Tira o item</span><select data-npc-answer-field="takesItem" data-line="${esc(line.id)}" data-answer="${esc(answer.id)}"><option value="">Nenhum</option>${this.itemOptions(answer.takesItem)}</select></label>
+            </div>
+            <div class="field-row">
+              <label><span>Dá o item</span><select data-npc-answer-field="givesItem" data-line="${esc(line.id)}" data-answer="${esc(answer.id)}"><option value="">Nenhum</option>${this.itemOptions(answer.givesItem)}</select></label>
+              <label><span>Acende a bandeira</span><input data-npc-answer-field="grantsFlag" data-line="${esc(line.id)}" data-answer="${esc(answer.id)}" value="${esc(answer.grantsFlag)}" placeholder="falouComOVendedor" /></label>
+            </div>
+            <label><span>Só aparece com a bandeira</span><input data-npc-answer-field="requiresFlag" data-line="${esc(line.id)}" data-answer="${esc(answer.id)}" value="${esc(answer.requiresFlag)}" placeholder="achouOFusivel" /></label>
+          </div>`).join('')}
+          <button class="wide-button" data-action="new-npc-answer" data-line="${esc(line.id)}" ${line.answers.length >= 3 ? 'disabled' : ''}>+ Nova resposta${line.answers.length >= 3 ? ' (três é o máximo)' : ''}</button>
+        </div>`).join('')}
+        <button class="wide-button primary" data-action="new-npc-line">+ Nova fala</button>
+      </section>
+      <p class="panel-hint">ID interno: <code>${esc(npc.id)}</code></p>`;
+  }
+
+  /** Quem está plantado nesta cena, e onde. */
+  private roomNpcsTemplate(room: EditorRoom): string {
+    const placed = room.npcs ?? [];
+    const available = this.project.data.npcs;
+    return `<section class="property-section">
+      <div class="panel-title"><span>Pessoas na cena</span><b>${placed.length}</b></div>
+      ${available.length === 0 ? '<p class="panel-hint">Nenhuma pessoa criada ainda. Crie uma no painel "Pessoas" da barra de cima.</p>' : ''}
+      ${placed.map((entry) => {
+        const npc = this.project.findNpc(entry.npcId);
+        return `<div class="room-npc">
+          <header><b>${esc(npc?.name ?? entry.npcId)}</b><button class="danger" data-action="delete-room-npc" data-entry="${esc(entry.id)}" aria-label="Tirar da cena">×</button></header>
+          <div class="field-row">
+            <label><span>X (%)</span><input type="number" step="0.5" data-room-npc-field="x" data-entry="${esc(entry.id)}" value="${entry.x}" /></label>
+            <label><span>Y do chão (%)</span><input type="number" step="0.5" data-room-npc-field="y" data-entry="${esc(entry.id)}" value="${entry.y}" /></label>
+          </div>
+          <label><span>Altura na cena (%)</span><div class="slider-row"><input type="range" min="6" max="120" step="1" data-room-npc-field="height" data-entry="${esc(entry.id)}" value="${entry.height}" /><b>${Math.round(entry.height)}%</b></div></label>
+          <label class="check"><input type="checkbox" data-room-npc-field="flip" data-entry="${esc(entry.id)}" ${entry.flip ? 'checked' : ''} /><span>Espelhado (olhando para o outro lado)</span></label>
+          <label><span>Só aparece com a bandeira</span><input data-room-npc-field="requiresFlag" data-entry="${esc(entry.id)}" value="${esc(entry.requiresFlag)}" placeholder="vendedorChegou" /></label>
+        </div>`;
+      }).join('')}
+      ${available.length > 0 ? `<label><span>Plantar na cena</span><div class="input-with-browse"><select data-role="room-npc-pick">${this.npcOptions()}</select><button type="button" data-action="add-room-npc">Plantar</button></div></label>
+      <p class="panel-hint">O Y é o chão: a pessoa é desenhada de pé sobre esse ponto. A largura vem da proporção da arte, para trocar o boneco pela arte final não mexer no enquadramento.</p>` : ''}
+    </section>`;
   }
 
   private itemOptions(selected?: string): string { return this.project.data.items.map((item) => `<option value="${esc(item.id)}" ${selected === item.id ? 'selected' : ''}>${esc(item.name)}</option>`).join(''); }
@@ -887,6 +1096,15 @@ export class EditorApp {
         const readout = this.root.querySelector<HTMLElement>('[data-role="room-audio-volume"]');
         if (readout) readout.textContent = `${Math.round(Number(input.value) * 100)}%`;
       }
+      else if (input.dataset?.npcField === 'reputation') {
+        const readout = this.root.querySelector<HTMLElement>('[data-role="npc-reputation"]');
+        if (readout) readout.textContent = String(Math.round(Number(input.value)));
+      }
+      else if (input.dataset?.role === 'palette-input') {
+        // Só a lista de resultados é reescrita: redesenhar o editor tiraria o foco do campo.
+        this.paletteQuery = input.value;
+        this.updatePaletteResults();
+      }
       else if (input.dataset?.hotspotField === 'soundVolume') {
         const readout = this.root.querySelector<HTMLElement>('[data-role="hotspot-sound-volume"]');
         if (readout) readout.textContent = `${Math.round(Number(input.value) * 100)}%`;
@@ -894,10 +1112,10 @@ export class EditorApp {
     });
     // Arrasto nativo, usado só pela lista de níveis: é o que o navegador já sabe fazer
     // com uma lista, e não concorre com o arrasto do palco (que é por `pointer`).
-    this.root.addEventListener('dragstart', (event) => this.handleLevelDragStart(event));
-    this.root.addEventListener('dragover', (event) => this.handleLevelDragOver(event));
-    this.root.addEventListener('drop', (event) => this.handleLevelDrop(event));
-    this.root.addEventListener('dragend', () => this.clearLevelDragMarks());
+    this.root.addEventListener('dragstart', (event) => this.handleDragStart(event));
+    this.root.addEventListener('dragover', (event) => this.handleDragOver(event));
+    this.root.addEventListener('drop', (event) => this.handleDrop(event));
+    this.root.addEventListener('dragend', () => this.clearDragMarks());
     this.root.addEventListener('pointerdown', (event) => this.handlePointerDown(event));
     this.root.addEventListener('wheel', (event) => this.handleWheel(event), { passive: false });
     window.addEventListener('pointermove', (event) => this.handlePointerMove(event));
@@ -910,6 +1128,16 @@ export class EditorApp {
    * Ctrl+C / Ctrl+V duplicam e Delete exclui.
    */
   private handleKey(event: KeyboardEvent): void {
+    if (this.paletteOpen) {
+      if (event.key === 'Escape') { event.preventDefault(); this.paletteOpen = false; this.render(); return; }
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        const first = this.paletteEntries()[0];
+        if (first) { this.paletteGo(first.kind, first.id); this.render(); }
+        return;
+      }
+      return;
+    }
     if (this.testMode || this.confirm) return;
     // O alvo pode não ser um elemento (teclado sem foco): só então vale o atalho.
     const target = event.target as Element | null;
@@ -917,10 +1145,49 @@ export class EditorApp {
     if (event.key === 'Delete') { event.preventDefault(); this.deleteSelection(); return; }
     if (!(event.ctrlKey || event.metaKey)) return;
     const key = event.key.toLowerCase();
+    // Ctrl+Z volta um passo; com Shift, ou no Ctrl+Y de sempre, ele avança de novo.
+    if (key === 'z' || key === 'y') {
+      event.preventDefault();
+      const forward = key === 'y' || event.shiftKey;
+      const moved = forward ? this.project.redo() : this.project.undo();
+      if (moved) { this.afterHistoryJump(); this.flashClipboard(forward ? 'refez' : 'desfez'); }
+      else this.flashClipboard(forward ? 'nada para refazer' : 'nada para desfazer');
+      return;
+    }
+    if (key === 'p') { event.preventDefault(); this.openPalette(); return; }
     if (key !== 'c' && key !== 'v') return;
     event.preventDefault();
     if (key === 'c') this.copySelection();
     else void this.pasteClipboard();
+  }
+
+  private openPalette(): void {
+    if (this.testMode) return;
+    this.paletteOpen = true;
+    this.paletteQuery = '';
+    this.render();
+    const input = this.root.querySelector<HTMLInputElement>('[data-role="palette-input"]');
+    input?.focus();
+  }
+
+  /**
+   * Depois de um passo de desfazer, o que estava selecionado pode não existir mais —
+   * a sala aberta, o item, a pessoa. O editor volta para o que ainda está lá, em vez
+   * de ficar com um painel apontando para o vazio.
+   */
+  private afterHistoryJump(): void {
+    const level = this.project.activeLevel;
+    if (!this.project.findRoom(this.selectedRoomId)) {
+      this.selectedRoomId = level.startRoomId || level.rooms[0]!.id;
+      this.selectedHotspotId = null;
+      this.hotspotEditorOpen = false;
+    }
+    if (!this.project.findItem(this.selectedItemId ?? '')) this.selectedItemId = this.project.data.items[0]?.id ?? null;
+    if (!this.project.findEntity(this.selectedEntityId ?? '')) this.selectedEntityId = this.project.data.entities[0]?.id ?? null;
+    if (!this.project.findNpc(this.selectedNpcId ?? '')) this.selectedNpcId = this.project.data.npcs[0]?.id ?? null;
+    if (!this.selectedRoom?.hotspots.some((entry) => entry.id === this.selectedHotspotId)) this.selectedHotspotId = null;
+    this.clearSceneSelection();
+    this.render();
   }
 
   /**
@@ -1070,6 +1337,62 @@ export class EditorApp {
       case 'panel-map': this.activePanel = 'map'; break;
       case 'panel-items': this.activePanel = 'items'; if (!this.selectedItemId) this.selectedItemId = this.project.data.items[0]?.id ?? null; break;
       case 'panel-entities': this.activePanel = 'entities'; if (!this.selectedEntityId) this.selectedEntityId = this.project.data.entities[0]?.id ?? null; break;
+      case 'panel-npcs': this.activePanel = 'npcs'; if (!this.selectedNpcId) this.selectedNpcId = this.project.data.npcs[0]?.id ?? null; break;
+      case 'select-npc': this.selectedNpcId = target.dataset.npc ?? null; break;
+      case 'new-npc': { const npc = this.project.addNpc(); this.selectedNpcId = npc.id; break; }
+      case 'delete-npc': {
+        const id = target.dataset.npc ?? '';
+        const npc = this.project.findNpc(id);
+        if (!npc) break;
+        this.askConfirm({
+          title: `Excluir ${npc.name}`,
+          message: 'Ela sai das cenas onde estava plantada e dos interagíveis que chamavam por ela.',
+          confirmLabel: 'Excluir pessoa',
+          run: () => {
+            this.project.deleteNpc(id);
+            if (this.selectedNpcId === id) this.selectedNpcId = this.project.data.npcs[0]?.id ?? null;
+            this.render();
+          },
+        });
+        break;
+      }
+      case 'new-npc-line': if (this.selectedNpcId) this.project.addNpcLine(this.selectedNpcId); break;
+      case 'delete-npc-line': if (this.selectedNpcId) this.project.deleteNpcLine(this.selectedNpcId, target.dataset.line ?? ''); break;
+      case 'new-npc-answer': if (this.selectedNpcId) this.project.addNpcAnswer(this.selectedNpcId, target.dataset.line ?? ''); break;
+      case 'delete-npc-answer': if (this.selectedNpcId) this.project.deleteNpcAnswer(this.selectedNpcId, target.dataset.line ?? '', target.dataset.answer ?? ''); break;
+      case 'add-room-npc': {
+        const pick = this.root.querySelector<HTMLSelectElement>('[data-role="room-npc-pick"]');
+        if (pick?.value && this.selectedRoom) this.project.addRoomNpc(this.selectedRoom.id, pick.value);
+        break;
+      }
+      case 'delete-room-npc': if (this.selectedRoom) this.project.deleteRoomNpc(this.selectedRoom.id, target.dataset.entry ?? ''); break;
+      case 'add-attack': {
+        const entity = this.selectedEntity;
+        if (!entity) break;
+        entity.attacks = [...(entity.attacks ?? []), { id: createId('golpe'), name: 'Novo golpe', damage: 20, effects: [], weight: 1 }];
+        this.project.save();
+        break;
+      }
+      case 'delete-attack': {
+        const entity = this.selectedEntity;
+        if (!entity) break;
+        entity.attacks = (entity.attacks ?? []).filter((attack) => attack.id !== target.dataset.attack);
+        this.project.save();
+        break;
+      }
+      case 'undo': if (this.project.undo()) { this.afterHistoryJump(); this.flashClipboard('desfez'); } return;
+      case 'redo': if (this.project.redo()) { this.afterHistoryJump(); this.flashClipboard('refez'); } return;
+      case 'palette': this.openPalette(); return;
+      case 'palette-close': if (target.dataset.action === 'palette-close') { this.paletteOpen = false; } break;
+      case 'palette-go': this.paletteGo(target.dataset.kind ?? '', target.dataset.target ?? ''); break;
+      case 'preview-audio': {
+        // O caminho vem do campo ao lado: ele pode ter sido digitado e ainda não gravado.
+        const input = target.closest('label')?.querySelector<HTMLInputElement>('input');
+        const path = input?.value.trim() ?? '';
+        if (path) void this.audio.unlock().then(() => this.audio.playRoomTrack(path, { loop: false, volume: 1 })).catch(() => undefined);
+        return;
+      }
+      case 'preview-stop': this.audio.stopRoomTrack(); return;
       case 'select-item': this.selectedItemId = target.dataset.item ?? null; break;
       case 'new-item': { const item = this.project.addItem(); this.selectedItemId = item.id; break; }
       case 'delete-item': {
@@ -1268,7 +1591,8 @@ export class EditorApp {
         return;
       }
       case 'push-repo': void this.pushToMain(); return;
-      case 'test': this.startTest(); return;
+      case 'test': this.startTest(this.project.activeLevel.startRoomId); return;
+      case 'test-here': this.startTest(this.selectedRoomId); return;
       case 'export': this.exportJSON(); return;
       case 'import': this.root.querySelector<HTMLInputElement>('[data-role="import-file"]')?.click(); return;
     }
@@ -1349,6 +1673,14 @@ export class EditorApp {
       else if (target === 'item-image' && this.selectedItem) { this.selectedItem.image = objectUrl; this.project.save(); }
       else if (target === 'entity-image' && this.selectedEntity) { this.selectedEntity.image = objectUrl; this.project.save(); }
       else if (target === 'entity-scene' && this.selectedEntity) { this.selectedEntity.heartWall = objectUrl; this.project.save(); }
+      else if (target === 'npc-art' && this.selectedNpc) { this.selectedNpc.art = objectUrl; this.project.save(); }
+      else if (target === 'challengeIntro' || target === 'outcome-success' || target === 'outcome-giveUp') {
+        const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId);
+        const challenge = hotspot ? hotspot.challenge ?? (hotspot.challenge = createChallenge()) : null;
+        if (challenge && target === 'challengeIntro') { challenge.introPath = objectUrl; challenge.introMedia = detectMediaType(file.name); }
+        else if (challenge) challenge[target === 'outcome-success' ? 'success' : 'giveUp'].image = objectUrl;
+        if (challenge) this.project.save();
+      }
       else if (target === 'cutscenePath') {
         const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId);
         if (hotspot) { hotspot.cutscenePath = objectUrl; hotspot.cutsceneMedia = detectMediaType(file.name); this.project.save(); }
@@ -1369,6 +1701,10 @@ export class EditorApp {
       this.render();
       return;
     }
+    if (input.dataset.npcField || input.dataset.npcStock || input.dataset.npcLineField || input.dataset.npcAnswerField) { this.applyNpcField(input); return; }
+    if (input.dataset.roomNpcField) { this.applyRoomNpcField(input); return; }
+    if (input.dataset.attackField || input.dataset.attackEffect) { this.applyAttackField(input); return; }
+    if (input.dataset.challengeField || input.dataset.challengeWire || input.dataset.outcomeField) { this.applyChallengeField(input); return; }
     if (input.dataset.roomAudioField) { this.applyRoomAudioField(input); return; }
     if (input.dataset.mediaField) { this.applyMediaField(input); return; }
     if (input.dataset.viewField) { this.applyViewField(input); return; }
@@ -1378,6 +1714,8 @@ export class EditorApp {
     if (itemField && this.selectedItem) {
       const item = this.selectedItem;
       if (itemField === 'effectAmount') item.effectAmount = Number(input.value);
+      else if (itemField === 'value') item.value = clamp(Math.round(Number(input.value)), 0, 999);
+      else if (itemField === 'batterySeconds') item.batterySeconds = clamp(Number(input.value), 10, 7200);
       else if (itemField === 'effect') item.effect = input.value as EditorItem['effect'];
       else if (itemField === 'image') item.image = input.value || undefined;
       else if (itemField === 'name' || itemField === 'icon' || itemField === 'description' || itemField === 'useText') item[itemField] = input.value;
@@ -1442,10 +1780,15 @@ export class EditorApp {
       else if (hotspotField === 'cutsceneMedia') hotspot.cutsceneMedia = input.value as EditorHotspot['cutsceneMedia'];
       else if (hotspotField === 'vertexCount') hotspot.shapePoints = circlePoints(Math.max(3, Math.min(24, Math.round(Number(input.value)))));
       else if (hotspotField === 'item' || hotspotField === 'requiresItem') hotspot[hotspotField] = input.value ? input.value as ItemId : undefined;
-      else if (hotspotField === 'action') hotspot.action = input.value as EditorHotspot['action'];
+      else if (hotspotField === 'action') {
+        hotspot.action = input.value as EditorHotspot['action'];
+        // Virar desafio sem configuração nenhuma deixaria o painel sem nada para ler.
+        if (hotspot.action === 'challenge' && !hotspot.challenge) hotspot.challenge = createChallenge();
+      }
       else if (hotspotField === 'event') hotspot.event = input.value as EditorHotspot['event'];
       else if (hotspotField === 'cutscenePath') { hotspot.cutscenePath = input.value; hotspot.cutsceneMedia = detectMediaType(input.value); }
       else if (hotspotField === 'hideoutImage') hotspot.hideoutImage = input.value || undefined;
+      else if (hotspotField === 'npcId') hotspot.npcId = input.value || undefined;
       else if (hotspotField === 'sound') {
         const path = input.value.trim();
         hotspot.sound = path || undefined;
@@ -1456,6 +1799,107 @@ export class EditorApp {
       else if (hotspotField === 'label' || hotspotField === 'message' || hotspotField === 'highlightColor') hotspot[hotspotField] = input.value;
       this.project.save(); this.render();
     }
+  }
+
+  /** Nome, negócio, falas e respostas de uma pessoa. */
+  private applyNpcField(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): void {
+    const npc = this.selectedNpc;
+    if (!npc) return;
+    const stock = input.dataset.npcStock;
+    if (stock) { this.project.setNpcStock(npc.id, stock, Number(input.value)); this.render(); return; }
+    const field = input.dataset.npcField;
+    if (field) {
+      if (field === 'trades') npc.trades = (input as HTMLInputElement).checked;
+      else if (field === 'reputation') npc.reputation = clamp(Math.round(Number(input.value)), 0, 100);
+      else if (field === 'personality') {
+        npc.personality = input.value as EditorNpc['personality'];
+        // Trocar a personalidade traz a reputação dela: é para isso que ela existe.
+        npc.reputation = NPC_PERSONALITIES.find((entry) => entry.id === npc.personality)?.reputation ?? npc.reputation;
+      }
+      else if (field === 'name' || field === 'title' || field === 'art' || field === 'voice') npc[field] = input.value;
+      this.project.save(); this.render();
+      return;
+    }
+    const line = npc.lines.find((entry) => entry.id === input.dataset.line);
+    if (!line) return;
+    if (input.dataset.npcLineField === 'text') { line.text = input.value; this.project.save(); return; }
+    const answer = line.answers.find((entry) => entry.id === input.dataset.answer);
+    const answerField = input.dataset.npcAnswerField;
+    if (!answer || !answerField) return;
+    if (answerField === 'opensTrade') answer.opensTrade = (input as HTMLInputElement).checked;
+    else if (answerField === 'reputation') answer.reputation = clamp(Math.round(Number(input.value)), -50, 50);
+    else if (answerField === 'requiresItem' || answerField === 'givesItem' || answerField === 'takesItem') answer[answerField] = input.value || undefined;
+    else if (answerField === 'text' || answerField === 'to' || answerField === 'grantsFlag' || answerField === 'requiresFlag') answer[answerField] = input.value;
+    this.project.save(); this.render();
+  }
+
+  /** Onde a pessoa está plantada nesta cena. */
+  private applyRoomNpcField(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): void {
+    const entry = this.selectedRoom?.npcs?.find((item) => item.id === input.dataset.entry);
+    const field = input.dataset.roomNpcField;
+    if (!entry || !field) return;
+    if (field === 'flip') entry.flip = (input as HTMLInputElement).checked;
+    else if (field === 'x' || field === 'y') entry[field] = clamp(Number(input.value), -50, 150);
+    else if (field === 'height') entry.height = clamp(Number(input.value), 4, 200);
+    else if (field === 'requiresFlag') entry.requiresFlag = input.value;
+    this.project.save(); this.render();
+  }
+
+  /** Um golpe da lista de ataques da entidade aberta. */
+  private applyAttackField(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): void {
+    const entity = this.selectedEntity;
+    const attack = entity?.attacks?.find((entry) => entry.id === input.dataset.attack);
+    if (!entity || !attack) return;
+    const effect = input.dataset.attackEffect as AttackEffectId | undefined;
+    if (effect) {
+      const checked = (input as HTMLInputElement).checked;
+      attack.effects = checked ? [...new Set([...attack.effects, effect])] : attack.effects.filter((entry) => entry !== effect);
+      // Um golpe que passa a sangrar precisa de um prazo; deixar de sangrar não guarda nenhum.
+      if (effect === 'bleed') attack.bleedSeconds = checked ? attack.bleedSeconds ?? 25 : undefined;
+      this.project.save(); this.render();
+      return;
+    }
+    const field = input.dataset.attackField as keyof AttackDefinition | undefined;
+    if (!field) return;
+    if (field === 'name') attack.name = input.value.slice(0, 48);
+    else if (field === 'damage') attack.damage = clamp(Math.round(Number(input.value)), 0, 100);
+    else if (field === 'weight') attack.weight = clamp(Number(input.value), 0.1, 20);
+    else if (field === 'bleedSeconds') attack.bleedSeconds = clamp(Number(input.value), 2, 600);
+    this.project.save(); this.render();
+  }
+
+  /** O desafio do interagível aberto: o painel, as ligações certas e as consequências. */
+  private applyChallengeField(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): void {
+    const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId);
+    if (!hotspot) return;
+    const challenge = hotspot.challenge ?? (hotspot.challenge = createChallenge());
+    const wire = input.dataset.challengeWire;
+    if (wire) {
+      const to = input.value;
+      challenge.wirePairs = challenge.wirePairs.filter((pair) => pair.from !== wire && pair.to !== to);
+      if (to) challenge.wirePairs.push({ from: wire, to });
+      this.project.save(); this.render();
+      return;
+    }
+    const side = input.dataset.outcomeSide === 'giveUp' ? 'giveUp' : 'success';
+    const outcomeField = input.dataset.outcomeField;
+    if (outcomeField) {
+      const outcome = challenge[side];
+      if (outcomeField === 'soundVolume') outcome.soundVolume = clamp(Number(input.value), 0, 1);
+      else if (outcomeField === 'imageSeconds') outcome.imageSeconds = clamp(Number(input.value), 0.2, 600);
+      else if (outcomeField === 'item') outcome.item = input.value || undefined;
+      else if (outcomeField === 'message' || outcomeField === 'sound' || outcomeField === 'image' || outcomeField === 'grantsFlag') outcome[outcomeField] = input.value;
+      this.project.save(); this.render();
+      return;
+    }
+    const field = input.dataset.challengeField;
+    if (!field) return;
+    if (field === 'kind') challenge.kind = 'wires';
+    else if (field === 'wireCount') challenge.wireCount = clamp(Math.round(Number(input.value)), 3, 6);
+    else if (field === 'shockDamage') challenge.shockDamage = clamp(Math.round(Number(input.value)), 0, 100);
+    else if (field === 'introSeconds') challenge.introSeconds = clamp(Number(input.value), 0.2, 600);
+    else if (field === 'introPath') { challenge.introPath = input.value.trim(); challenge.introMedia = detectMediaType(challenge.introPath); }
+    this.project.save(); this.render();
   }
 
   /** Arquivo, modo e volume da trilha presa à sala. */
@@ -1617,50 +2061,123 @@ export class EditorApp {
    * entra antes dela; na de baixo, depois. Enquanto o arrasto corre, a linha de
    * destino mostra onde o nível vai cair — sem isso o editor solta o nível no escuro.
    */
-  private handleLevelDragStart(event: DragEvent): void {
-    const row = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-level-row]');
+  private handleDragStart(event: DragEvent): void {
+    const row = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-drag-row]');
     if (!row) return;
-    this.levelDragId = row.dataset.levelRow ?? null;
+    this.dragId = row.dataset.dragRow ?? null;
+    this.dragKind = row.dataset.dragKind ?? '';
     row.classList.add('dragging');
     // Sem um dado no `dataTransfer` o Firefox simplesmente não começa o arrasto.
-    event.dataTransfer?.setData('text/plain', this.levelDragId ?? '');
+    event.dataTransfer?.setData('text/plain', this.dragId ?? '');
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
   }
 
-  /** Onde o nível arrastado cairia se fosse solto agora. */
-  private levelDropTarget(event: DragEvent): { row: HTMLElement; before: boolean } | null {
-    if (!this.levelDragId) return null;
-    const row = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-level-row]');
-    if (!row || row.dataset.levelRow === this.levelDragId) return null;
+  /**
+   * Onde o que está na mão cairia se fosse solto agora. Uma lista nunca recebe o que
+   * veio de outra: arrastar uma sala para cima dos itens não quer dizer nada.
+   */
+  private dropTarget(event: DragEvent): { row: HTMLElement; before: boolean } | null {
+    if (!this.dragId) return null;
+    const row = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-drag-row]');
+    if (!row || row.dataset.dragRow === this.dragId || row.dataset.dragKind !== this.dragKind) return null;
     const box = row.getBoundingClientRect();
     return { row, before: event.clientY < box.top + box.height / 2 };
   }
 
-  private handleLevelDragOver(event: DragEvent): void {
-    const drop = this.levelDropTarget(event);
+  private handleDragOver(event: DragEvent): void {
+    const drop = this.dropTarget(event);
     if (!drop) return;
     // Só aceitando o arrasto o navegador deixa o `drop` acontecer.
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-    this.clearLevelDragMarks(false);
-    drop.row.dataset.levelDrop = drop.before ? 'before' : 'after';
+    this.clearDragMarks(false);
+    drop.row.dataset.dragDrop = drop.before ? 'before' : 'after';
   }
 
-  private handleLevelDrop(event: DragEvent): void {
-    const drop = this.levelDropTarget(event);
-    const dragged = this.levelDragId;
+  private handleDrop(event: DragEvent): void {
+    const drop = this.dropTarget(event);
+    const dragged = this.dragId;
+    const kind = this.dragKind;
     if (!drop || !dragged) return;
     event.preventDefault();
-    this.levelDragId = null;
-    if (this.project.moveLevel(dragged, drop.row.dataset.levelRow!, drop.before)) this.render();
-    else this.clearLevelDragMarks();
+    this.dragId = null;
+    const target = drop.row.dataset.dragRow!;
+    const moved = kind === 'level' ? this.project.moveLevel(dragged, target, drop.before)
+      : kind === 'room' ? this.project.moveRoom(dragged, target, drop.before)
+      : kind === 'item' ? this.project.moveItem(dragged, target, drop.before)
+      : kind === 'entity' ? this.project.moveEntity(dragged, target, drop.before)
+      : kind === 'npc' ? this.project.moveNpc(dragged, target, drop.before)
+      : kind === 'hotspot' ? this.project.moveHotspot(this.selectedRoomId, dragged, target, drop.before)
+      : false;
+    if (moved) this.render();
+    else this.clearDragMarks();
   }
 
-  /** Apaga as marcas do arrasto; `full` também esquece o nível que estava na mão. */
-  private clearLevelDragMarks(full = true): void {
-    if (full) this.levelDragId = null;
-    this.root.querySelectorAll<HTMLElement>('[data-level-drop]').forEach((row) => { delete row.dataset.levelDrop; });
-    if (full) this.root.querySelectorAll<HTMLElement>('[data-level-row].dragging').forEach((row) => row.classList.remove('dragging'));
+  /** Apaga as marcas do arrasto; `full` também esquece o que estava na mão. */
+  private clearDragMarks(full = true): void {
+    if (full) { this.dragId = null; this.dragKind = ''; }
+    this.root.querySelectorAll<HTMLElement>('[data-drag-drop]').forEach((row) => { delete row.dataset.dragDrop; });
+    if (full) this.root.querySelectorAll<HTMLElement>('[data-drag-row].dragging').forEach((row) => row.classList.remove('dragging'));
+  }
+
+  /**
+   * O salto rápido. Com três níveis a lista da esquerda já cansa; com dez, procurar
+   * uma sala pelo nome é mais rápido do que achá-la no mapa. Ele busca em tudo o que
+   * o projeto tem de nomeado: salas, itens, entidades e pessoas.
+   */
+  private paletteTemplate(): string {
+    return `<div class="palette-layer" data-action="palette-close">
+      <section class="palette" role="dialog" aria-label="Salto rápido">
+        <input data-role="palette-input" value="${esc(this.paletteQuery)}" placeholder="Salte para uma sala, item, entidade ou pessoa…" autocomplete="off" />
+        <ul class="palette-results" data-role="palette-results">${this.paletteResults()}</ul>
+        <footer><span>Enter abre o primeiro resultado</span><span>Esc fecha</span></footer>
+      </section>
+    </div>`;
+  }
+
+  /** Tudo o que o projeto tem de nomeado, filtrado pelo que está escrito na busca. */
+  private paletteEntries(): Array<{ kind: string; id: string; label: string; note: string }> {
+    const entries: Array<{ kind: string; id: string; label: string; note: string }> = [];
+    this.project.data.levels.forEach((level) => {
+      entries.push({ kind: 'level', id: level.id, label: level.name, note: `nível · ${level.rooms.length} ${level.rooms.length === 1 ? 'sala' : 'salas'}` });
+      level.rooms.forEach((room) => entries.push({ kind: 'room', id: room.id, label: room.name, note: `sala · ${level.name}` }));
+    });
+    this.project.data.items.forEach((item) => entries.push({ kind: 'item', id: item.id, label: item.name, note: `item · vale ${item.value}` }));
+    this.project.data.entities.forEach((entity) => entries.push({ kind: 'entity', id: entity.id, label: entity.name, note: 'entidade' }));
+    this.project.data.npcs.forEach((npc) => entries.push({ kind: 'npc', id: npc.id, label: npc.name, note: npc.title ? `pessoa · ${npc.title}` : 'pessoa' }));
+    const query = this.paletteQuery.trim().toLowerCase();
+    if (!query) return entries.slice(0, 40);
+    return entries.filter((entry) => `${entry.label} ${entry.id} ${entry.note}`.toLowerCase().includes(query)).slice(0, 40);
+  }
+
+  private paletteResults(): string {
+    const entries = this.paletteEntries();
+    if (entries.length === 0) return '<li class="palette-empty">Nada com esse nome.</li>';
+    return entries.map((entry) => `<li><button data-action="palette-go" data-kind="${esc(entry.kind)}" data-target="${esc(entry.id)}"><b>${esc(entry.label)}</b><small>${esc(entry.note)}</small></button></li>`).join('');
+  }
+
+  private updatePaletteResults(): void {
+    const list = this.root.querySelector<HTMLElement>('[data-role="palette-results"]');
+    if (list) list.innerHTML = this.paletteResults();
+  }
+
+  /** O salto em si: abre o painel certo e seleciona o que foi escolhido. */
+  private paletteGo(kind: string, id: string): void {
+    if (kind === 'level') { this.selectLevel(id); this.activePanel = 'map'; }
+    else if (kind === 'room') {
+      // A sala pode estar em outro nível: trocar de nível antes é o que a torna visível.
+      const owner = this.project.data.levels.find((level) => level.rooms.some((room) => room.id === id));
+      if (owner && owner.id !== this.project.data.activeLevelId) this.selectLevel(owner.id);
+      this.activePanel = 'map';
+      this.selectedRoomId = id;
+      this.selectedHotspotId = null;
+      this.selectedConnectionId = null;
+    }
+    else if (kind === 'item') { this.activePanel = 'items'; this.selectedItemId = id; }
+    else if (kind === 'entity') { this.activePanel = 'entities'; this.selectedEntityId = id; }
+    else if (kind === 'npc') { this.activePanel = 'npcs'; this.selectedNpcId = id; }
+    this.paletteOpen = false;
+    this.paletteQuery = '';
   }
 
   private handlePointerDown(event: PointerEvent): void {
@@ -2027,14 +2544,21 @@ export class EditorApp {
     } catch { window.alert('Não foi possível carregar este JSON. Verifique o formato do arquivo.'); }
   }
 
-  private startTest(): void {
+  /**
+   * Começa o teste. Sem dizer de onde, ele começa pelo início do nível; "Testar daqui"
+   * manda a perspectiva aberta — testar um interagível do fim do nível custava a
+   * travessia inteira a cada tentativa.
+   */
+  private startTest(from?: string): void {
     const level = this.project.activeLevel;
-    const start = this.selectedRoomId || level.startRoomId;
+    const start = from || level.startRoomId;
+    this.testStartRoom = start;
     const items = itemsToRuntime(this.project.data.items);
     const entities = entitiesToRuntime(this.project.data.entities);
+    const npcs = npcsToRuntime(this.project.data.npcs);
     // O teste carrega o projeto inteiro: assim um caminho para outro nível funciona aqui também.
     const world = projectToWorld(this.project.data.levels, this.project.data.activeLevelId);
-    this.testGame = new Game(undefined, () => 1, world, start, items, entities);
+    this.testGame = new Game(undefined, () => 1, world, start, items, entities, npcs);
     this.testMode = true;
     this.testInventoryOpen = false;
     this.testAttackNonce = 0;
@@ -2073,7 +2597,7 @@ export class EditorApp {
       case 'inventory': this.testInventoryOpen = !this.testInventoryOpen; this.audio.play('click'); break;
       case 'use-item': game.useItem(data.item as ItemId); this.audio.play('use'); this.testInventoryOpen = false; break;
       case 'encounter': { const result = game.respondToEncounter(data.choice as EncounterAction); this.audio.play(result.attack ? 'jumpscare' : 'step'); break; }
-      case 'restart': this.startTest(); return;
+      case 'restart': this.startTest(this.testStartRoom ?? undefined); return;
     }
     if (game.attackNonce !== this.testAttackNonce) { this.testAttackNonce = game.attackNonce; this.testJumpscareUntil = performance.now() + 1550; }
     this.lastTestKey = '';

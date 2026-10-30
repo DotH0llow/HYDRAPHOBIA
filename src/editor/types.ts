@@ -1,12 +1,12 @@
-import type { ItemEffect, RoomAudioMode } from '../config/world';
+import type { AttackDefinition, ChallengeKind, ItemEffect, NpcPersonality, RoomAudioMode } from '../config/world';
 import type { LightShape } from '../systems/lighting';
-import type { CutsceneMediaType, EncounterAction, EncounterKind, EntityId, HotspotVisibility, ItemId } from '../types';
+import type { CutsceneMediaType, EncounterAction, EncounterKind, EntityId, HotspotVisibility, InventoryEntry, ItemId, NpcId } from '../types';
 
 /**
  * O que um interagível faz. Mudar de sala não está aqui: o único caminho entre salas
  * é uma conexão, desenhada igual no editor e no jogo (a seta com a etiqueta do lugar).
  */
-export type EditorHotspotAction = 'examine' | 'collect' | 'use' | 'event' | 'cutscene' | 'hideout';
+export type EditorHotspotAction = 'examine' | 'collect' | 'use' | 'event' | 'cutscene' | 'hideout' | 'challenge' | 'npc';
 export type EditorEvent = 'none' | 'jumpscare' | EntityId;
 
 export interface EditorPosition { x: number; y: number }
@@ -64,7 +64,117 @@ export interface EditorHotspot {
   sound?: string;
   /** Ganho desse som, de 0 a 1. */
   soundVolume?: number;
+  /** Só em "Desafio": qual mini-jogo abre e o que fica depois dele. */
+  challenge?: EditorChallenge;
+  /** Só em "Conversar": com quem. */
+  npcId?: NpcId;
 }
+
+/** O que a vitória (ou a desistência) de um desafio deixa na tela do jogador. */
+export interface EditorChallengeOutcome {
+  message: string;
+  sound: string;
+  soundVolume: number;
+  image: string;
+  imageSeconds: number;
+  grantsFlag: string;
+  item?: ItemId;
+}
+
+export const createChallengeOutcome = (): EditorChallengeOutcome => ({
+  message: '', sound: '', soundVolume: 1, image: '', imageSeconds: 3.5, grantsFlag: '',
+});
+
+export interface EditorChallenge {
+  kind: ChallengeKind;
+  /** A cutscene que abre o desafio. Vazia entra direto no painel. */
+  introPath: string;
+  introMedia: CutsceneMediaType;
+  introSeconds: number;
+  /** Fios: quantos (3 a 6) quando as ligações não estão escritas à mão. */
+  wireCount: number;
+  /**
+   * As ligações certas. Vazio sorteia um painel novo a cada partida — e, como nada
+   * disso aparece na tela do jogador, o painel sorteado continua sendo um enigma.
+   */
+  wirePairs: Array<{ from: string; to: string }>;
+  shockDamage: number;
+  success: EditorChallengeOutcome;
+  giveUp: EditorChallengeOutcome;
+}
+
+export const createChallenge = (): EditorChallenge => ({
+  kind: 'wires', introPath: '', introMedia: 'image', introSeconds: 3.5,
+  wireCount: 4, wirePairs: [], shockDamage: 3,
+  success: createChallengeOutcome(), giveUp: createChallengeOutcome(),
+});
+
+export const CHALLENGE_KINDS: ReadonlyArray<{ id: ChallengeKind; label: string; hint: string }> = [
+  { id: 'wires', label: 'Conectar os fios', hint: 'Seis saídas com letras, seis conectores com números. Ligar errado dá choque.' },
+];
+
+/** Uma resposta que o jogador pode dar a um NPC. */
+export interface EditorNpcAnswer {
+  id: string;
+  text: string;
+  /** Para qual fala ir; vazio encerra a conversa. */
+  to: string;
+  opensTrade: boolean;
+  requiresItem?: ItemId;
+  givesItem?: ItemId;
+  takesItem?: ItemId;
+  grantsFlag: string;
+  requiresFlag: string;
+  /** Quanto esta resposta mexe na reputação do NPC. */
+  reputation: number;
+}
+
+export interface EditorNpcLine {
+  id: string;
+  text: string;
+  answers: EditorNpcAnswer[];
+}
+
+export interface EditorNpc {
+  id: NpcId;
+  name: string;
+  title: string;
+  /** A arte dele. Vazia deixa o boneco de teste em SVG, desenhado pelo jogo. */
+  art: string;
+  personality: NpcPersonality;
+  /** Reputação inicial, de 0 a 100. */
+  reputation: number;
+  trades: boolean;
+  stock: InventoryEntry[];
+  lines: EditorNpcLine[];
+  voice: string;
+}
+
+/** Onde um NPC está plantado dentro de uma cena. */
+export interface EditorRoomNpc {
+  id: string;
+  npcId: NpcId;
+  x: number;
+  y: number;
+  height: number;
+  flip: boolean;
+  requiresFlag: string;
+}
+
+export const createRoomNpc = (id: string, npcId: NpcId): EditorRoomNpc => ({
+  id, npcId, x: 50, y: 58, height: 42, flip: false, requiresFlag: '',
+});
+
+export const createNpcAnswer = (id: string, text = 'Nova resposta'): EditorNpcAnswer => ({
+  id, text, to: '', opensTrade: false, grantsFlag: '', requiresFlag: '', reputation: 0,
+});
+
+export const createNpcLine = (id: string, text = 'O que ele diz aqui.'): EditorNpcLine => ({ id, text, answers: [] });
+
+export const createNpc = (id: NpcId, lineId: string): EditorNpc => ({
+  id, name: 'Alguém', title: '', art: '', personality: 'cordial', reputation: 55, trades: true,
+  stock: [], lines: [createNpcLine(lineId, 'Você não deveria estar aqui.')], voice: '',
+});
 
 export interface EditorLight {
   id: string;
@@ -152,6 +262,8 @@ export interface EditorRoom {
   media?: EditorRoomMedia[];
   /** Campo de visão do jogador nesta sala; ausente significa a cena inteira. */
   view?: EditorRoomView;
+  /** Quem está plantado nesta cena. */
+  npcs?: EditorRoomNpc[];
 }
 
 export interface EditorLevel {
@@ -172,6 +284,10 @@ export interface EditorItem {
   effect: ItemEffect;
   effectAmount: number;
   image?: string;
+  /** Quanto ele vale nas trocas. É a única moeda que o jogo tem. */
+  value: number;
+  /** Só na lanterna: segundos de luz com a bateria cheia. */
+  batterySeconds?: number;
 }
 
 export interface EditorEntity {
@@ -205,6 +321,8 @@ export interface EditorEntity {
    * encontro não arrasta ninguém para dentro da cena por conta própria.
    */
   heartEntity?: EntityId;
+  /** Os golpes desta entidade. Vazio usa o golpe de fábrica, de 34 e nada mais. */
+  attacks?: AttackDefinition[];
 }
 
 export const ENCOUNTER_KINDS: ReadonlyArray<{ id: EncounterKind; label: string; hint: string }> = [
@@ -220,6 +338,7 @@ export interface EditorProjectData {
   levels: EditorLevel[];
   items: EditorItem[];
   entities: EditorEntity[];
+  npcs: EditorNpc[];
 }
 
 export const IMAGE_LIBRARY = [
@@ -264,15 +383,16 @@ export const DEFAULT_ITEM_IMAGES: Readonly<Record<string, string>> = {
 };
 
 export const DEFAULT_ITEMS: EditorItem[] = [
-  { id: 'accessCard', name: 'Cartão sem nome', icon: '▣', description: 'Um cartão magnético amarelado. A tarja ainda parece intacta.', useText: 'Ele deve abrir algum leitor próximo.', effect: 'none', effectAmount: 0, image: DEFAULT_ITEM_IMAGES.accessCard },
-  { id: 'almondWater', name: 'Água de amêndoas', icon: '◒', description: 'Uma garrafa lacrada. O líquido tem um cheiro doce e vagamente familiar.', useText: 'A sede recua. Por enquanto.', effect: 'hydrate', effectAmount: 58, image: DEFAULT_ITEM_IMAGES.almondWater },
-  { id: 'ration', name: 'Ração selada', icon: '▰', description: 'Uma barra de emergência dura, mas ainda comestível.', useText: 'Sem gosto. Ainda assim, alimento.', effect: 'feed', effectAmount: 48, image: DEFAULT_ITEM_IMAGES.ration },
-  { id: 'fuse', name: 'Fusível industrial', icon: '⌁', description: 'Pesado demais para o tamanho. Os contatos não estão oxidados.', useText: 'Talvez pertença a um painel elétrico.', effect: 'none', effectAmount: 0 },
-  { id: 'medkit', name: 'Kit de primeiros socorros', icon: '✚', description: 'Gaze, antisséptico e analgésicos dentro do prazo.', useText: 'Os ferimentos foram tratados.', effect: 'heal', effectAmount: 52, image: DEFAULT_ITEM_IMAGES.medkit },
+  { id: 'accessCard', name: 'Cartão sem nome', icon: '▣', description: 'Um cartão magnético amarelado. A tarja ainda parece intacta.', useText: 'Ele deve abrir algum leitor próximo.', effect: 'none', effectAmount: 0, image: DEFAULT_ITEM_IMAGES.accessCard, value: 6 },
+  { id: 'almondWater', name: 'Água de amêndoas', icon: '◒', description: 'Uma garrafa lacrada. O líquido tem um cheiro doce e vagamente familiar.', useText: 'A sede recua. Por enquanto.', effect: 'hydrate', effectAmount: 58, image: DEFAULT_ITEM_IMAGES.almondWater, value: 4 },
+  { id: 'ration', name: 'Ração selada', icon: '▰', description: 'Uma barra de emergência dura, mas ainda comestível.', useText: 'Sem gosto. Ainda assim, alimento.', effect: 'feed', effectAmount: 48, image: DEFAULT_ITEM_IMAGES.ration, value: 4 },
+  { id: 'fuse', name: 'Fusível industrial', icon: '⌁', description: 'Pesado demais para o tamanho. Os contatos não estão oxidados.', useText: 'Talvez pertença a um painel elétrico.', effect: 'none', effectAmount: 0, value: 5 },
+  { id: 'medkit', name: 'Kit de primeiros socorros', icon: '✚', description: 'Gaze, antisséptico e analgésicos dentro do prazo.', useText: 'Os ferimentos foram tratados.', effect: 'heal', effectAmount: 52, image: DEFAULT_ITEM_IMAGES.medkit, value: 9 },
+  { id: 'lantern', name: 'Lanterna de mão', icon: '⌾', description: 'Corpo de borracha gasto e uma lente trincada. A pilha ainda tem carga.', useText: 'Ela acende sozinha onde está escuro, e se apaga onde não precisa.', effect: 'light', effectAmount: 0, value: 12, batterySeconds: 240 },
 ];
 
 export const DEFAULT_ENTITIES: EditorEntity[] = [
-  { id: 'watcher', name: 'O Observador', prompt: 'Uma silhueta bloqueia o corredor. Ela reage a movimento.', hint: 'Talvez seja melhor desaparecer da visão.', encounter: 'choice', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg' },
-  { id: 'crawler', name: 'O Rastejante', prompt: 'Unhas batem no concreto atrás de você. Está se aproximando.', hint: 'Ficar parado significa ser alcançado.', encounter: 'choice', solution: 'run', timeLimit: 4.2, image: '/assets/entities/crawler.jpg' },
-  { id: 'vigia', name: 'O que espera no fim do corredor', prompt: 'O corredor não acaba, e há algo parado onde ele deveria acabar. Não se mexe. Está esperando você respirar.', hint: 'Prenda o medo dentro do peito.', encounter: 'heart', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg', heartWall: '/assets/scenes/lobbyWall.jpg', heartHoldSeconds: 9, heartEscapeSeconds: 13.4, heartPull: 54, heartJoltEvery: 2.4 },
+  { id: 'watcher', name: 'O Observador', prompt: 'Uma silhueta bloqueia o corredor. Ela reage a movimento.', hint: 'Talvez seja melhor desaparecer da visão.', encounter: 'choice', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg', attacks: [{ id: 'empurrao', name: 'Empurrão', damage: 28, effects: ['panic'], weight: 2 }, { id: 'unhada', name: 'Unhada', damage: 22, effects: ['bleed'], bleedSeconds: 22, weight: 1 }] },
+  { id: 'crawler', name: 'O Rastejante', prompt: 'Unhas batem no concreto atrás de você. Está se aproximando.', hint: 'Ficar parado significa ser alcançado.', encounter: 'choice', solution: 'run', timeLimit: 4.2, image: '/assets/entities/crawler.jpg', attacks: [{ id: 'mordida', name: 'Mordida', damage: 26, effects: ['bleed'], bleedSeconds: 30, weight: 3 }, { id: 'rasgo', name: 'Rasgo', damage: 34, effects: ['bleed', 'drop'], bleedSeconds: 18, weight: 1 }] },
+  { id: 'vigia', name: 'O que espera no fim do corredor', prompt: 'O corredor não acaba, e há algo parado onde ele deveria acabar. Não se mexe. Está esperando você respirar.', hint: 'Prenda o medo dentro do peito.', encounter: 'heart', solution: 'hide', timeLimit: 5, image: '/assets/entities/watcher.jpg', heartWall: '/assets/scenes/lobbyWall.jpg', heartHoldSeconds: 17, heartEscapeSeconds: 21.4, heartPull: 54, heartJoltEvery: 2.4 },
 ];

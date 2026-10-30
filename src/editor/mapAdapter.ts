@@ -1,6 +1,37 @@
-import type { EntityDefinition, HotspotDefinition, ItemDefinition, RoomDefinition, WorldDefinition } from '../config/world';
-import type { EntityId, ItemId } from '../types';
-import { isFullRoomView, type EditorEntity, type EditorHotspot, type EditorItem, type EditorLevel } from './types';
+import type { ChallengeDefinition, ChallengeOutcome, EntityDefinition, HotspotDefinition, ItemDefinition, NpcDefinition, RoomDefinition, WorldDefinition } from '../config/world';
+import type { EntityId, ItemId, NpcId } from '../types';
+import { isFullRoomView, type EditorChallenge, type EditorChallengeOutcome, type EditorEntity, type EditorHotspot, type EditorItem, type EditorLevel, type EditorNpc } from './types';
+
+/** Uma consequência sem nada escrito nela é consequência nenhuma: não vai ao jogo. */
+const outcomeToRuntime = (outcome: EditorChallengeOutcome): ChallengeOutcome | undefined => {
+  const message = outcome.message.trim();
+  const sound = outcome.sound.trim();
+  const image = outcome.image.trim();
+  const grantsFlag = outcome.grantsFlag.trim();
+  if (!message && !sound && !image && !grantsFlag && !outcome.item) return undefined;
+  return {
+    message: message || undefined,
+    sound: sound || undefined,
+    soundVolume: sound ? outcome.soundVolume : undefined,
+    image: image || undefined,
+    imageSeconds: image ? outcome.imageSeconds : undefined,
+    grantsFlag: grantsFlag || undefined,
+    item: outcome.item,
+  };
+};
+
+const challengeToRuntime = (challenge: EditorChallenge): ChallengeDefinition => ({
+  kind: challenge.kind,
+  introPath: challenge.introPath || undefined,
+  introMedia: challenge.introPath ? challenge.introMedia : undefined,
+  introSeconds: challenge.introPath ? challenge.introSeconds : undefined,
+  wireCount: challenge.wireCount,
+  // Menos de três ligações escritas não fazem um painel: o jogo sorteia o dele.
+  wirePairs: challenge.wirePairs.length >= 3 ? challenge.wirePairs.map((pair) => ({ ...pair })) : undefined,
+  shockDamage: challenge.shockDamage,
+  success: outcomeToRuntime(challenge.success),
+  giveUp: outcomeToRuntime(challenge.giveUp),
+});
 
 const hotspotToRuntime = (hotspot: EditorHotspot): HotspotDefinition => ({
   id: hotspot.id,
@@ -29,6 +60,8 @@ const hotspotToRuntime = (hotspot: EditorHotspot): HotspotDefinition => ({
   // Som sem arquivo é silêncio: o jogo não põe nada no lugar.
   sound: hotspot.sound || undefined,
   soundVolume: hotspot.soundVolume,
+  challenge: hotspot.action === 'challenge' && hotspot.challenge ? challengeToRuntime(hotspot.challenge) : undefined,
+  npc: hotspot.action === 'npc' ? hotspot.npcId : undefined,
 });
 
 const roomToRuntime = (room: EditorLevel['rooms'][number]): RoomDefinition => ({
@@ -48,6 +81,10 @@ const roomToRuntime = (room: EditorLevel['rooms'][number]): RoomDefinition => ({
     opacity: entry.opacity, rotation: entry.rotation, loop: entry.loop, onTop: entry.onTop,
   })),
   view: isFullRoomView(room.view) ? undefined : { ...room.view! },
+  npcs: room.npcs?.map((entry) => ({
+    npcId: entry.npcId, x: entry.x, y: entry.y, height: entry.height,
+    flip: entry.flip, requiresFlag: entry.requiresFlag || undefined,
+  })),
 });
 
 /**
@@ -124,7 +161,7 @@ export const projectToWorld = (levels: readonly EditorLevel[], activeLevelId: st
 export const itemsToRuntime = (items: EditorItem[]): Record<ItemId, ItemDefinition> => {
   const result: Record<ItemId, ItemDefinition> = {};
   items.forEach((item) => {
-    result[item.id] = { name: item.name, icon: item.icon, description: item.description, useText: item.useText, effect: item.effect, effectAmount: item.effectAmount, image: item.image };
+    result[item.id] = { name: item.name, icon: item.icon, description: item.description, useText: item.useText, effect: item.effect, effectAmount: item.effectAmount, image: item.image, value: item.value, batterySeconds: item.batterySeconds };
   });
   return result;
 };
@@ -138,6 +175,41 @@ export const entitiesToRuntime = (entities: EditorEntity[]): Record<EntityId, En
       image: entity.image, heartWall: entity.heartWall, jumpscareSeconds: entity.jumpscareSeconds,
       heartHoldSeconds: entity.heartHoldSeconds, heartEscapeSeconds: entity.heartEscapeSeconds, heartPull: entity.heartPull,
       heartJoltEvery: entity.heartJoltEvery, heartEntity: entity.heartEntity,
+      attacks: entity.attacks?.map((attack) => ({ ...attack, effects: [...attack.effects] })),
+    };
+  });
+  return result;
+};
+
+export const npcsToRuntime = (npcs: EditorNpc[]): Record<NpcId, NpcDefinition> => {
+  const result: Record<NpcId, NpcDefinition> = {};
+  npcs.forEach((npc) => {
+    result[npc.id] = {
+      name: npc.name,
+      title: npc.title || undefined,
+      // Sem arte escolhida o jogo desenha o boneco de teste, em SVG.
+      art: npc.art || undefined,
+      personality: npc.personality,
+      reputation: npc.reputation,
+      trades: npc.trades,
+      stock: npc.stock.map((entry) => ({ ...entry })),
+      voice: npc.voice || undefined,
+      lines: npc.lines.map((line) => ({
+        id: line.id,
+        text: line.text,
+        answers: line.answers.map((answer) => ({
+          id: answer.id,
+          text: answer.text,
+          to: answer.to || undefined,
+          opensTrade: answer.opensTrade || undefined,
+          requiresItem: answer.requiresItem,
+          givesItem: answer.givesItem,
+          takesItem: answer.takesItem,
+          grantsFlag: answer.grantsFlag || undefined,
+          requiresFlag: answer.requiresFlag || undefined,
+          reputation: answer.reputation || undefined,
+        })),
+      })),
     };
   });
   return result;

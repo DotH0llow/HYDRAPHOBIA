@@ -1,8 +1,8 @@
-import { ENTITIES, ITEMS, type EntityDefinition, type ItemDefinition, type RoomDefinition } from '../config/world';
+import { ENTITIES, ITEMS, type ChallengeOutcome, type EntityDefinition, type ItemDefinition, type NpcDefinition, type RoomDefinition, type RoomNpc } from '../config/world';
 import { allIllustrated, CLASSES, classArtFor, classLabelFor, DEFAULT_CHARACTER, GENDERS, labelOf, MAX_CHARACTER_NAME, MIN_CHARACTER_NAME, MODES, PHOBIAS, sanitizeCharacterName, scaredArtFor, STARTING_ITEMS } from '../config/character';
 import { Game } from '../core/Game';
 import { EditorProject } from '../editor/EditorProject';
-import { entitiesToRuntime, itemsToRuntime, projectToWorld } from '../editor/mapAdapter';
+import { entitiesToRuntime, itemsToRuntime, npcsToRuntime, projectToWorld } from '../editor/mapAdapter';
 import { anxietyTier, anxietyTierLabel } from '../core/anxiety';
 import { AudioSystem, type Cue } from '../systems/AudioSystem';
 import {
@@ -15,11 +15,13 @@ import { drawRoomLighting, hasFlicker } from '../systems/lighting';
 import { CAGE, heartExposure, heartInsideCage, heartIntensity, heartProgress } from '../systems/heartEncounter';
 import { HEART_ART, RIBCAGE_ART } from '../systems/heartArt';
 import { labelAnchorOf } from '../systems/hotspots';
+import { moodLabel, NPC_DUMMY_ART } from '../systems/npc';
+import { connectorTaken, OUTPUT_LABELS } from '../systems/wires';
 import { checkCharacterName } from '../config/nameFilter';
 import { legendTimings, SOLO_LEGEND_MS, splitLegend } from '../systems/legends';
 import { roomMediaMarkup, sceneFrameStyle } from '../systems/roomView';
 import { createSlot, endCampaign, SaveSystem } from '../systems/SaveSystem';
-import { SAVE_SLOT_COUNT, type BooleanPreferenceKey, type CampaignEnding, type CharacterClassId, type EntityId, type CharacterGender, type CharacterMode, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type PhobiaId, type Preferences, type RoomId, type SaveData, type SaveSlot, type Screen } from '../types';
+import { SAVE_SLOT_COUNT, type NpcId, type BooleanPreferenceKey, type CampaignEnding, type CharacterClassId, type EntityId, type CharacterGender, type CharacterMode, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type PhobiaId, type Preferences, type RoomId, type SaveData, type SaveSlot, type Screen } from '../types';
 
 type NumericPreferenceKey = Exclude<keyof Preferences, BooleanPreferenceKey>;
 
@@ -64,6 +66,13 @@ const INVENTORY_HINT_MS = 4000;
  * mirar na boca do tórax virava sorte. Mais lento, o jogador sente o peso da coisa.
  */
 const HEART_POINTER_SPEED = 0.75;
+
+/**
+ * O foco da lanterna. Ela não é um poste na parede: é uma luz que anda com o jogador,
+ * então fica no meio da cena, um pouco abaixo do centro — na altura da mão de quem a
+ * segura. O piscar mínimo existe para a pilha se fazer notar.
+ */
+const LANTERN_LIGHT = { x: 50, y: 58, radius: 30, intensity: 0.95, shape: 'circle', aperture: 360, flicker: 0.06 } as const;
 
 const DANGER_CUES: Record<number, Cue[]> = {
   1: ['discomfort'],
@@ -138,6 +147,13 @@ export class GameApp {
   private legendIndex = 0;
   /** Quando o pedaço atual sai da tela. */
   private legendUntil = 0;
+  /** O que já está escrito na legenda e na caixa do inventário; `null` é caixa nova. */
+  private paintedLegend: string | null = null;
+  private paintedHint: string | null = null;
+  /** O painel de histórico das conversas, aberto pelo H ou pelo botão da cena. */
+  private historyOpen = false;
+  /** Até quando a moldura do painel de fios mostra o choque da ligação errada. */
+  private shockUntil = 0;
   /** Confirmação dentro do jogo; `window.confirm` não aparece em todos os navegadores. */
   private confirm: ConfirmRequest | null = null;
   /** Salas do projeto inteiro, para a miniatura de cada registro na tela de campanhas. */
@@ -192,7 +208,7 @@ export class GameApp {
     }
     if (inHeart) this.updateHeartLayer();
     // Luzes com flickering precisam de um quadro novo mesmo sem mudança de estado.
-    if (this.screen === 'game' && this.game && hasFlicker((this.game.room as RoomDefinition).lights)) this.updateDarknessCanvas();
+    if (this.screen === 'game' && this.game && (this.game.lanternOn || hasFlicker((this.game.room as RoomDefinition).lights))) this.updateDarknessCanvas();
     requestAnimationFrame(this.tick);
   };
 
@@ -206,7 +222,14 @@ export class GameApp {
       this.renderedStructure = structure;
       this.forcePaint = false;
       this.bindCutsceneVideo();
-      if (this.screen === 'game' && this.game) this.updateDarknessCanvas();
+      if (this.screen === 'game' && this.game) {
+        this.updateDarknessCanvas();
+        // A caixa acabou de nascer vazia: o que vale agora ainda não foi escrito nela.
+        this.paintedLegend = null;
+        this.paintedHint = null;
+        this.updateLegend();
+        this.updateInventoryHint();
+      }
     } else if (this.screen === 'game') this.updateReadouts();
   }
 
@@ -220,7 +243,10 @@ export class GameApp {
     if (canvas.height !== height) canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    drawRoomLighting(ctx, canvas.width, canvas.height, room.darknessLevel ?? 0, room.lights ?? [], performance.now());
+    // A lanterna entra como mais um foco: assim a escuridão da sala é aberta pelo
+    // mesmo desenho que abre as lâmpadas, e o editor e o jogo continuam iguais.
+    const lights = this.game.lanternOn ? [...(room.lights ?? []), LANTERN_LIGHT] : room.lights ?? [];
+    drawRoomLighting(ctx, canvas.width, canvas.height, room.darknessLevel ?? 0, lights, performance.now());
   }
 
   private structureKey(): string {
@@ -254,6 +280,12 @@ export class GameApp {
       encounter: this.game.encounter?.id,
       cutscene: this.game.cutscene?.hotspotId ?? null,
       hideout: this.game.hideout?.hotspotId ?? null,
+      // A conversa redesenha quando a fala muda, quando a troca abre e quando o
+      // histórico abre; o resto dela é escrito sobre o que já está na tela.
+      dialogue: this.game.dialogue ? `${this.game.dialogue.npcId}:${this.game.dialogue.lineId}:${this.game.dialogue.trading}` : null,
+      challenge: this.game.challenge ? `${this.game.challenge.hotspotId}:${this.game.challenge.intro ? 'intro' : 'panel'}:${Object.keys(this.game.challenge.wires.linked).length}:${this.game.challenge.wires.holding ?? ''}` : null,
+      historyOpen: this.historyOpen,
+      trade: this.game.dialogue?.trading ? JSON.stringify([this.game.dialogue.offer, this.game.dialogue.ask]) : '',
       inventory: this.game.inventory,
       inventoryOpen: this.inventoryOpen,
       focusedItem: this.focusedItem,
@@ -261,11 +293,16 @@ export class GameApp {
       devPanelOpen: this.devPanelOpen,
       flags: this.game.flags,
       immersive: this.immersive,
-      // O índice entra na chave para que duas legendas iguais em sequência redesenhem.
-      message: this.messageVisible() ? `${this.legendIndex}:${this.currentLegend()}` : '',
-      inventoryHint: this.inventoryHintVisible(),
+      /*
+       * A legenda e a caixa do inventário ficam fora da chave de propósito. As duas
+       * entram e saem sozinhas, e enquanto estavam aqui cada entrada e cada saída
+       * refazia o `innerHTML` da tela inteira: a cena piscava quando uma legenda
+       * sumia. Agora as duas são escritas à mão, em `updateLegend` e
+       * `updateInventoryHint`, sobre a mesma caixa que já está na tela.
+       */
       showHealthBar: this.save.preferences.showHealthBar,
       anxietyTier: this.game.anxietyLevel,
+      battery: this.game.carriesLantern,
       jumpscare: Date.now() < this.jumpscareUntil,
       dialog,
     });
@@ -615,6 +652,7 @@ export class GameApp {
           <img src="${room.image}" alt="${room.description}" />
           ${roomMediaMarkup((room as RoomDefinition).media, false, esc)}
           <canvas class="scene-darkness-canvas" data-role="scene-darkness" aria-hidden="true"></canvas>
+          ${this.npcMarkup(room)}
           ${this.hotspotMarkup(room)}
           ${roomMediaMarkup((room as RoomDefinition).media, true, esc)}
           <nav class="movement" aria-label="Movimentação">${exits.map(([direction, exit]) => this.movementButton(direction, exit)).join('')}</nav>
@@ -631,11 +669,16 @@ export class GameApp {
           ${this.statBar('thirst', 'SEDE', this.game.stats.thirst)}
           ${this.statBar('hunger', 'FOME', this.game.stats.hunger)}
           ${this.save.preferences.showHealthBar ? this.statBar('health', 'VIDA', this.game.stats.health) : ''}
+          ${this.game.carriesLantern ? this.statBar('battery', 'PILHA', this.game.battery * 100) : ''}
         </div>
       </header>` : ''}
-      ${hud && this.messageVisible() ? `<div class="message-strip" role="status" style="--legend-life:${this.legendTimes[this.legendIndex] ?? SOLO_LEGEND_MS}ms"><i></i><p>${esc(this.currentLegend())}</p></div>` : ''}
-      ${hud && this.inventoryHintVisible() ? `<button class="inventory-button ${this.game.selectedItem ? 'item-selected' : ''}" data-action="inventory"><span>▦</span><b>Inventário</b><small>${this.itemCountLabel()}</small></button>` : ''}
+      ${hud ? `<div class="message-strip" role="status" data-role="legend" hidden style="--legend-life:${SOLO_LEGEND_MS}ms"><i></i><p></p></div>` : ''}
+      ${hud ? `<button class="inventory-button" data-action="inventory" data-role="inventory-hint" hidden><span>▦</span><b>Inventário</b><small data-role="inventory-count">${this.itemCountLabel()}</small></button>` : ''}
       ${this.inventoryOpen ? this.inventoryTemplate() : ''}
+      ${hud && this.game.presentNpcs.length > 0 && !this.game.dialogue ? '<button class="history-button" data-action="history" title="Histórico da conversa (H)"><span>❝</span><b>Conversas</b><small>H</small></button>' : ''}
+      ${this.game.dialogue ? this.dialogueTemplate() : ''}
+      ${this.game.challenge ? this.challengeTemplate() : ''}
+      ${this.historyOpen ? this.historyTemplate() : ''}
       ${this.game.encounter ? this.encounterTemplate() : ''}
       ${this.game.status === 'cutscene' ? this.cutsceneTemplate() : ''}
       ${this.game.status === 'hidden' ? this.hiddenTemplate() : ''}
@@ -673,6 +716,216 @@ export class GameApp {
         <span class="hotspot-label" style="left:${label.x}%;top:${label.y}%">${hotspot.label}</span>
       </div>`;
     }).join('');
+  }
+
+  /**
+   * As pessoas da cena. Cada uma está plantada em um ponto da sala, com a altura que
+   * quem montou o nível escolheu; sem arte escolhida, o que aparece é o boneco de
+   * teste em SVG, de propósito — ele serve para a cena já poder ser jogada antes de a
+   * arte existir, e não se confunde com nada que vá ficar.
+   */
+  private npcMarkup(room: RoomDefinition): string {
+    return (room.npcs ?? []).map((entry) => {
+      if (entry.requiresFlag && !this.game!.flags[entry.requiresFlag]) return '';
+      const definition = this.game!.npcDefinition(entry.npcId);
+      if (!definition) return '';
+      const talking = this.game!.dialogue?.npcId === entry.npcId;
+      const art = definition.art
+        ? `<img src="${esc(definition.art)}" alt="${esc(definition.name)}" />`
+        : NPC_DUMMY_ART;
+      return `<div class="npc-figure${talking ? ' talking' : ''}" data-npc-figure="${esc(entry.npcId)}" style="left:${entry.x}%;top:${entry.y}%;--npc-height:${entry.height}%;--npc-flip:${entry.flip ? -1 : 1}">
+        <button class="npc-hit" data-action="npc" data-npc="${esc(entry.npcId)}" aria-label="Falar com ${esc(definition.name)}">${art}</button>
+        <span class="npc-tag">${esc(definition.name)}</span>
+      </div>`;
+    }).join('');
+  }
+
+  /** Onde o balão desta pessoa fica na cena, e para que lado a ponta dele aponta. */
+  private npcAnchor(npcId: NpcId): { entry: RoomNpc | undefined; below: boolean } {
+    const entry = (this.game!.room as RoomDefinition).npcs?.find((item) => item.npcId === npcId);
+    // Quem está plantado na parte de cima da cena recebe o balão por baixo: acima
+    // dele não há tela, e o balão sairia cortado pela borda.
+    return { entry, below: (entry?.y ?? 50) < 34 };
+  }
+
+  /**
+   * O balão de fala. Ele cresce com o texto — a largura tem um teto e a altura não
+   * tem nenhum — e a ponta sai dele apontando para quem está falando. As respostas
+   * ficam numa barra própria, embaixo: dentro do balão elas o transformariam num menu.
+   */
+  private dialogueTemplate(): string {
+    const game = this.game!;
+    const dialogue = game.dialogue!;
+    const definition = game.npcDefinition(dialogue.npcId);
+    const line = game.dialogueLine;
+    if (!definition || !line) return '';
+    if (dialogue.trading) return this.tradeTemplate(definition);
+    const { entry, below } = this.npcAnchor(dialogue.npcId);
+    const answers = game.dialogueAnswers;
+    const x = Math.max(16, Math.min(84, entry?.x ?? 50));
+    const y = entry ? (below ? entry.y + (entry.height ?? 40) * 0.2 : entry.y) : 40;
+    return `<div class="dialogue-layer">
+      <article class="speech-balloon" data-side="${below ? 'below' : 'above'}" style="left:${x}%;top:${y}%">
+        <header><b>${esc(definition.name)}</b>${definition.title ? `<small>${esc(definition.title)}</small>` : ''}</header>
+        <p data-role="balloon-text">${esc(line.text)}</p>
+        <i class="balloon-tail" aria-hidden="true"></i>
+      </article>
+      <div class="dialogue-bar">
+        <div class="dialogue-answers">
+          ${answers.map((answer) => {
+            const missing = answer.requiresItem && !game.inventory.some((item) => item.id === answer.requiresItem && item.quantity > 0);
+            const need = answer.requiresItem ? this.items[answer.requiresItem]?.name ?? answer.requiresItem : '';
+            return `<button class="dialogue-answer${missing ? ' unavailable' : ''}" data-action="dialogue-answer" data-answer="${esc(answer.id)}"${missing ? ' disabled' : ''}>
+              <span>${esc(answer.text)}</span>
+              ${answer.requiresItem ? `<small>${missing ? 'exige' : 'usa'} ${esc(need)}</small>` : ''}
+              ${answer.opensTrade ? '<small>abre a troca</small>' : ''}
+            </button>`;
+          }).join('')}
+        </div>
+        <div class="dialogue-tools">
+          ${definition.trades ? '<button data-action="dialogue-trade">Trocar</button>' : ''}
+          <button data-action="history">Histórico <em>H</em></button>
+          <button class="dialogue-leave" data-action="dialogue-end">Encerrar</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /**
+   * A tela de trocas. Não há dinheiro: os dois lados da mesa são medidos na mesma
+   * escala de valor, e a troca fecha quando o que o jogador põe alcança o que ele
+   * pede. O vendedor cobra pelo humor que tem — e um pouco mais de quem chega mal.
+   */
+  private tradeTemplate(definition: NpcDefinition): string {
+    const game = this.game!;
+    const dialogue = game.dialogue!;
+    const memory = game.npcMemory(dialogue.npcId);
+    const totals = game.tradeTotals;
+    const tense = game.stats.anxiety >= 60;
+    const picked = (list: typeof dialogue.ask, id: string): number => list.find((entry) => entry.id === id)?.quantity ?? 0;
+    const row = (side: 'ask' | 'offer', id: string, available: number): string => {
+      const item = this.items[id];
+      if (!item) return '';
+      const price = side === 'ask' ? game.askPriceOf(id) : game.offerPriceOf(id);
+      const chosen = picked(side === 'ask' ? dialogue.ask : dialogue.offer, id);
+      return `<li class="trade-row${chosen > 0 ? ' chosen' : ''}">
+        <span class="trade-art">${item.image ? `<img src="${esc(item.image)}" alt="" />` : esc(item.icon)}</span>
+        <span class="trade-name"><b>${esc(item.name)}</b><small>${available} em estoque</small></span>
+        <span class="trade-price">${price}</span>
+        <span class="trade-count"><button data-action="trade-adjust" data-side="${side}" data-item="${esc(id)}" data-amount="-1" aria-label="Menos um">−</button><em>${chosen}</em><button data-action="trade-adjust" data-side="${side}" data-item="${esc(id)}" data-amount="1" aria-label="Mais um">+</button></span>
+      </li>`;
+    };
+    const enough = totals.offer >= totals.ask;
+    return `<div class="trade-layer" role="dialog" aria-label="Troca com ${esc(definition.name)}">
+      <section class="trade-panel">
+        <header>
+          <div><small>TROCA</small><h2>${esc(definition.name)}</h2></div>
+          <div class="trade-mood"><small>DISPOSIÇÃO</small><b>${esc(moodLabel(memory.reputation))}</b><i><u style="width:${memory.reputation}%"></u></i></div>
+          <button class="trade-close" data-action="trade-close" aria-label="Fechar a troca">×</button>
+        </header>
+        ${tense ? '<p class="trade-warning">Ele vê o estado em que você chegou. Cada item custa 1 a mais.</p>' : ''}
+        <div class="trade-columns">
+          <div class="trade-side">
+            <h3>O que ele tem</h3>
+            <ul>${memory.stock.length > 0 ? memory.stock.map((entry) => row('ask', entry.id, entry.quantity)).join('') : '<li class="trade-empty">Os bolsos dele estão vazios.</li>'}</ul>
+          </div>
+          <div class="trade-side">
+            <h3>O que você tem</h3>
+            <ul>${game.inventory.length > 0 ? game.inventory.map((entry) => row('offer', entry.id, entry.quantity)).join('') : '<li class="trade-empty">Você não tem nada para dar.</li>'}</ul>
+          </div>
+        </div>
+        <footer>
+          <div class="trade-scale"><span>Você pede <b>${totals.ask}</b></span><span>Você oferece <b class="${enough ? 'ok' : 'short'}">${totals.offer}</b></span></div>
+          <button class="primary" data-action="trade-confirm"${enough && (dialogue.ask.length > 0 || dialogue.offer.length > 0) ? '' : ' disabled'}>Fechar a troca</button>
+          <button data-action="trade-close">Voltar à conversa</button>
+        </footer>
+      </section>
+    </div>`;
+  }
+
+  /** O histórico: tudo o que foi dito nesta campanha, na ordem em que foi dito. */
+  private historyTemplate(): string {
+    const game = this.game!;
+    const log = game.dialogueLog;
+    return `<div class="modal-layer history-layer" role="dialog" aria-modal="true" aria-label="Histórico das conversas">
+      <section class="history-panel">
+        <header><div><small>REGISTRO FALADO</small><h2>Conversas</h2></div><button data-action="history" aria-label="Fechar">×</button></header>
+        <div class="history-log">
+          ${log.length === 0 ? '<p class="history-empty">Você ainda não falou com ninguém.</p>' : log.map((entry) => `
+            <article class="history-line ${entry.side}">
+              <small>${esc(entry.speaker)} · ${this.formatTime(entry.at)}</small>
+              <p>${esc(entry.text)}</p>
+            </article>`).join('')}
+        </div>
+        <button class="primary" data-action="history">Fechar</button>
+      </section>
+    </div>`;
+  }
+
+  /**
+   * O desafio. Primeiro a cutscene que o abre, se houver uma; depois o painel. Na
+   * saída fica a consequência que o nível escreveu — um texto, um som, uma imagem.
+   */
+  private challengeTemplate(): string {
+    const challenge = this.game!.challenge!;
+    if (challenge.intro) {
+      const media = challenge.intro.mediaType === 'video'
+        ? `<video src="${esc(challenge.intro.mediaPath)}" autoplay muted playsinline data-role="challenge-video"></video>`
+        : `<img src="${esc(challenge.intro.mediaPath)}" alt="" />`;
+      return `<div class="cutscene-layer challenge-intro" role="dialog" aria-label="Abertura do desafio"><div class="cutscene-media">${media}</div></div>`;
+    }
+    return this.wirePanelTemplate();
+  }
+
+  /**
+   * O painel de fios. Seis saídas com letras à esquerda, seis conectores com números
+   * à direita, e de três a seis fios entre eles. A ligação certa já está no painel e
+   * não aparece em canto nenhum: descobri-la é o jogo, e cada erro custa um choque.
+   */
+  private wirePanelTemplate(): string {
+    const game = this.game!;
+    const wires = game.challenge!.wires;
+    const rowY = (index: number): number => ((index + 0.5) / 6) * 100;
+    const curves = Object.entries(wires.linked).map(([from, to]) => {
+      const wire = wires.wires.find((entry) => entry.from === from);
+      const y1 = rowY(OUTPUT_LABELS.indexOf(from as typeof OUTPUT_LABELS[number]));
+      const y2 = rowY(wires.connectors.indexOf(to));
+      return `<path d="M6 ${y1} C 38 ${y1}, 62 ${y2}, 94 ${y2}" stroke="${esc(wire?.color ?? '#dcdcd2')}" />`;
+    }).join('');
+    const left = OUTPUT_LABELS.map((label, index) => {
+      const wire = wires.wires.find((entry) => entry.from === label);
+      const linked = Boolean(wires.linked[label]);
+      const held = wires.holding === label;
+      if (!wire) return `<li class="wire-port dead" style="--row:${index}"><b>${label}</b><i aria-hidden="true"></i><small>sem fio</small></li>`;
+      return `<li class="wire-port${linked ? ' linked' : ''}${held ? ' held' : ''}" style="--row:${index};--wire:${esc(wire.color)}">
+        <b>${label}</b>
+        <button data-action="wire-hold" data-wire="${label}"${linked ? ' disabled' : ''} aria-label="Fio da saída ${label}"><i aria-hidden="true"></i></button>
+      </li>`;
+    }).join('');
+    const right = wires.connectors.map((label, index) => {
+      const taken = connectorTaken(wires, label);
+      return `<li class="wire-socket${taken ? ' taken' : ''}" style="--row:${index}">
+        <button data-action="wire-link" data-connector="${label}"${taken || !wires.holding ? ' disabled' : ''} aria-label="Conector ${label}"><i aria-hidden="true"></i></button>
+        <b>${label}</b>
+      </li>`;
+    }).join('');
+    const remaining = wires.wires.length - Object.keys(wires.linked).length;
+    return `<div class="challenge-layer" data-role="wire-panel" data-shock="false" role="dialog" aria-label="Conectar os fios">
+      <section class="wire-board">
+        <header><small>PAINEL DE MANUTENÇÃO</small><h2>Conectar os fios</h2><p>Cada fio tem um destino certo. Errar fecha o circuito em você.</p></header>
+        <div class="wire-field">
+          <ul class="wire-column left">${left}</ul>
+          <svg class="wire-canvas" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${curves}</svg>
+          <ul class="wire-column right">${right}</ul>
+        </div>
+        <footer>
+          <span class="wire-count">${remaining === 0 ? 'Painel fechado.' : `${remaining} fio${remaining === 1 ? '' : 's'} na mão`}</span>
+          <span class="wire-mistakes">${wires.mistakes} choque${wires.mistakes === 1 ? '' : 's'}</span>
+          <button class="danger-button" data-action="challenge-give-up">Largar o painel</button>
+        </footer>
+      </section>
+      <div class="wire-shock" aria-hidden="true"></div>
+    </div>`;
   }
 
   /**
@@ -853,6 +1106,14 @@ export class GameApp {
   }
 
   private bindCutsceneVideo(): void {
+    const intro = this.root.querySelector<HTMLVideoElement>('[data-role="challenge-video"]');
+    if (intro) {
+      intro.onended = () => {
+        this.game?.endChallengeIntro();
+        this.forcePaint = true;
+        this.render(true);
+      };
+    }
     const video = this.root.querySelector<HTMLVideoElement>('[data-role="cutscene-video"]');
     if (!video) return;
     video.onended = () => {
@@ -1099,6 +1360,17 @@ export class GameApp {
         if (select) this.game?.debugAddItem(select.value as ItemId);
         break;
       }
+      case 'npc': this.talkTo(data.npc ?? ''); break;
+      case 'dialogue-answer': this.answerNpc(data.answer ?? ''); break;
+      case 'dialogue-end': this.game?.endDialogue(); this.audio.play('click'); break;
+      case 'dialogue-trade': this.game?.openTrade(); this.audio.play('click'); break;
+      case 'trade-close': this.game?.closeTrade(); this.audio.play('click'); break;
+      case 'trade-adjust': this.game?.adjustTrade(data.side === 'ask' ? 'ask' : 'offer', data.item as ItemId, Number(data.amount) || 0); this.audio.play('click'); break;
+      case 'trade-confirm': this.confirmTrade(); break;
+      case 'history': this.historyOpen = !this.historyOpen; this.audio.play('click'); break;
+      case 'wire-hold': this.game?.holdWire(data.wire ?? ''); this.audio.play('click'); break;
+      case 'wire-link': this.linkWire(data.connector ?? ''); break;
+      case 'challenge-give-up': this.giveUpChallenge(); break;
       case 'dev-encounter': {
         const select = this.root.querySelector<HTMLSelectElement>('[data-dev-entity]');
         if (select?.value) { this.devPanelOpen = false; this.game?.debugStartEncounter(select.value); }
@@ -1240,7 +1512,7 @@ export class GameApp {
     this.levelName = data.levelName;
     this.worldRoomCount = Object.keys(data.world.rooms).length;
     this.immersive = character.mode === 'immersive';
-    this.game = new Game(undefined, Math.random, data.world, undefined, data.items, data.entities);
+    this.game = new Game(undefined, Math.random, data.world, undefined, data.items, data.entities, data.npcs);
     this.game.grantStartingItem(character.startingItem);
     // Receber o item inicial já é receber um item: a caixa aparece e some sozinha.
     this.showInventoryHint();
@@ -1273,7 +1545,7 @@ export class GameApp {
     this.activeSlot = index;
     this.save.activeSlot = index;
     this.immersive = slot.character.mode === 'immersive';
-    this.game = new Game(slot.game, Math.random, data.world, undefined, data.items, data.entities);
+    this.game = new Game(slot.game, Math.random, data.world, undefined, data.items, data.entities, data.npcs);
     this.screen = 'game';
     this.inventoryOpen = false;
     this.focusedItem = null;
@@ -1324,6 +1596,66 @@ export class GameApp {
     this.syncRoomAudio();
     if (!game.roomIsOrdinary) return;
     this.audio.maybePlaySample(FX_SAFE_ROOM, { chance: SAFE_ROOM_CHANCE });
+  }
+
+  /** Começar a conversa; a partir daqui nada alcança o jogador até ele encerrar. */
+  private talkTo(npcId: string): void {
+    if (!this.game || !npcId) return;
+    const definition = this.game.npcDefinition(npcId);
+    if (!this.game.startDialogue(npcId)) return;
+    this.historyOpen = false;
+    if (definition?.voice) void this.audio.playEffectFile(definition.voice, 1);
+    else this.audio.play('click');
+  }
+
+  private answerNpc(answerId: string): void {
+    if (!this.game?.dialogue) return;
+    const npcId = this.game.dialogue.npcId;
+    const definition = this.game.npcDefinition(npcId);
+    this.game.answerDialogue(answerId);
+    // A voz só volta a soar se o NPC ainda estiver falando: encerrar a conversa é silêncio.
+    if (this.game.dialogue && definition?.voice) void this.audio.playEffectFile(definition.voice, 1);
+    else this.audio.play('click');
+    this.persist();
+  }
+
+  private confirmTrade(): void {
+    if (!this.game) return;
+    const result = this.game.confirmTrade();
+    this.audio.play(result.changed ? 'use' : 'locked');
+    this.persist();
+  }
+
+  /** Encosta o fio no conector. Errar fecha o circuito no jogador. */
+  private linkWire(connector: string): void {
+    if (!this.game || !connector) return;
+    const result = this.game.linkWire(connector);
+    if (result.kind === 'shock') {
+      this.shockUntil = Date.now() + 520;
+      this.audio.play('jumpscare');
+      this.audio.playSample(FX_HURT);
+    } else if (result.kind === 'linked') this.audio.play('use');
+    else if (result.kind === 'solved') { this.audio.play('use'); this.applyChallengeOutcome(result.outcome); }
+    this.persist();
+  }
+
+  private giveUpChallenge(): void {
+    if (!this.game) return;
+    const outcome = this.game.giveUpChallenge();
+    this.audio.play('click');
+    this.applyChallengeOutcome(outcome);
+    this.persist();
+  }
+
+  /**
+   * A consequência de um desafio: o texto já entrou na legenda dentro do jogo, e o
+   * que sobra para a tela é o som e a imagem — juntos, se o nível pediu os dois.
+   */
+  private applyChallengeOutcome(outcome?: ChallengeOutcome): void {
+    if (!outcome || !this.game) return;
+    if (outcome.sound) void this.audio.playEffectFile(outcome.sound, outcome.soundVolume ?? 1);
+    if (outcome.image) this.game.showConsequence(outcome.image, outcome.imageSeconds ?? 3.5);
+    if (outcome.item) this.showInventoryHint();
   }
 
   private useItem(id: ItemId): void {
@@ -1501,6 +1833,15 @@ export class GameApp {
     }
     if (event.key === 'Tab' && this.screen === 'game') { event.preventDefault(); return; }
     const key = event.key.toLowerCase();
+    // O histórico abre em qualquer momento do jogo: no meio da conversa ele é o que
+    // foi dito até agora, e fora dela é o que já foi dito em toda a campanha.
+    if (key === 'h' && this.screen === 'game' && this.game) {
+      this.historyOpen = !this.historyOpen;
+      this.audio.play('click');
+      this.forcePaint = true;
+      this.render(true);
+      return;
+    }
     if (key === 'i' && this.screen === 'game' && this.game && (this.inventoryOpen || this.game.status === 'exploring')) {
       this.inventoryOpen = !this.inventoryOpen;
       if (!this.inventoryOpen) this.focusedItem = null;
@@ -1528,6 +1869,9 @@ export class GameApp {
         this.render(true);
         return;
       }
+      if (this.historyOpen) { this.historyOpen = false; this.forcePaint = true; this.render(true); return; }
+      if (this.game?.dialogue?.trading) { this.game.closeTrade(); this.forcePaint = true; this.render(true); return; }
+      if (this.game?.dialogue) { this.game.endDialogue(); this.forcePaint = true; this.render(true); return; }
       if (this.inventoryOpen) { this.inventoryOpen = false; this.focusedItem = null; this.forcePaint = true; this.render(true); return; }
       if (this.screen === 'create') { this.createPreviousStep(); this.forcePaint = true; this.render(true); return; }
       if (this.screen === 'slots') { this.screen = 'menu'; this.forcePaint = true; this.render(true); return; }
@@ -1670,6 +2014,20 @@ export class GameApp {
       stat?.classList.toggle('danger', value <= 25);
       stat?.classList.toggle('warning', value > 25 && value <= 50);
     });
+    const battery = this.root.querySelector<HTMLElement>('[data-stat="battery"]');
+    if (battery) {
+      const charge = this.game.battery * 100;
+      const bar = battery.querySelector<HTMLElement>('i');
+      if (bar) bar.style.width = `${charge}%`;
+      const readout = battery.querySelector('b');
+      if (readout) readout.textContent = String(Math.round(charge));
+      battery.classList.toggle('danger', charge <= 25);
+      battery.classList.toggle('warning', charge > 25 && charge <= 50);
+    }
+    const panel = this.root.querySelector<HTMLElement>('[data-role="wire-panel"]');
+    if (panel) panel.dataset.shock = String(Date.now() < this.shockUntil);
+    this.updateLegend();
+    this.updateInventoryHint();
     this.updateDevMeters();
     this.updateNowPlaying();
     this.applyGameScreenClass();
@@ -1686,6 +2044,9 @@ export class GameApp {
       const timer = this.root.querySelector<HTMLElement>('.decision-timer i');
       if (timer) timer.style.width = `${(this.game.encounter.remaining / this.game.encounter.timeLimit) * 100}%`;
     }
+    const balloon = this.root.querySelector<HTMLElement>('[data-role="balloon-text"]');
+    const line = this.game.dialogueLine;
+    if (balloon && line && balloon.textContent !== line.text) balloon.textContent = line.text;
     if (this.game.cutscene) {
       const cutscene = this.game.cutscene;
       const progress = cutscene.mediaType === 'image'
@@ -1714,6 +2075,50 @@ export class GameApp {
       if (bar) bar.style.width = `${value}%`;
       meter.classList.toggle('critical', key === 'danger' || key === 'anxiety' ? value >= 60 : value <= 25);
     });
+  }
+
+  /**
+   * A legenda, escrita sobre a caixa que já está na tela. Ela entra e sai o tempo
+   * todo: enquanto isso era feito refazendo o `innerHTML`, a cena inteira piscava a
+   * cada legenda que sumia. Aqui só o texto muda, e a animação de vida é reiniciada à
+   * mão — sem isso o pedaço seguinte herdava o tempo já gasto do anterior.
+   */
+  private updateLegend(): void {
+    const strip = this.root.querySelector<HTMLElement>('[data-role="legend"]');
+    if (!strip) return;
+    const visible = this.messageVisible();
+    const key = visible ? `${this.legendIndex}:${this.currentLegend()}` : '';
+    if (key === this.paintedLegend) return;
+    this.paintedLegend = key;
+    strip.hidden = !visible;
+    if (!visible) return;
+    const text = strip.querySelector('p');
+    if (text) text.textContent = this.currentLegend();
+    strip.style.setProperty('--legend-life', `${this.legendTimes[this.legendIndex] ?? SOLO_LEGEND_MS}ms`);
+    this.restartLife(strip);
+  }
+
+  /** A caixa do inventário tem a mesma vida curta da legenda, e o mesmo cuidado. */
+  private updateInventoryHint(): void {
+    const button = this.root.querySelector<HTMLElement>('[data-role="inventory-hint"]');
+    if (!button || !this.game) return;
+    const visible = this.inventoryHintVisible();
+    const key = visible ? String(this.inventoryHintUntil) : '';
+    const count = this.root.querySelector<HTMLElement>('[data-role="inventory-count"]');
+    if (count) count.textContent = this.itemCountLabel();
+    button.classList.toggle('item-selected', Boolean(this.game.selectedItem));
+    if (key === this.paintedHint) return;
+    this.paintedHint = key;
+    button.hidden = !visible;
+    // A contagem só recomeça quando a dica é outra; trocar o item não a renova.
+    if (visible) this.restartLife(button);
+  }
+
+  /** Recomeça a animação de vida de uma caixa que já está na tela. */
+  private restartLife(element: HTMLElement): void {
+    element.style.animation = 'none';
+    void element.offsetWidth;
+    element.style.animation = '';
   }
 
   private updateInventoryFocus(): void {
@@ -1784,6 +2189,7 @@ export class GameApp {
       world,
       items: itemsToRuntime(project.data.items),
       entities: entitiesToRuntime(project.data.entities),
+      npcs: npcsToRuntime(project.data.npcs),
     };
   }
 
@@ -1815,6 +2221,9 @@ export class GameApp {
     if (!this.game) return '';
     const { thirst, hunger } = this.game.stats;
     return [
+      // Um corte aberto marca a tela inteira: é a condição mais visível do jogo.
+      this.game.bleeding > 0 ? 'bleeding' : '',
+      this.game.lanternOn ? 'lantern-on' : '',
       thirst <= 10 ? 'thirst-critical' : '',
       hunger <= 10 ? 'hunger-critical' : hunger <= 30 ? 'hunger-low' : '',
       `anxiety-${this.game.anxietyLevel}`,

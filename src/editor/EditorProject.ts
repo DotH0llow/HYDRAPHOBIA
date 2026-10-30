@@ -1,12 +1,12 @@
 import { DEFAULT_WORLD } from '../config/world';
-import type { ItemEffect } from '../config/world';
+import type { AttackDefinition, AttackEffectId, ChallengeKind, ItemEffect, NpcPersonality } from '../config/world';
 import type { RoomAudioMode } from '../config/world';
 import type { CutsceneMediaType, EncounterAction, HotspotVisibility } from '../types';
 import { EDITOR_STORAGE_KEY } from '../config/storage';
 import { isLightShape } from '../systems/lighting';
 import { syncToDisk } from '../systems/localSync';
-import { DEFAULT_ENTITIES, DEFAULT_ITEM_IMAGES, DEFAULT_ITEMS, detectMediaType, isFullRoomView } from './types';
-import type { EditorConnection, EditorEntity, EditorHotspot, EditorHotspotAction, EditorItem, EditorLevel, EditorLight, EditorProjectData, EditorRoom, EditorRoomMedia, EditorRoomView } from './types';
+import { createChallenge, createChallengeOutcome, createNpc, createNpcAnswer, createNpcLine, createRoomNpc, DEFAULT_ENTITIES, DEFAULT_ITEM_IMAGES, DEFAULT_ITEMS, detectMediaType, isFullRoomView } from './types';
+import type { EditorChallenge, EditorChallengeOutcome, EditorConnection, EditorEntity, EditorHotspot, EditorHotspotAction, EditorItem, EditorLevel, EditorLight, EditorNpc, EditorNpcAnswer, EditorNpcLine, EditorProjectData, EditorRoom, EditorRoomMedia, EditorRoomNpc, EditorRoomView } from './types';
 
 export { EDITOR_STORAGE_KEY } from '../config/storage';
 
@@ -14,7 +14,7 @@ type EditorStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
 const cleanId = (value: string): string => value.trim().replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
-const ACTIONS = new Set<EditorHotspotAction>(['examine', 'collect', 'use', 'event', 'cutscene', 'hideout']);
+const ACTIONS = new Set<EditorHotspotAction>(['examine', 'collect', 'use', 'event', 'cutscene', 'hideout', 'challenge', 'npc']);
 
 /**
  * Interagível de "Mudar de sala" dos projetos antigos. A ação deixou de existir: ao
@@ -34,9 +34,14 @@ interface LegacyMoveHotspot {
   indicator?: { x?: unknown; y?: unknown };
 }
 const VISIBILITIES = new Set<HotspotVisibility>(['visible', 'hidden', 'invisible']);
-const EFFECTS = new Set<ItemEffect>(['none', 'heal', 'hydrate', 'feed']);
+const EFFECTS = new Set<ItemEffect>(['none', 'heal', 'hydrate', 'feed', 'light']);
 const SOLUTIONS = new Set<EncounterAction>(['run', 'hide']);
 const CUTSCENE_MEDIA_TYPES = new Set<CutsceneMediaType>(['image', 'gif', 'video']);
+const CHALLENGE_KIND_IDS = new Set<ChallengeKind>(['wires']);
+const ATTACK_EFFECT_IDS = new Set<AttackEffectId>(['bleed', 'panic', 'drop']);
+const PERSONALITY_IDS = new Set<NpcPersonality>(['acolhedor', 'cordial', 'desconfiado', 'hostil']);
+const WIRE_OUTPUTS = new Set(['A', 'B', 'C', 'D', 'E', 'F']);
+const WIRE_CONNECTORS = new Set(['1', '2', '3', '4', '5', '6']);
 const ROOM_AUDIO_MODE_IDS = new Set<RoomAudioMode>(['once', 'loop', 'every-entry']);
 
 export const createId = (prefix: string): string => {
@@ -108,17 +113,30 @@ export const createProject = (): EditorProjectData => {
     levels: [{ id: levelId, name: 'Nível 0', startRoomId: DEFAULT_WORLD.startRoomId, escapeRoomId: DEFAULT_WORLD.escapeRoomId, rooms, connections }],
     items: structuredClone(DEFAULT_ITEMS),
     entities: structuredClone(DEFAULT_ENTITIES),
+    npcs: [],
   };
 };
 
+/** Quantos passos de desfazer o editor guarda, e o que conta como um passo só. */
+const HISTORY_LIMIT = 80;
+const HISTORY_GROUP_MS = 700;
+
 export class EditorProject {
   data: EditorProjectData;
+
+  private readonly undoStack: string[] = [];
+  private redoStack: string[] = [];
+  private lastSnapshot = '';
+  private lastHistoryAt = 0;
+  private restoring = false;
 
   constructor(
     private readonly storage: EditorStorage | null = typeof localStorage === 'undefined' ? null : localStorage,
     initial?: EditorProjectData,
   ) {
     this.data = initial ? this.validate(initial) : this.load();
+    // O estado de abertura é o fundo da pilha: o primeiro Ctrl+Z volta para cá.
+    this.lastSnapshot = this.snapshot();
   }
 
   get activeLevel(): EditorLevel {
@@ -279,7 +297,7 @@ export class EditorProject {
   findItem(id: string): EditorItem | undefined { return this.data.items.find((item) => item.id === id); }
 
   addItem(): EditorItem {
-    const item: EditorItem = { id: createId('item'), name: 'Novo item', icon: '◆', description: 'Descreva o item.', useText: 'O item foi usado.', effect: 'none', effectAmount: 0 };
+    const item: EditorItem = { id: createId('item'), name: 'Novo item', icon: '◆', description: 'Descreva o item.', useText: 'O item foi usado.', effect: 'none', effectAmount: 0, value: 1 };
     this.data.items.push(item);
     this.save();
     return item;
@@ -308,8 +326,181 @@ export class EditorProject {
     return true;
   }
 
+  // --- NPCs ---
+
+  findNpc(id: string): EditorNpc | undefined { return this.data.npcs.find((npc) => npc.id === id); }
+
+  addNpc(): EditorNpc {
+    const npc = createNpc(createId('npc'), createId('fala'));
+    this.data.npcs.push(npc);
+    this.save();
+    return npc;
+  }
+
+  deleteNpc(id: string): boolean {
+    if (!this.data.npcs.some((npc) => npc.id === id)) return false;
+    this.data.npcs = this.data.npcs.filter((npc) => npc.id !== id);
+    // Quem foi apagado não pode continuar plantado numa cena nem preso a um interagível.
+    this.data.levels.forEach((level) => level.rooms.forEach((room) => {
+      room.npcs = room.npcs?.filter((entry) => entry.npcId !== id);
+      room.hotspots.forEach((hotspot) => { if (hotspot.npcId === id) hotspot.npcId = undefined; });
+    }));
+    this.save();
+    return true;
+  }
+
+  addNpcLine(npcId: string): EditorNpcLine | null {
+    const npc = this.findNpc(npcId);
+    if (!npc) return null;
+    const line = createNpcLine(createId('fala'));
+    npc.lines.push(line);
+    this.save();
+    return line;
+  }
+
+  deleteNpcLine(npcId: string, lineId: string): boolean {
+    const npc = this.findNpc(npcId);
+    // A primeira fala é por onde a conversa começa: um NPC nunca fica sem nenhuma.
+    if (!npc || npc.lines.length <= 1) return false;
+    npc.lines = npc.lines.filter((line) => line.id !== lineId);
+    npc.lines.forEach((line) => line.answers.forEach((answer) => { if (answer.to === lineId) answer.to = ''; }));
+    this.save();
+    return true;
+  }
+
+  addNpcAnswer(npcId: string, lineId: string): EditorNpcAnswer | null {
+    const line = this.findNpc(npcId)?.lines.find((entry) => entry.id === lineId);
+    // Três respostas é o que cabe no balão sem ele virar um menu.
+    if (!line || line.answers.length >= 3) return null;
+    const answer = createNpcAnswer(createId('resposta'));
+    line.answers.push(answer);
+    this.save();
+    return answer;
+  }
+
+  deleteNpcAnswer(npcId: string, lineId: string, answerId: string): void {
+    const line = this.findNpc(npcId)?.lines.find((entry) => entry.id === lineId);
+    if (!line) return;
+    line.answers = line.answers.filter((answer) => answer.id !== answerId);
+    this.save();
+  }
+
+  /** Quantas unidades deste item o NPC carrega; zero tira o item da mochila dele. */
+  setNpcStock(npcId: string, itemId: string, quantity: number): void {
+    const npc = this.findNpc(npcId);
+    if (!npc) return;
+    const amount = Math.max(0, Math.min(99, Math.round(quantity)));
+    const entry = npc.stock.find((item) => item.id === itemId);
+    if (amount === 0) npc.stock = npc.stock.filter((item) => item.id !== itemId);
+    else if (entry) entry.quantity = amount;
+    else npc.stock.push({ id: itemId, quantity: amount });
+    this.save();
+  }
+
+  /** Planta um NPC na cena aberta. */
+  addRoomNpc(roomId: string, npcId: string): EditorRoomNpc | null {
+    const room = this.findRoom(roomId);
+    if (!room || !this.findNpc(npcId)) return null;
+    const entry = createRoomNpc(createId('npc-cena'), npcId);
+    room.npcs = [...(room.npcs ?? []), entry];
+    this.save();
+    return entry;
+  }
+
+  deleteRoomNpc(roomId: string, entryId: string): void {
+    const room = this.findRoom(roomId);
+    if (!room?.npcs) return;
+    room.npcs = room.npcs.filter((entry) => entry.id !== entryId);
+    this.save();
+  }
+
+  // --- ordem das listas ---
+
+  /**
+   * Arrastar qualquer uma das listas do projeto. A ordem é só a do painel: nada do
+   * mapa depende dela, porque tudo aponta para tudo por id. Mover é, mesmo, só mover.
+   */
+  private reorder<T extends { id: string }>(list: T[], id: string, targetId: string, before: boolean): boolean {
+    if (id === targetId) return false;
+    const from = list.findIndex((entry) => entry.id === id);
+    if (from < 0 || !list.some((entry) => entry.id === targetId)) return false;
+    const [moved] = list.splice(from, 1);
+    // O alvo pode ter andado uma casa para trás quando o item saiu da lista.
+    const at = list.findIndex((entry) => entry.id === targetId);
+    list.splice(before ? at : at + 1, 0, moved!);
+    this.save();
+    return true;
+  }
+
+  moveRoom(id: string, targetId: string, before: boolean): boolean { return this.reorder(this.activeLevel.rooms, id, targetId, before); }
+
+  moveItem(id: string, targetId: string, before: boolean): boolean { return this.reorder(this.data.items, id, targetId, before); }
+
+  moveEntity(id: string, targetId: string, before: boolean): boolean { return this.reorder(this.data.entities, id, targetId, before); }
+
+  moveNpc(id: string, targetId: string, before: boolean): boolean { return this.reorder(this.data.npcs, id, targetId, before); }
+
+  moveHotspot(roomId: string, id: string, targetId: string, before: boolean): boolean {
+    const room = this.findRoom(roomId);
+    return room ? this.reorder(room.hotspots, id, targetId, before) : false;
+  }
+
+  // --- desfazer e refazer ---
+
+  /**
+   * O projeto inteiro é um JSON só, então desfazer é guardar cópias dele. Gravações
+   * muito próximas no tempo contam como um passo: sem isso, digitar um nome deixava
+   * um passo de desfazer por letra, e voltar atrás de uma edição custava trinta Ctrl+Z.
+   */
+  private snapshot(): string { return JSON.stringify({ ...this.data, updatedAt: '' }); }
+
+  private pushHistory(): void {
+    if (this.restoring) return;
+    const now = Date.now();
+    const grouped = now - this.lastHistoryAt < HISTORY_GROUP_MS;
+    if (this.lastSnapshot && !grouped) {
+      this.undoStack.push(this.lastSnapshot);
+      if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
+      this.redoStack = [];
+    }
+    this.lastHistoryAt = now;
+    this.lastSnapshot = this.snapshot();
+  }
+
+  get canUndo(): boolean { return this.undoStack.length > 0; }
+
+  get canRedo(): boolean { return this.redoStack.length > 0; }
+
+  undo(): boolean {
+    const previous = this.undoStack.pop();
+    if (!previous) return false;
+    this.redoStack.push(this.lastSnapshot);
+    this.restoreSnapshot(previous);
+    return true;
+  }
+
+  redo(): boolean {
+    const next = this.redoStack.pop();
+    if (!next) return false;
+    this.undoStack.push(this.lastSnapshot);
+    this.restoreSnapshot(next);
+    return true;
+  }
+
+  private restoreSnapshot(json: string): void {
+    this.restoring = true;
+    try {
+      this.data = this.validate(JSON.parse(json) as unknown);
+      this.save();
+      this.lastSnapshot = this.snapshot();
+      this.lastHistoryAt = 0;
+    } catch { /* um passo ilegível simplesmente não volta */ }
+    this.restoring = false;
+  }
+
   save(): boolean {
     this.data.updatedAt = new Date().toISOString();
+    this.pushHistory();
     // A cópia local em disco acompanha o mapa; em produção isto não faz nada.
     syncToDisk('project', this.data);
     try { this.storage?.setItem(EDITOR_STORAGE_KEY, JSON.stringify(this.data)); return this.storage !== null; }
@@ -326,21 +517,16 @@ export class EditorProject {
   private load(): EditorProjectData {
     try {
       const raw = this.storage?.getItem(EDITOR_STORAGE_KEY);
-      return raw ? this.ensureBuiltInMap(this.validate(JSON.parse(raw) as unknown)) : createProject();
+      /*
+       * Um projeto gravado é devolvido como está. Aqui existia uma regra que, ao abrir,
+       * reinjetava o nível de fábrica sempre que ele não fosse encontrado inteiro — e
+       * apagar aquelas salas para montar a campanha de verdade virava impossível: elas
+       * voltavam na abertura seguinte, do editor ou do jogo (que também lê o projeto),
+       * com o "Nível 0" novo por cima e já ativo. O mapa de fábrica continua existindo
+       * onde faz sentido: em `createProject`, no projeto que ainda não existe.
+       */
+      return raw ? this.validate(JSON.parse(raw) as unknown) : createProject();
     } catch { return createProject(); }
-  }
-
-  private ensureBuiltInMap(data: EditorProjectData): EditorProjectData {
-    const builtInRoomIds = Object.keys(DEFAULT_WORLD.rooms);
-    if (data.levels.some((level) => builtInRoomIds.every((id) => level.rooms.some((room) => room.id === id)))) return data;
-    const builtIn = createProject().levels[0]!;
-    while (data.levels.some((level) => level.id === builtIn.id)) builtIn.id = createId('nivel-jogo');
-    builtIn.name = 'Nível 0 — jogo atual';
-    data.levels.unshift(builtIn);
-    data.activeLevelId = builtIn.id;
-    this.data = data;
-    this.save();
-    return data;
   }
 
   private validate(value: unknown): EditorProjectData {
@@ -355,13 +541,17 @@ export class EditorProject {
     const entities = Array.isArray(raw.entities) ? raw.entities.flatMap((entity, index) => this.validateEntity(entity, index)) : [];
     const finalEntities = entities.length > 0 ? entities : structuredClone(DEFAULT_ENTITIES);
     const eventIds = new Set<string>(['none', 'jumpscare', ...finalEntities.map((entity) => entity.id)]);
+    // Os NPCs são do projeto inteiro, como os itens: a mesma pessoa pode estar em
+    // duas salas de níveis diferentes sem ser escrita duas vezes.
+    const finalNpcs = Array.isArray(raw.npcs) ? raw.npcs.flatMap((npc, index) => this.validateNpc(npc, index, itemIds)) : [];
+    const npcIds = new Set(finalNpcs.map((npc) => npc.id));
 
     // Primeiro todas as salas de todos os níveis: um caminho pode levar a outro nível,
     // então as conexões só podem ser validadas depois que o projeto inteiro é conhecido.
     const drafts = raw.levels.map((level, levelIndex) => {
       const rawLevel = level as Partial<EditorLevel>;
       const rooms = Array.isArray(rawLevel.rooms) && rawLevel.rooms.length > 0
-        ? rawLevel.rooms.map((room, roomIndex) => this.validateRoom(room, roomIndex, itemIds, eventIds))
+        ? rawLevel.rooms.map((room, roomIndex) => this.validateRoom(room, roomIndex, itemIds, eventIds, npcIds))
         : [createRoom()];
       return {
         rawLevel,
@@ -414,7 +604,7 @@ export class EditorProject {
     });
     const requestedActiveLevelId = cleanId(String(raw.activeLevelId ?? ''));
     const activeLevelId = levels.some((level) => level.id === requestedActiveLevelId) ? requestedActiveLevelId : levels[0]!.id;
-    return { version: 1, name: String(raw.name ?? 'Mapa HYDRAPHOBIA'), activeLevelId, updatedAt: String(raw.updatedAt ?? ''), levels, items: finalItems, entities: finalEntities };
+    return { version: 1, name: String(raw.name ?? 'Mapa HYDRAPHOBIA'), activeLevelId, updatedAt: String(raw.updatedAt ?? ''), levels, items: finalItems, entities: finalEntities, npcs: finalNpcs };
   }
 
   /**
@@ -465,7 +655,7 @@ export class EditorProject {
     });
   }
 
-  private validateRoom(value: unknown, index: number, itemIds: Set<string>, eventIds: Set<string>): EditorRoom {
+  private validateRoom(value: unknown, index: number, itemIds: Set<string>, eventIds: Set<string>, npcIds: Set<string>): EditorRoom {
     const fallback = createRoom(index);
     if (!value || typeof value !== 'object') return fallback;
     const room = value as Partial<EditorRoom>;
@@ -476,12 +666,13 @@ export class EditorProject {
       name: String(room.name ?? fallback.name), code: String(room.code ?? fallback.code),
       description: String(room.description ?? fallback.description), image: String(room.image ?? fallback.image),
       position: { x: number(position.x, fallback.position.x), y: number(position.y, fallback.position.y) },
-      hotspots: Array.isArray(room.hotspots) ? room.hotspots.flatMap((hotspot, hotspotIndex) => this.validateHotspot(hotspot, hotspotIndex, itemIds, eventIds)) : [],
+      hotspots: Array.isArray(room.hotspots) ? room.hotspots.flatMap((hotspot, hotspotIndex) => this.validateHotspot(hotspot, hotspotIndex, itemIds, eventIds, npcIds)) : [],
       darknessLevel: typeof room.darknessLevel === 'number' && Number.isFinite(room.darknessLevel) ? Math.max(0, Math.min(1, room.darknessLevel)) : undefined,
       lights: Array.isArray(room.lights) ? room.lights.flatMap((light, lightIndex) => this.validateLight(light, lightIndex)) : undefined,
       audio: this.validateRoomAudio(room.audio),
       media: Array.isArray(room.media) ? room.media.flatMap((entry, mediaIndex) => this.validateRoomMedia(entry, mediaIndex)) : undefined,
       view: this.validateRoomView(room.view),
+      npcs: Array.isArray(room.npcs) ? room.npcs.flatMap((entry, npcIndex) => this.validateRoomNpc(entry, npcIndex, npcIds)) : undefined,
     };
   }
 
@@ -558,7 +749,7 @@ export class EditorProject {
     }];
   }
 
-  private validateHotspot(value: unknown, index: number, itemIds: Set<string>, eventIds: Set<string>): EditorHotspot[] {
+  private validateHotspot(value: unknown, index: number, itemIds: Set<string>, eventIds: Set<string>, npcIds: Set<string>): EditorHotspot[] {
     if (!value || typeof value !== 'object') return [];
     const hotspot = value as Partial<EditorHotspot>;
     // "Mudar de sala" virou conexão: migratedMoveConnections já cuidou deste aqui.
@@ -597,6 +788,8 @@ export class EditorProject {
       hideoutImage: typeof hotspot.hideoutImage === 'string' ? hotspot.hideoutImage : undefined,
       sound: typeof hotspot.sound === 'string' && hotspot.sound ? hotspot.sound : undefined,
       soundVolume: typeof hotspot.sound === 'string' && hotspot.sound ? number(hotspot.soundVolume, 1, 0, 1) : undefined,
+      challenge: action === 'challenge' ? this.validateChallenge(hotspot.challenge, itemIds) : undefined,
+      npcId: action === 'npc' && npcIds.has(String(hotspot.npcId)) ? String(hotspot.npcId) : undefined,
     }];
   }
 
@@ -614,9 +807,12 @@ export class EditorProject {
       description: String(item.description ?? 'Um objeto comum.'),
       useText: String(item.useText ?? 'O item foi usado.'),
       effect,
-      effectAmount: effect === 'none' ? 0 : number(item.effectAmount, 20, 1, 100),
+      effectAmount: effect === 'none' || effect === 'light' ? 0 : number(item.effectAmount, 20, 1, 100),
       // Um mapa salvo antes das artes existirem ganha a imagem padrão do item.
       image: typeof item.image === 'string' && item.image ? item.image : DEFAULT_ITEM_IMAGES[id],
+      // Um item sem valor escrito vale 1: nada no jogo é de graça, nem o que não serve.
+      value: Math.round(number(item.value, 1, 0, 999)),
+      batterySeconds: effect === 'light' ? number(item.batterySeconds, 240, 10, 7200) : undefined,
     }];
   }
 
@@ -642,12 +838,156 @@ export class EditorProject {
         : typeof (entity as { sceneImage?: unknown }).sceneImage === 'string' ? (entity as { sceneImage?: string }).sceneImage || undefined
         : undefined,
       jumpscareSeconds: typeof entity.jumpscareSeconds === 'number' && entity.jumpscareSeconds > 0 ? entity.jumpscareSeconds : undefined,
-      heartHoldSeconds: typeof entity.heartHoldSeconds === 'number' ? number(entity.heartHoldSeconds, 9, 2, 60) : undefined,
-      heartEscapeSeconds: typeof entity.heartEscapeSeconds === 'number' ? number(entity.heartEscapeSeconds, 13.4, 0.5, 20) : undefined,
+      heartHoldSeconds: typeof entity.heartHoldSeconds === 'number' ? number(entity.heartHoldSeconds, 17, 2, 120) : undefined,
+      heartEscapeSeconds: typeof entity.heartEscapeSeconds === 'number' ? number(entity.heartEscapeSeconds, 21.4, 0.5, 120) : undefined,
       heartPull: typeof entity.heartPull === 'number' ? number(entity.heartPull, 46, 8, 160) : undefined,
       heartJoltEvery: typeof entity.heartJoltEvery === 'number' ? number(entity.heartJoltEvery, 2.4, 0.5, 20) : undefined,
       // A entidade da cena é resolvida pelo id na hora do encontro; aqui basta guardá-lo.
       heartEntity: typeof entity.heartEntity === 'string' && entity.heartEntity ? entity.heartEntity : undefined,
+      attacks: Array.isArray(entity.attacks) ? entity.attacks.flatMap((attack, attackIndex) => this.validateAttack(attack, attackIndex)) : undefined,
+    }];
+  }
+
+  /** Um golpe da lista de uma entidade. Sem dano e sem efeito ele não é golpe nenhum. */
+  private validateAttack(value: unknown, index: number): AttackDefinition[] {
+    if (!value || typeof value !== 'object') return [];
+    const raw = value as Partial<AttackDefinition>;
+    const number = (candidate: unknown, fallback: number, min: number, max: number): number => typeof candidate === 'number' && Number.isFinite(candidate) ? Math.max(min, Math.min(max, candidate)) : fallback;
+    const effects = Array.isArray(raw.effects) ? raw.effects.filter((effect): effect is AttackEffectId => ATTACK_EFFECT_IDS.has(effect as AttackEffectId)) : [];
+    const damage = Math.round(number(raw.damage, 20, 0, 100));
+    if (damage === 0 && effects.length === 0) return [];
+    return [{
+      id: cleanId(String(raw.id ?? `golpe-${index + 1}`)) || createId('golpe'),
+      name: String(raw.name ?? 'Golpe').slice(0, 48),
+      damage,
+      effects: [...new Set(effects)],
+      bleedSeconds: effects.includes('bleed') ? number(raw.bleedSeconds, 25, 2, 600) : undefined,
+      weight: number(raw.weight, 1, 0.1, 20),
+    }];
+  }
+
+  /** O desafio preso a um interagível: a abertura, o painel e as duas consequências. */
+  private validateChallenge(value: unknown, itemIds: Set<string>): EditorChallenge {
+    const fallback = createChallenge();
+    if (!value || typeof value !== 'object') return fallback;
+    const raw = value as Partial<EditorChallenge>;
+    const number = (candidate: unknown, base: number, min: number, max: number): number => typeof candidate === 'number' && Number.isFinite(candidate) ? Math.max(min, Math.min(max, candidate)) : base;
+    const introPath = typeof raw.introPath === 'string' ? raw.introPath.trim() : '';
+    // Duas letras não saem para o mesmo número, e um número não recebe dois fios.
+    const pairs: Array<{ from: string; to: string }> = [];
+    (Array.isArray(raw.wirePairs) ? raw.wirePairs : []).forEach((entry) => {
+      if (!entry || typeof entry !== 'object') return;
+      const from = String((entry as { from?: unknown }).from ?? '').toUpperCase();
+      const to = String((entry as { to?: unknown }).to ?? '');
+      if (!WIRE_OUTPUTS.has(from) || !WIRE_CONNECTORS.has(to)) return;
+      if (pairs.some((pair) => pair.from === from || pair.to === to)) return;
+      pairs.push({ from, to });
+    });
+    return {
+      kind: CHALLENGE_KIND_IDS.has(raw.kind as ChallengeKind) ? raw.kind as ChallengeKind : 'wires',
+      introPath,
+      introMedia: CUTSCENE_MEDIA_TYPES.has(raw.introMedia as CutsceneMediaType) ? raw.introMedia as CutsceneMediaType : detectMediaType(introPath),
+      introSeconds: number(raw.introSeconds, 3.5, 0.2, 600),
+      wireCount: Math.round(number(raw.wireCount, 4, 3, 6)),
+      wirePairs: pairs,
+      shockDamage: Math.round(number(raw.shockDamage, 3, 0, 100)),
+      success: this.validateOutcome(raw.success, itemIds),
+      giveUp: this.validateOutcome(raw.giveUp, itemIds),
+    };
+  }
+
+  private validateOutcome(value: unknown, itemIds: Set<string>): EditorChallengeOutcome {
+    const fallback = createChallengeOutcome();
+    if (!value || typeof value !== 'object') return fallback;
+    const raw = value as Partial<EditorChallengeOutcome>;
+    const text = (candidate: unknown): string => typeof candidate === 'string' ? candidate : '';
+    const sound = text(raw.sound).trim();
+    return {
+      message: text(raw.message),
+      sound,
+      soundVolume: typeof raw.soundVolume === 'number' && Number.isFinite(raw.soundVolume) ? Math.max(0, Math.min(1, raw.soundVolume)) : 1,
+      image: text(raw.image).trim(),
+      imageSeconds: typeof raw.imageSeconds === 'number' && Number.isFinite(raw.imageSeconds) ? Math.max(0.2, Math.min(600, raw.imageSeconds)) : 3.5,
+      grantsFlag: text(raw.grantsFlag),
+      item: itemIds.has(String(raw.item)) ? String(raw.item) : undefined,
+    };
+  }
+
+  /** Onde um NPC está plantado em uma cena; sem NPC conhecido ele não fica em lugar nenhum. */
+  private validateRoomNpc(value: unknown, index: number, npcIds: Set<string>): EditorRoomNpc[] {
+    if (!value || typeof value !== 'object') return [];
+    const raw = value as Partial<EditorRoomNpc>;
+    const npcId = String(raw.npcId ?? '');
+    if (!npcIds.has(npcId)) return [];
+    const number = (candidate: unknown, fallback: number, min: number, max: number): number => typeof candidate === 'number' && Number.isFinite(candidate) ? Math.max(min, Math.min(max, candidate)) : fallback;
+    return [{
+      id: cleanId(String(raw.id ?? `npc-cena-${index + 1}`)) || createId('npc-cena'),
+      npcId,
+      x: number(raw.x, 50, -50, 150),
+      y: number(raw.y, 58, -50, 150),
+      height: number(raw.height, 42, 4, 200),
+      flip: raw.flip === true,
+      requiresFlag: typeof raw.requiresFlag === 'string' ? raw.requiresFlag : '',
+    }];
+  }
+
+  private validateNpc(value: unknown, index: number, itemIds: Set<string>): EditorNpc[] {
+    if (!value || typeof value !== 'object') return [];
+    const raw = value as Partial<EditorNpc>;
+    const id = cleanId(String(raw.id ?? `npc-${index + 1}`));
+    if (!ID_PATTERN.test(id)) return [];
+    const number = (candidate: unknown, fallback: number, min: number, max: number): number => typeof candidate === 'number' && Number.isFinite(candidate) ? Math.max(min, Math.min(max, candidate)) : fallback;
+    const lines = Array.isArray(raw.lines) ? raw.lines.flatMap((line, lineIndex) => this.validateNpcLine(line, lineIndex, itemIds)) : [];
+    const lineIds = new Set(lines.map((line) => line.id));
+    // Uma resposta que apontava para uma fala apagada encerra a conversa em vez de
+    // mandar o jogador para o nada.
+    lines.forEach((line) => line.answers.forEach((answer) => { if (answer.to && !lineIds.has(answer.to)) answer.to = ''; }));
+    return [{
+      id,
+      name: String(raw.name ?? 'Alguém').slice(0, 64),
+      title: String(raw.title ?? '').slice(0, 64),
+      art: typeof raw.art === 'string' ? raw.art.trim() : '',
+      personality: PERSONALITY_IDS.has(raw.personality as NpcPersonality) ? raw.personality as NpcPersonality : 'cordial',
+      reputation: Math.round(number(raw.reputation, 55, 0, 100)),
+      trades: raw.trades !== false,
+      stock: Array.isArray(raw.stock) ? raw.stock.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object') return [];
+        const itemId = String((entry as { id?: unknown }).id ?? '');
+        if (!itemIds.has(itemId)) return [];
+        return [{ id: itemId, quantity: Math.round(number((entry as { quantity?: unknown }).quantity, 1, 1, 99)) }];
+      }) : [],
+      lines: lines.length > 0 ? lines : [createNpcLine(createId('fala'))],
+      voice: typeof raw.voice === 'string' ? raw.voice.trim() : '',
+    }];
+  }
+
+  private validateNpcLine(value: unknown, index: number, itemIds: Set<string>): EditorNpcLine[] {
+    if (!value || typeof value !== 'object') return [];
+    const raw = value as Partial<EditorNpcLine>;
+    const id = cleanId(String(raw.id ?? `fala-${index + 1}`)) || createId('fala');
+    return [{
+      id,
+      text: String(raw.text ?? '').slice(0, 1200),
+      answers: Array.isArray(raw.answers) ? raw.answers.flatMap((answer, answerIndex) => this.validateNpcAnswer(answer, answerIndex, itemIds)) : [],
+    }];
+  }
+
+  private validateNpcAnswer(value: unknown, index: number, itemIds: Set<string>): EditorNpcAnswer[] {
+    if (!value || typeof value !== 'object') return [];
+    const raw = value as Partial<EditorNpcAnswer>;
+    const number = (candidate: unknown, fallback: number, min: number, max: number): number => typeof candidate === 'number' && Number.isFinite(candidate) ? Math.max(min, Math.min(max, candidate)) : fallback;
+    const item = (candidate: unknown): string | undefined => itemIds.has(String(candidate)) ? String(candidate) : undefined;
+    return [{
+      id: cleanId(String(raw.id ?? `resposta-${index + 1}`)) || createId('resposta'),
+      text: String(raw.text ?? 'Nova resposta').slice(0, 240),
+      to: typeof raw.to === 'string' ? cleanId(raw.to) : '',
+      opensTrade: raw.opensTrade === true,
+      requiresItem: item(raw.requiresItem),
+      givesItem: item(raw.givesItem),
+      takesItem: item(raw.takesItem),
+      grantsFlag: typeof raw.grantsFlag === 'string' ? raw.grantsFlag : '',
+      requiresFlag: typeof raw.requiresFlag === 'string' ? raw.requiresFlag : '',
+      reputation: Math.round(number(raw.reputation, 0, -50, 50)),
     }];
   }
 }
