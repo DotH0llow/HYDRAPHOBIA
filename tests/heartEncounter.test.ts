@@ -158,14 +158,30 @@ describe('o tranco', () => {
 });
 
 describe('as barras do encontro', () => {
-  it('voltar para dentro recupera parte do que escapou', () => {
-    // Sem trancos: o que este teste olha é a recuperação, e um tranco no meio do
-    // caminho joga o coração para longe de novo e esconde o que se queria medir.
+  it('a barra vermelha enche também com o coração guardado no tórax', () => {
+    // Sem trancos: um tranco no meio do caminho joga o coração para longe e esconde
+    // o que este teste quer medir — a barra correndo com o coração dentro da caixa.
     const config: HeartConfig = { ...DEFAULT_HEART_CONFIG, holdSeconds: 30, escapeSeconds: 20, joltEvery: 20 };
-    const solto = run(calm(CAGE.x, CAGE.y), config, 1.5, () => null);
-    expect(solto.state.escaped).toBeGreaterThan(0);
-    const recuperado = run({ ...solto.state, joltIn: 99 }, config, 8, () => ({ x: CAGE.x, y: CAGE.y }));
-    expect(recuperado.state.escaped).toBeLessThan(solto.state.escaped);
+    const dentro = run(calm(CAGE.x, CAGE.y), config, 2, () => ({ x: CAGE.x, y: CAGE.y }));
+    expect(heartInsideCage(dentro.state.x, dentro.state.y)).toBe(true);
+    expect(dentro.state.escaped).toBeCloseTo(2, 1);
+    // E ela nunca volta atrás: segurar o coração enche a outra barra, não esta.
+    const mais = run({ ...dentro.state, joltIn: 99 }, config, 3, () => ({ x: CAGE.x, y: CAGE.y }));
+    expect(mais.state.escaped).toBeGreaterThan(dentro.state.escaped);
+  });
+
+  it('fora do tórax a calma escorre devagar, e nunca abaixo de zero', () => {
+    const config: HeartConfig = { ...DEFAULT_HEART_CONFIG, holdSeconds: 30, escapeSeconds: 99, joltEvery: 20 };
+    // Quatro segundos dentro da caixa enchem quatro segundos de calma.
+    const guardado = run(calm(CAGE.x, CAGE.y), config, 4, () => ({ x: CAGE.x, y: CAGE.y }));
+    expect(guardado.state.held).toBeCloseTo(4, 1);
+    // Soltando, ela cai — e cai muito mais devagar do que subiu.
+    const solto = run({ ...guardado.state, joltIn: 99, x: 90, y: 90, vx: 0, vy: 0 }, config, 4, () => null);
+    expect(solto.state.held).toBeLessThan(guardado.state.held);
+    expect(solto.state.held).toBeGreaterThan(guardado.state.held - 4 * 0.5);
+    // Largado o encontro inteiro, a calma para no zero em vez de virar negativa.
+    const zerado = run({ ...solto.state, joltIn: 99, x: 90, y: 90, vx: 0, vy: 0 }, config, 60, () => null);
+    expect(zerado.state.held).toBe(0);
   });
 
   it('as duas medidas ficam entre 0 e 1', () => {

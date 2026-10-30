@@ -54,6 +54,13 @@ export const JOLT_SECONDS = 0.42;
 /** Até onde, em raios da caixa, a resistência ainda é sentida. */
 const RESIST_REACH = 2.4;
 
+/**
+ * Quanto da calma já conquistada escorre a cada segundo fora do tórax. É pouco de
+ * propósito: perder o coração não devolve o jogador ao começo, só o faz recuar — e o
+ * que cobra o tempo dele é a barra vermelha, que não para mais.
+ */
+const HOLD_DECAY = 0.18;
+
 export interface HeartConfig {
   /** Segundos dentro da caixa que encerram o encontro. */
   holdSeconds: number;
@@ -293,13 +300,13 @@ const advanceHeart = (
 
   next.elapsed += step;
   next.grace = Math.max(0, next.grace - step);
-  if (heartInsideCage(next.x, next.y)) {
-    next.held += step;
-    // Voltar para dentro recupera o fôlego, mas mais devagar do que se perde.
-    next.escaped = Math.max(0, next.escaped - step * 0.6);
-  } else if (next.grace === 0) {
-    next.escaped += step;
-  }
+  // A barra vermelha não para nunca: passado o perdão inicial, o medo escapa também
+  // com o coração guardado no tórax. Ela é o prazo do encontro, e segurar o coração
+  // não compra tempo — só enche a outra barra antes de este prazo acabar.
+  if (next.grace === 0) next.escaped += step;
+  if (heartInsideCage(next.x, next.y)) next.held += step;
+  // Fora do tórax a calma escorre devagar, e nunca abaixo de zero.
+  else next.held = Math.max(0, next.held - step * HOLD_DECAY);
 
   const outcome: HeartOutcome = next.escaped >= config.escapeSeconds
     ? 'escaped'

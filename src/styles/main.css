@@ -394,7 +394,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 /* A arte do item cabe no quadro, como no item selecionado: sem isto ela entrava no
    tamanho original de 640 px e o `overflow` do quadro mostrava só um canto preto dela. */
 .item-slot > span img { display: block; width: 100%; height: 100%; object-fit: contain; }
-.item-slot > b { display: block; align-self: end; color: #a7a796; font-size: .62rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* O nome do item é a única palavra da caixa: em cinza ele desaparecia sobre a arte. */
+.item-slot > b { display: block; align-self: end; color: var(--acid); font-size: .62rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 4px #000; }
 .item-slot > em { position: absolute; right: .35rem; top: .35rem; color: #0a0c08; background: var(--acid); padding: .12rem .28rem; font: normal .6rem "Courier New", monospace; }
 .item-slot.empty { cursor: default; background: #080a0880; }
 .item-slot.empty small { color: #34362f; }
@@ -584,7 +585,15 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
  * O coração é o ponteiro do jogador: o cursor do sistema sai de cena, senão haveria
  * duas coisas sendo movidas pela mesma mão.
  */
-.heart-layer { position: absolute; z-index: 40; inset: 0; overflow: hidden; background: #020302; animation: heart-enter .7s ease both; user-select: none; touch-action: none; cursor: none; }
+.heart-layer { position: absolute; z-index: 40; inset: 0; overflow: hidden; background: #020302; user-select: none; touch-action: none; cursor: none; }
+/*
+ * A entrada do encontro é um véu preto que se abre — e não a camada inteira surgindo
+ * de transparente, como era. Com a camada em `fade`, qualquer redesenho da tela a
+ * recriava e por um instante o mapa e a interface do jogo apareciam por baixo do
+ * encontro; o jogador lia isso como o tremor abrindo buracos na cena. Agora o que
+ * escurece e clareia fica *dentro* da camada, e nada do que está atrás dela se vê.
+ */
+.heart-layer::after { content: ''; position: absolute; z-index: 50; inset: 0; background: #020302; pointer-events: none; animation: heart-enter .7s ease forwards; }
 /* No encontro o coração é o ponteiro: a seta some, e some por cima da regra geral. */
 #app .heart-layer, #app .heart-layer * { cursor: none; }
 /*
@@ -691,7 +700,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
    Pouco mesmo: a conta é em por cento da própria figura, e ela agora é enorme — o
    -.7% de antes dava dez pixels de sobe-e-desce, um boneco balançando. */
 @keyframes heart-witness { 50% { transform: translate(-23.5%, -.22%) scale(1.003); } }
-@keyframes heart-enter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes heart-enter { from { opacity: 1; } to { opacity: 0; } }
 @keyframes heart-beat { 0%, 100% { transform: scale(1); } 12% { transform: scale(1.14); } 24% { transform: scale(1); } 36% { transform: scale(1.07); } }
 @keyframes heart-breath { 50% { transform: translateX(-50%) scale(1.015); } }
 @keyframes heart-call { 0% { opacity: 0; } 14%, 70% { opacity: 1; } 100% { opacity: 0; } }
@@ -938,6 +947,16 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .on-black .option-grid.illustrated .option-card > b { color: var(--acid); font-size: clamp(1.05rem, 1.8vw, 1.5rem); font-weight: 500; letter-spacing: .01em; text-shadow: 0 2px 10px #000c; }
 .on-black .option-grid.illustrated .option-card.selected > b { text-shadow: 0 0 18px #d7df7766, 0 2px 10px #000c; }
 .on-black .option-grid.illustrated .option-card > small { color: #9a9a8c; font-size: .66rem; text-shadow: 0 2px 8px #000d; }
+/*
+ * A arte do Adolescente nasce com a fumaça bem mais clara que a das outras três — a
+ * média de luz dela é meio mais alta —, e no meio das quatro colunas ela saltava como
+ * se estivesse acesa. Um véu preto só sobre essa coluna iguala as quatro. Ele vem como
+ * camada, e não como `filter` na arte, porque a arte troca de brilho em três estados
+ * (parada, sob o mouse, escolhida) e o véu precisa valer nos três.
+ */
+.on-black .create-step-class .option-grid.illustrated .option-card[data-value="adolescente"]::before {
+  content: ''; position: absolute; z-index: 1; inset: 0; background: #00000054; pointer-events: none;
+}
 
 /*
  * Etapa do nome: a arte da classe escolhida é o cenário. Ela ocupa a tela inteira,

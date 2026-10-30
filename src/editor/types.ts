@@ -57,6 +57,13 @@ export interface EditorHotspot {
   cutsceneHoldSeconds: number;
   cutsceneRepeatCount: number;
   hideoutImage?: string;
+  /**
+   * Som que o interagível toca ao ser clicado. Vazio é o silêncio — o jogo não tem
+   * mais um som de clique próprio, e quem escolhe o que se ouve aqui é o nível.
+   */
+  sound?: string;
+  /** Ganho desse som, de 0 a 1. */
+  soundVolume?: number;
 }
 
 export interface EditorLight {

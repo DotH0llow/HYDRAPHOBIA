@@ -107,6 +107,8 @@ export class EditorApp {
   private clipboardNote = '';
   /** Arquivos de áudio encontrados em `public/assets/audio`, para a trilha das salas. */
   private audioFiles: string[] = [];
+  /** Nível que está na mão agora, enquanto a lista é reordenada por arrasto. */
+  private levelDragId: string | null = null;
   /**
    * As imagens do palco já decodificadas, por caminho de arquivo. `render()` reescreve a
    * cena inteira com `innerHTML`, e isso jogava fora o `<img>` do GIF a cada edição: o
@@ -235,10 +237,11 @@ export class EditorApp {
     const active = this.project.activeLevel;
     return `<aside class="editor-sidebar editor-left">
       <section><div class="panel-title"><span>Níveis</span><b>${this.project.data.levels.length}</b></div>
-        <div class="level-list">${this.project.data.levels.map((level) => `<div class="level-row ${level.id === active.id ? 'active' : ''}">
+        <div class="level-list">${this.project.data.levels.map((level) => `<div class="level-row ${level.id === active.id ? 'active' : ''}" draggable="true" data-level-row="${esc(level.id)}">
           <button data-action="select-level" data-level="${esc(level.id)}"><i></i><span>${esc(level.name)}</span><small>${level.rooms.length} ${level.rooms.length === 1 ? 'sala' : 'salas'}</small></button>
           <button class="level-rename" data-action="rename-level" data-level="${esc(level.id)}" title="Renomear nível" aria-label="Renomear ${esc(level.name)}">&#9998;</button>
         </div>`).join('')}</div>
+        ${this.project.data.levels.length > 1 ? '<p class="panel-hint">Arraste um nível pela linha dele para mudar a ordem da lista.</p>' : ''}
         <div class="level-tools">
           <label><span>Nome do nível aberto</span><input data-level-field="name" data-level="${esc(active.id)}" value="${esc(active.name)}" maxlength="64" /></label>
           <div class="level-tool-row">
@@ -617,6 +620,7 @@ export class EditorApp {
       ${hotspot.action === 'hideout' ? this.hideoutFieldsTemplate(hotspot) : ''}
       <div class="field-row"><label><span>Cor do highlight</span><input type="color" data-hotspot-field="highlightColor" value="${esc(hotspot.highlightColor)}" /></label><label><span>Opacidade</span><input type="range" min="0.05" max="0.65" step="0.05" data-hotspot-field="highlightOpacity" value="${hotspot.highlightOpacity}" /></label></div>
       <label class="check"><input type="checkbox" data-hotspot-field="once" ${hotspot.once ? 'checked' : ''} /><span>Executar apenas uma vez</span></label>
+      ${this.hotspotSoundTemplate(hotspot)}
       <section class="property-section">
         <div class="panel-title"><span>Visibilidade</span></div>
         <label><span>Estado inicial</span><select data-hotspot-field="visibility"><option value="visible" ${hotspot.visibility === 'visible' ? 'selected' : ''}>Visível</option><option value="hidden" ${hotspot.visibility === 'hidden' ? 'selected' : ''}>Escondido (revela com o tempo)</option><option value="invisible" ${hotspot.visibility === 'invisible' ? 'selected' : ''}>Invisível (revela ao clicar)</option></select></label>
@@ -637,6 +641,24 @@ export class EditorApp {
       </section>
       <div class="coordinate-readout"><span>X <b>${hotspot.x.toFixed(1)}%</b></span><span>Y <b>${hotspot.y.toFixed(1)}%</b></span><span>L <b>${hotspot.width.toFixed(1)}%</b></span><span>A <b>${hotspot.height.toFixed(1)}%</b></span></div>
       <p class="panel-hint">Arraste a área para mover. Use o quadrado no canto inferior direito para redimensionar.</p>`;
+  }
+
+  /**
+   * O som do clique no interagível. O jogo não tem mais um som próprio para isso: o
+   * que soa é o arquivo escolhido aqui, e em branco não soa nada. A lista de arquivos
+   * é a mesma do áudio da sala — o manifesto de `public/assets/audio`.
+   */
+  private hotspotSoundTemplate(hotspot: EditorHotspot): string {
+    const path = hotspot.sound ?? '';
+    return `<section class="property-section">
+      <div class="panel-title"><span>Som ao interagir</span></div>
+      <label><span>Arquivo</span><input data-hotspot-field="sound" list="hotspot-sound-files" value="${esc(path)}" placeholder="/assets/audio/FX/..." /></label>
+      <datalist id="hotspot-sound-files">${this.audioFiles.map((file) => `<option value="${esc(file)}"></option>`).join('')}</datalist>
+      ${path
+        ? `<label><span>Volume</span><div class="slider-row"><input type="range" min="0" max="1" step="0.05" data-hotspot-field="soundVolume" value="${hotspot.soundVolume ?? 1}" /><b data-role="hotspot-sound-volume">${Math.round((hotspot.soundVolume ?? 1) * 100)}%</b></div></label>
+           <button class="wide-button danger" data-action="clear-hotspot-sound">Remover o som</button>`
+        : `<p class="panel-hint">${this.audioFiles.length ? `${this.audioFiles.length} arquivos encontrados em public/assets/audio — comece a digitar para filtrar.` : 'Rode <code>npm run audio:manifest</code> para listar os arquivos de public/assets/audio aqui.'} Em branco, clicar neste interagível não faz som nenhum.`}
+    </section>`;
   }
 
   private hideoutFieldsTemplate(hotspot: EditorHotspot): string {
@@ -865,7 +887,17 @@ export class EditorApp {
         const readout = this.root.querySelector<HTMLElement>('[data-role="room-audio-volume"]');
         if (readout) readout.textContent = `${Math.round(Number(input.value) * 100)}%`;
       }
+      else if (input.dataset?.hotspotField === 'soundVolume') {
+        const readout = this.root.querySelector<HTMLElement>('[data-role="hotspot-sound-volume"]');
+        if (readout) readout.textContent = `${Math.round(Number(input.value) * 100)}%`;
+      }
     });
+    // Arrasto nativo, usado só pela lista de níveis: é o que o navegador já sabe fazer
+    // com uma lista, e não concorre com o arrasto do palco (que é por `pointer`).
+    this.root.addEventListener('dragstart', (event) => this.handleLevelDragStart(event));
+    this.root.addEventListener('dragover', (event) => this.handleLevelDragOver(event));
+    this.root.addEventListener('drop', (event) => this.handleLevelDrop(event));
+    this.root.addEventListener('dragend', () => this.clearLevelDragMarks());
     this.root.addEventListener('pointerdown', (event) => this.handlePointerDown(event));
     this.root.addEventListener('wheel', (event) => this.handleWheel(event), { passive: false });
     window.addEventListener('pointermove', (event) => this.handlePointerMove(event));
@@ -1120,6 +1152,11 @@ export class EditorApp {
         return;
       }
       case 'clear-room-audio': { const room = this.selectedRoom; if (room) { room.audio = undefined; this.project.save(); } break; }
+      case 'clear-hotspot-sound': {
+        const hotspot = this.selectedRoom?.hotspots.find((entry) => entry.id === this.selectedHotspotId);
+        if (hotspot) { hotspot.sound = undefined; hotspot.soundVolume = undefined; this.project.save(); }
+        break;
+      }
       case 'duplicate-room': { const room = this.project.duplicateRoom(this.selectedRoomId); if (room) this.selectedRoomId = room.id; break; }
       case 'delete-room': {
         const room = this.selectedRoom;
@@ -1409,6 +1446,13 @@ export class EditorApp {
       else if (hotspotField === 'event') hotspot.event = input.value as EditorHotspot['event'];
       else if (hotspotField === 'cutscenePath') { hotspot.cutscenePath = input.value; hotspot.cutsceneMedia = detectMediaType(input.value); }
       else if (hotspotField === 'hideoutImage') hotspot.hideoutImage = input.value || undefined;
+      else if (hotspotField === 'sound') {
+        const path = input.value.trim();
+        hotspot.sound = path || undefined;
+        // Sem arquivo não há volume a guardar; com um arquivo novo, ele começa cheio.
+        hotspot.soundVolume = path ? hotspot.soundVolume ?? 1 : undefined;
+      }
+      else if (hotspotField === 'soundVolume') hotspot.soundVolume = clamp(Number(input.value), 0, 1);
       else if (hotspotField === 'label' || hotspotField === 'message' || hotspotField === 'highlightColor') hotspot[hotspotField] = input.value;
       this.project.save(); this.render();
     }
@@ -1565,6 +1609,58 @@ export class EditorApp {
     else if (field === 'aperture') readout.textContent = `${Math.round(light.aperture)}°`;
     else if (field === 'intensity') readout.textContent = `${Math.round(light.intensity * 100)}%`;
     else if (field === 'flicker') readout.textContent = `${Math.round(light.flicker * 100)}%`;
+  }
+
+  /**
+   * Arrasto da lista de níveis. O que se arrasta é a linha inteira, e o que decide o
+   * lugar é a metade da linha de destino em que o ponteiro está: na de cima, o nível
+   * entra antes dela; na de baixo, depois. Enquanto o arrasto corre, a linha de
+   * destino mostra onde o nível vai cair — sem isso o editor solta o nível no escuro.
+   */
+  private handleLevelDragStart(event: DragEvent): void {
+    const row = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-level-row]');
+    if (!row) return;
+    this.levelDragId = row.dataset.levelRow ?? null;
+    row.classList.add('dragging');
+    // Sem um dado no `dataTransfer` o Firefox simplesmente não começa o arrasto.
+    event.dataTransfer?.setData('text/plain', this.levelDragId ?? '');
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+
+  /** Onde o nível arrastado cairia se fosse solto agora. */
+  private levelDropTarget(event: DragEvent): { row: HTMLElement; before: boolean } | null {
+    if (!this.levelDragId) return null;
+    const row = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-level-row]');
+    if (!row || row.dataset.levelRow === this.levelDragId) return null;
+    const box = row.getBoundingClientRect();
+    return { row, before: event.clientY < box.top + box.height / 2 };
+  }
+
+  private handleLevelDragOver(event: DragEvent): void {
+    const drop = this.levelDropTarget(event);
+    if (!drop) return;
+    // Só aceitando o arrasto o navegador deixa o `drop` acontecer.
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    this.clearLevelDragMarks(false);
+    drop.row.dataset.levelDrop = drop.before ? 'before' : 'after';
+  }
+
+  private handleLevelDrop(event: DragEvent): void {
+    const drop = this.levelDropTarget(event);
+    const dragged = this.levelDragId;
+    if (!drop || !dragged) return;
+    event.preventDefault();
+    this.levelDragId = null;
+    if (this.project.moveLevel(dragged, drop.row.dataset.levelRow!, drop.before)) this.render();
+    else this.clearLevelDragMarks();
+  }
+
+  /** Apaga as marcas do arrasto; `full` também esquece o nível que estava na mão. */
+  private clearLevelDragMarks(full = true): void {
+    if (full) this.levelDragId = null;
+    this.root.querySelectorAll<HTMLElement>('[data-level-drop]').forEach((row) => { delete row.dataset.levelDrop; });
+    if (full) this.root.querySelectorAll<HTMLElement>('[data-level-row].dragging').forEach((row) => row.classList.remove('dragging'));
   }
 
   private handlePointerDown(event: PointerEvent): void {
@@ -1972,7 +2068,8 @@ export class EditorApp {
     switch (action) {
       case 'exit': this.testMode = false; this.testGame = null; this.testInventoryOpen = false; this.audio.stopAll(); this.render(); return;
       case 'move': { const result = game.navigate(data.direction ?? ''); this.audio.play(result.changed ? 'step' : 'locked'); if (result.changed) this.syncTestRoomAudio(); break; }
-      case 'hotspot': { const previous = game.position; const result = game.interact(data.hotspot ?? ''); this.audio.play(result.pickup ? 'pickup' : result.changed ? 'use' : 'click'); if (game.position !== previous) this.syncTestRoomAudio(); break; }
+      // Como no jogo: o som é o que o editor prendeu ao interagível, ou nenhum.
+      case 'hotspot': { const previous = game.position; const clicked = game.room.hotspots.find((entry) => entry.id === data.hotspot); game.interact(data.hotspot ?? ''); if (clicked?.sound) void this.audio.playEffectFile(clicked.sound, clicked.soundVolume ?? 1); if (game.position !== previous) this.syncTestRoomAudio(); break; }
       case 'inventory': this.testInventoryOpen = !this.testInventoryOpen; this.audio.play('click'); break;
       case 'use-item': game.useItem(data.item as ItemId); this.audio.play('use'); this.testInventoryOpen = false; break;
       case 'encounter': { const result = game.respondToEncounter(data.choice as EncounterAction); this.audio.play(result.attack ? 'jumpscare' : 'step'); break; }

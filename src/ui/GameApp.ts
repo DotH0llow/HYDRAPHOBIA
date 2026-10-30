@@ -58,6 +58,13 @@ const emptyDraft = (): CharacterDraft => ({ name: '', gender: null, classId: nul
 /** Quanto tempo a caixa do inventário fica à vista depois de uma interação. */
 const INVENTORY_HINT_MS = 4000;
 
+/**
+ * O quanto do movimento do mouse chega à mira do coração. Abaixo de 1 de propósito: na
+ * mão o encontro ficava nervoso demais — o menor tremor da mão atravessava a cena, e
+ * mirar na boca do tórax virava sorte. Mais lento, o jogador sente o peso da coisa.
+ */
+const HEART_POINTER_SPEED = 0.75;
+
 const DANGER_CUES: Record<number, Cue[]> = {
   1: ['discomfort'],
   2: ['suspicion-step', 'suspicion-scratch'],
@@ -230,6 +237,16 @@ export class GameApp {
     // configurações já carrega o próprio valor, e redesenhar o painel a cada mudança
     // arrancava o slider da mão do jogador e jogava a rolagem de volta ao topo.
     if (this.screen !== 'game' || !this.game) return `${this.screen}:${this.inventoryOpen}:${this.focusedItem ?? ''}${dialog}`;
+    /*
+     * No encontro do coração a tela de trás não se vê: a camada do encontro cobre a
+     * sala e a interface inteiras. Então ela fica fora da chave, e o encontro não é
+     * redesenhado por nada que aconteça atrás dele — uma legenda nova, um degrau de
+     * ansiedade, a dica do inventário. Antes era: a cada uma dessas, o `innerHTML`
+     * era refeito, a camada do encontro nascia de novo e entrava em `fade`, e durante
+     * esse instante o mapa e a interface apareciam por baixo dela. Parecia o tremor
+     * abrindo buracos na cena; era a tela sendo refeita no meio do encontro.
+     */
+    if (this.game.encounter?.kind === 'heart') return `heart:${this.game.encounter.id}:${this.game.status}:${this.immersive}${dialog}`;
     return JSON.stringify({
       screen: this.screen,
       room: this.game.position,
@@ -1286,9 +1303,14 @@ export class GameApp {
   private interact(id: HotspotId): void {
     if (!this.game) return;
     const previousRoom = this.game.position;
-    const result = this.game.interact(id);
+    // O som do interagível é o que o editor prendeu a ele, lido antes da interação:
+    // depois dela a sala pode ter mudado e o objeto não estar mais à mão. Interagível
+    // sem som escolhido não faz som nenhum — o clique do jogo não existe mais, porque
+    // ele soava igual em cima de tudo e tirava de cada objeto o som que era dele.
+    const clicked = this.game.room.hotspots.find((hotspot) => hotspot.id === id);
+    this.game.interact(id);
     this.showInventoryHint();
-    this.audio.play(result.pickup ? 'pickup' : result.changed ? 'use' : 'click');
+    if (clicked?.sound) void this.audio.playEffectFile(clicked.sound, clicked.soundVolume ?? 1);
     if (this.game.status === 'hidden' && this.game.pursued) this.audio.playSample(FX_PANIC_ATTACK);
     if (this.game.position !== previousRoom) this.onRoomEntered();
     this.persist();
@@ -1562,8 +1584,8 @@ export class GameApp {
     if (document.pointerLockElement === layer) {
       // Preso, o navegador entrega o deslocamento puro, e é só isso que existe: não há
       // mais um lugar na tela de onde medir, e também não há de onde o mouse fugir.
-      const dx = (event.movementX / rect.width) * 100;
-      const dy = (event.movementY / rect.height) * 100;
+      const dx = (event.movementX / rect.width) * 100 * HEART_POINTER_SPEED;
+      const dy = (event.movementY / rect.height) * 100 * HEART_POINTER_SPEED;
       // A mira não sai da cena: longe demais, voltar custaria um tempo que não existe.
       this.heartAim = {
         x: Math.max(0, Math.min(100, this.heartAim.x + dx)),

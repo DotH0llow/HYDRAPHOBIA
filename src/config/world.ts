@@ -39,6 +39,13 @@ export interface HotspotDefinition {
   cutsceneHoldSeconds?: number;
   cutsceneRepeatCount?: number;
   hideoutImage?: string;
+  /**
+   * Arquivo que soa quando o jogador clica neste interagível, escolhido no editor.
+   * Ausente é o silêncio: não existe mais som padrão de clique.
+   */
+  sound?: string;
+  /** Ganho do som do interagível (0 a 1); ausente é cheio. */
+  soundVolume?: number;
 }
 
 export interface RoomLight {

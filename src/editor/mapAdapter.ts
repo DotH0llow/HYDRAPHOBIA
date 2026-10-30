@@ -26,6 +26,9 @@ const hotspotToRuntime = (hotspot: EditorHotspot): HotspotDefinition => ({
   cutsceneHoldSeconds: hotspot.cutsceneHoldSeconds,
   cutsceneRepeatCount: hotspot.cutsceneRepeatCount,
   hideoutImage: hotspot.hideoutImage,
+  // Som sem arquivo é silêncio: o jogo não põe nada no lugar.
+  sound: hotspot.sound || undefined,
+  soundVolume: hotspot.soundVolume,
 });
 
 const roomToRuntime = (room: EditorLevel['rooms'][number]): RoomDefinition => ({

@@ -336,6 +336,17 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 /* --- níveis: renomear, criar e excluir --- */
 .level-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .25rem; }
 .level-row.active > button:first-child { border-color: #44483c; background: #1a1e17; }
+/*
+ * Arrasto da lista de níveis: a linha na mão se apaga e a de destino ganha um traço
+ * no lado em que o nível vai cair. O traço é a única resposta que o arrasto dá, então
+ * ele precisa estar do lado certo — em cima para "antes", embaixo para "depois".
+ */
+.level-row[draggable="true"] { cursor: grab; }
+.level-row.dragging { opacity: .45; cursor: grabbing; }
+.level-row[data-level-drop] { position: relative; }
+.level-row[data-level-drop]::after { content: ''; position: absolute; left: 0; right: 0; height: 2px; background: var(--acid); box-shadow: 0 0 8px #d7df7788; pointer-events: none; }
+.level-row[data-level-drop="before"]::after { top: -2px; }
+.level-row[data-level-drop="after"]::after { bottom: -2px; }
 .level-rename { width: 30px; min-height: 30px; padding: 0; border: 1px solid #3a3e33; background: #121510; color: #9a9d88; cursor: pointer; }
 .level-rename:hover { color: #000; border-color: var(--acid); background: var(--acid); }
 .level-tools { display: grid; gap: .45rem; margin-top: .6rem; padding-top: .6rem; border-top: 1px solid #2d3127; }

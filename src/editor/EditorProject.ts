@@ -166,6 +166,24 @@ export class EditorProject {
     return true;
   }
 
+  /**
+   * Muda um nível de lugar na lista, antes ou depois de outro. A ordem é a do painel
+   * e a do arquivo salvo, e nada do mapa depende dela: as conexões apontam para salas
+   * por id, e o nível aberto é guardado por id também. Por isso mover é só mover.
+   */
+  moveLevel(id: string, targetId: string, before: boolean): boolean {
+    if (id === targetId) return false;
+    const levels = this.data.levels;
+    const from = levels.findIndex((level) => level.id === id);
+    if (from < 0 || !levels.some((level) => level.id === targetId)) return false;
+    const [moved] = levels.splice(from, 1);
+    // O alvo pode ter andado uma casa para trás quando o nível movido saiu da lista.
+    const at = levels.findIndex((level) => level.id === targetId);
+    levels.splice(before ? at : at + 1, 0, moved!);
+    this.save();
+    return true;
+  }
+
   /** Remove um nível inteiro. O projeto nunca fica sem nenhum. */
   deleteLevel(id: string): boolean {
     if (this.data.levels.length <= 1) return false;
@@ -577,6 +595,8 @@ export class EditorProject {
       cutsceneHoldSeconds: number(hotspot.cutsceneHoldSeconds, 4, 0.2, 600),
       cutsceneRepeatCount: Math.round(number(hotspot.cutsceneRepeatCount, 1, 1, 100)),
       hideoutImage: typeof hotspot.hideoutImage === 'string' ? hotspot.hideoutImage : undefined,
+      sound: typeof hotspot.sound === 'string' && hotspot.sound ? hotspot.sound : undefined,
+      soundVolume: typeof hotspot.sound === 'string' && hotspot.sound ? number(hotspot.soundVolume, 1, 0, 1) : undefined,
     }];
   }
 

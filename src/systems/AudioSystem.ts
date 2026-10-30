@@ -304,6 +304,40 @@ export class AudioSystem {
     void this.resumeGameplay();
   }
 
+  /**
+   * Um arquivo solto, tocado uma vez no barramento de efeitos. É o som que o editor
+   * prendeu a um interagível, e por isso ele não passa pela máquina das categorias:
+   * sem sorteio, sem intervalo mínimo e sem esperar a vez. O jogador clicou naquele
+   * objeto, e o que soa é exatamente o arquivo que o nível pediu — nem outro, nem
+   * nenhum porque a janela de efeitos estava ocupada.
+   */
+  async playEffectFile(path: string, volume = 1): Promise<boolean> {
+    const context = this.context;
+    if (!path || !context || this.gameplayPaused) return false;
+    const buffer = await this.ensureBuffer(path);
+    if (!buffer || !this.effectsBus) return false;
+    const source = context.createBufferSource();
+    const gain = context.createGain();
+    source.buffer = buffer;
+    const level = Math.max(0.0001, Math.min(1, volume));
+    const duration = buffer.duration;
+    // Fade curtíssimo nas duas pontas: é o que evita o estalo do corte seco.
+    const fade = Math.min(0.03, duration * 0.25);
+    const now = context.currentTime;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(level, now + fade);
+    gain.gain.setValueAtTime(level, now + Math.max(fade, duration - fade));
+    gain.gain.linearRampToValueAtTime(0.0001, now + duration);
+    source.connect(gain).connect(this.effectsBus);
+    source.start(now);
+    source.stop(now + duration + 0.05);
+    const entry: ActiveClip = { source, gain, bus: 'fx' };
+    this.active.add(entry);
+    source.onended = () => this.active.delete(entry);
+    this.lastEffect = { label: 'Interagível', file: clipFileName(path), at: Date.now() };
+    return true;
+  }
+
   // --- trilha presa a uma sala (item configurado no editor) ---
 
   /** Toca o arquivo que a sala exige. Enquanto ele soa, a trilha do nível fica fora. */
