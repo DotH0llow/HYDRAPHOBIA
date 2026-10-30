@@ -1,4 +1,4 @@
-import { ENTITIES, ITEMS, type ChallengeOutcome, type EntityDefinition, type ItemDefinition, type NpcDefinition, type RoomDefinition, type RoomNpc } from '../config/world';
+import { ENTITIES, ITEMS, type ChallengeOutcome, type EntityDefinition, type ItemDefinition, type RoomDefinition } from '../config/world';
 import { allIllustrated, CLASSES, classArtFor, classLabelFor, DEFAULT_CHARACTER, GENDERS, labelOf, MAX_CHARACTER_NAME, MIN_CHARACTER_NAME, MODES, PHOBIAS, sanitizeCharacterName, scaredArtFor, STARTING_ITEMS } from '../config/character';
 import { Game } from '../core/Game';
 import { EditorProject } from '../editor/EditorProject';
@@ -15,13 +15,12 @@ import { drawRoomLighting, hasFlicker } from '../systems/lighting';
 import { CAGE, heartExposure, heartInsideCage, heartIntensity, heartProgress } from '../systems/heartEncounter';
 import { HEART_ART, RIBCAGE_ART } from '../systems/heartArt';
 import { labelAnchorOf } from '../systems/hotspots';
-import { moodLabel, NPC_DUMMY_ART } from '../systems/npc';
-import { connectorTaken, OUTPUT_LABELS } from '../systems/wires';
+import { challengeMarkup, dialogueMarkup, historyMarkup, npcSceneMarkup } from './npcViews';
 import { checkCharacterName } from '../config/nameFilter';
 import { legendTimings, SOLO_LEGEND_MS, splitLegend } from '../systems/legends';
 import { roomMediaMarkup, sceneFrameStyle } from '../systems/roomView';
 import { createSlot, endCampaign, SaveSystem } from '../systems/SaveSystem';
-import { SAVE_SLOT_COUNT, type NpcId, type BooleanPreferenceKey, type CampaignEnding, type CharacterClassId, type EntityId, type CharacterGender, type CharacterMode, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type PhobiaId, type Preferences, type RoomId, type SaveData, type SaveSlot, type Screen } from '../types';
+import { SAVE_SLOT_COUNT, type BooleanPreferenceKey, type CampaignEnding, type CharacterClassId, type EntityId, type CharacterGender, type CharacterMode, type CharacterProfile, type Direction, type EncounterAction, type HotspotId, type ItemId, type PhobiaId, type Preferences, type RoomId, type SaveData, type SaveSlot, type Screen } from '../types';
 
 type NumericPreferenceKey = Exclude<keyof Preferences, BooleanPreferenceKey>;
 
@@ -652,7 +651,7 @@ export class GameApp {
           <img src="${room.image}" alt="${room.description}" />
           ${roomMediaMarkup((room as RoomDefinition).media, false, esc)}
           <canvas class="scene-darkness-canvas" data-role="scene-darkness" aria-hidden="true"></canvas>
-          ${this.npcMarkup(room)}
+          ${npcSceneMarkup(this.game)}
           ${this.hotspotMarkup(room)}
           ${roomMediaMarkup((room as RoomDefinition).media, true, esc)}
           <nav class="movement" aria-label="Movimentação">${exits.map(([direction, exit]) => this.movementButton(direction, exit)).join('')}</nav>
@@ -676,9 +675,9 @@ export class GameApp {
       ${hud ? `<button class="inventory-button" data-action="inventory" data-role="inventory-hint" hidden><span>▦</span><b>Inventário</b><small data-role="inventory-count">${this.itemCountLabel()}</small></button>` : ''}
       ${this.inventoryOpen ? this.inventoryTemplate() : ''}
       ${hud && this.game.presentNpcs.length > 0 && !this.game.dialogue ? '<button class="history-button" data-action="history" title="Histórico da conversa (H)"><span>❝</span><b>Conversas</b><small>H</small></button>' : ''}
-      ${this.game.dialogue ? this.dialogueTemplate() : ''}
-      ${this.game.challenge ? this.challengeTemplate() : ''}
-      ${this.historyOpen ? this.historyTemplate() : ''}
+      ${this.game.dialogue ? dialogueMarkup(this.game, this.items) : ''}
+      ${this.game.challenge ? challengeMarkup(this.game) : ''}
+      ${this.historyOpen ? historyMarkup(this.game) : ''}
       ${this.game.encounter ? this.encounterTemplate() : ''}
       ${this.game.status === 'cutscene' ? this.cutsceneTemplate() : ''}
       ${this.game.status === 'hidden' ? this.hiddenTemplate() : ''}
@@ -716,216 +715,6 @@ export class GameApp {
         <span class="hotspot-label" style="left:${label.x}%;top:${label.y}%">${hotspot.label}</span>
       </div>`;
     }).join('');
-  }
-
-  /**
-   * As pessoas da cena. Cada uma está plantada em um ponto da sala, com a altura que
-   * quem montou o nível escolheu; sem arte escolhida, o que aparece é o boneco de
-   * teste em SVG, de propósito — ele serve para a cena já poder ser jogada antes de a
-   * arte existir, e não se confunde com nada que vá ficar.
-   */
-  private npcMarkup(room: RoomDefinition): string {
-    return (room.npcs ?? []).map((entry) => {
-      if (entry.requiresFlag && !this.game!.flags[entry.requiresFlag]) return '';
-      const definition = this.game!.npcDefinition(entry.npcId);
-      if (!definition) return '';
-      const talking = this.game!.dialogue?.npcId === entry.npcId;
-      const art = definition.art
-        ? `<img src="${esc(definition.art)}" alt="${esc(definition.name)}" />`
-        : NPC_DUMMY_ART;
-      return `<div class="npc-figure${talking ? ' talking' : ''}" data-npc-figure="${esc(entry.npcId)}" style="left:${entry.x}%;top:${entry.y}%;--npc-height:${entry.height}%;--npc-flip:${entry.flip ? -1 : 1}">
-        <button class="npc-hit" data-action="npc" data-npc="${esc(entry.npcId)}" aria-label="Falar com ${esc(definition.name)}">${art}</button>
-        <span class="npc-tag">${esc(definition.name)}</span>
-      </div>`;
-    }).join('');
-  }
-
-  /** Onde o balão desta pessoa fica na cena, e para que lado a ponta dele aponta. */
-  private npcAnchor(npcId: NpcId): { entry: RoomNpc | undefined; below: boolean } {
-    const entry = (this.game!.room as RoomDefinition).npcs?.find((item) => item.npcId === npcId);
-    // Quem está plantado na parte de cima da cena recebe o balão por baixo: acima
-    // dele não há tela, e o balão sairia cortado pela borda.
-    return { entry, below: (entry?.y ?? 50) < 34 };
-  }
-
-  /**
-   * O balão de fala. Ele cresce com o texto — a largura tem um teto e a altura não
-   * tem nenhum — e a ponta sai dele apontando para quem está falando. As respostas
-   * ficam numa barra própria, embaixo: dentro do balão elas o transformariam num menu.
-   */
-  private dialogueTemplate(): string {
-    const game = this.game!;
-    const dialogue = game.dialogue!;
-    const definition = game.npcDefinition(dialogue.npcId);
-    const line = game.dialogueLine;
-    if (!definition || !line) return '';
-    if (dialogue.trading) return this.tradeTemplate(definition);
-    const { entry, below } = this.npcAnchor(dialogue.npcId);
-    const answers = game.dialogueAnswers;
-    const x = Math.max(16, Math.min(84, entry?.x ?? 50));
-    const y = entry ? (below ? entry.y + (entry.height ?? 40) * 0.2 : entry.y) : 40;
-    return `<div class="dialogue-layer">
-      <article class="speech-balloon" data-side="${below ? 'below' : 'above'}" style="left:${x}%;top:${y}%">
-        <header><b>${esc(definition.name)}</b>${definition.title ? `<small>${esc(definition.title)}</small>` : ''}</header>
-        <p data-role="balloon-text">${esc(line.text)}</p>
-        <i class="balloon-tail" aria-hidden="true"></i>
-      </article>
-      <div class="dialogue-bar">
-        <div class="dialogue-answers">
-          ${answers.map((answer) => {
-            const missing = answer.requiresItem && !game.inventory.some((item) => item.id === answer.requiresItem && item.quantity > 0);
-            const need = answer.requiresItem ? this.items[answer.requiresItem]?.name ?? answer.requiresItem : '';
-            return `<button class="dialogue-answer${missing ? ' unavailable' : ''}" data-action="dialogue-answer" data-answer="${esc(answer.id)}"${missing ? ' disabled' : ''}>
-              <span>${esc(answer.text)}</span>
-              ${answer.requiresItem ? `<small>${missing ? 'exige' : 'usa'} ${esc(need)}</small>` : ''}
-              ${answer.opensTrade ? '<small>abre a troca</small>' : ''}
-            </button>`;
-          }).join('')}
-        </div>
-        <div class="dialogue-tools">
-          ${definition.trades ? '<button data-action="dialogue-trade">Trocar</button>' : ''}
-          <button data-action="history">Histórico <em>H</em></button>
-          <button class="dialogue-leave" data-action="dialogue-end">Encerrar</button>
-        </div>
-      </div>
-    </div>`;
-  }
-
-  /**
-   * A tela de trocas. Não há dinheiro: os dois lados da mesa são medidos na mesma
-   * escala de valor, e a troca fecha quando o que o jogador põe alcança o que ele
-   * pede. O vendedor cobra pelo humor que tem — e um pouco mais de quem chega mal.
-   */
-  private tradeTemplate(definition: NpcDefinition): string {
-    const game = this.game!;
-    const dialogue = game.dialogue!;
-    const memory = game.npcMemory(dialogue.npcId);
-    const totals = game.tradeTotals;
-    const tense = game.stats.anxiety >= 60;
-    const picked = (list: typeof dialogue.ask, id: string): number => list.find((entry) => entry.id === id)?.quantity ?? 0;
-    const row = (side: 'ask' | 'offer', id: string, available: number): string => {
-      const item = this.items[id];
-      if (!item) return '';
-      const price = side === 'ask' ? game.askPriceOf(id) : game.offerPriceOf(id);
-      const chosen = picked(side === 'ask' ? dialogue.ask : dialogue.offer, id);
-      return `<li class="trade-row${chosen > 0 ? ' chosen' : ''}">
-        <span class="trade-art">${item.image ? `<img src="${esc(item.image)}" alt="" />` : esc(item.icon)}</span>
-        <span class="trade-name"><b>${esc(item.name)}</b><small>${available} em estoque</small></span>
-        <span class="trade-price">${price}</span>
-        <span class="trade-count"><button data-action="trade-adjust" data-side="${side}" data-item="${esc(id)}" data-amount="-1" aria-label="Menos um">−</button><em>${chosen}</em><button data-action="trade-adjust" data-side="${side}" data-item="${esc(id)}" data-amount="1" aria-label="Mais um">+</button></span>
-      </li>`;
-    };
-    const enough = totals.offer >= totals.ask;
-    return `<div class="trade-layer" role="dialog" aria-label="Troca com ${esc(definition.name)}">
-      <section class="trade-panel">
-        <header>
-          <div><small>TROCA</small><h2>${esc(definition.name)}</h2></div>
-          <div class="trade-mood"><small>DISPOSIÇÃO</small><b>${esc(moodLabel(memory.reputation))}</b><i><u style="width:${memory.reputation}%"></u></i></div>
-          <button class="trade-close" data-action="trade-close" aria-label="Fechar a troca">×</button>
-        </header>
-        ${tense ? '<p class="trade-warning">Ele vê o estado em que você chegou. Cada item custa 1 a mais.</p>' : ''}
-        <div class="trade-columns">
-          <div class="trade-side">
-            <h3>O que ele tem</h3>
-            <ul>${memory.stock.length > 0 ? memory.stock.map((entry) => row('ask', entry.id, entry.quantity)).join('') : '<li class="trade-empty">Os bolsos dele estão vazios.</li>'}</ul>
-          </div>
-          <div class="trade-side">
-            <h3>O que você tem</h3>
-            <ul>${game.inventory.length > 0 ? game.inventory.map((entry) => row('offer', entry.id, entry.quantity)).join('') : '<li class="trade-empty">Você não tem nada para dar.</li>'}</ul>
-          </div>
-        </div>
-        <footer>
-          <div class="trade-scale"><span>Você pede <b>${totals.ask}</b></span><span>Você oferece <b class="${enough ? 'ok' : 'short'}">${totals.offer}</b></span></div>
-          <button class="primary" data-action="trade-confirm"${enough && (dialogue.ask.length > 0 || dialogue.offer.length > 0) ? '' : ' disabled'}>Fechar a troca</button>
-          <button data-action="trade-close">Voltar à conversa</button>
-        </footer>
-      </section>
-    </div>`;
-  }
-
-  /** O histórico: tudo o que foi dito nesta campanha, na ordem em que foi dito. */
-  private historyTemplate(): string {
-    const game = this.game!;
-    const log = game.dialogueLog;
-    return `<div class="modal-layer history-layer" role="dialog" aria-modal="true" aria-label="Histórico das conversas">
-      <section class="history-panel">
-        <header><div><small>REGISTRO FALADO</small><h2>Conversas</h2></div><button data-action="history" aria-label="Fechar">×</button></header>
-        <div class="history-log">
-          ${log.length === 0 ? '<p class="history-empty">Você ainda não falou com ninguém.</p>' : log.map((entry) => `
-            <article class="history-line ${entry.side}">
-              <small>${esc(entry.speaker)} · ${this.formatTime(entry.at)}</small>
-              <p>${esc(entry.text)}</p>
-            </article>`).join('')}
-        </div>
-        <button class="primary" data-action="history">Fechar</button>
-      </section>
-    </div>`;
-  }
-
-  /**
-   * O desafio. Primeiro a cutscene que o abre, se houver uma; depois o painel. Na
-   * saída fica a consequência que o nível escreveu — um texto, um som, uma imagem.
-   */
-  private challengeTemplate(): string {
-    const challenge = this.game!.challenge!;
-    if (challenge.intro) {
-      const media = challenge.intro.mediaType === 'video'
-        ? `<video src="${esc(challenge.intro.mediaPath)}" autoplay muted playsinline data-role="challenge-video"></video>`
-        : `<img src="${esc(challenge.intro.mediaPath)}" alt="" />`;
-      return `<div class="cutscene-layer challenge-intro" role="dialog" aria-label="Abertura do desafio"><div class="cutscene-media">${media}</div></div>`;
-    }
-    return this.wirePanelTemplate();
-  }
-
-  /**
-   * O painel de fios. Seis saídas com letras à esquerda, seis conectores com números
-   * à direita, e de três a seis fios entre eles. A ligação certa já está no painel e
-   * não aparece em canto nenhum: descobri-la é o jogo, e cada erro custa um choque.
-   */
-  private wirePanelTemplate(): string {
-    const game = this.game!;
-    const wires = game.challenge!.wires;
-    const rowY = (index: number): number => ((index + 0.5) / 6) * 100;
-    const curves = Object.entries(wires.linked).map(([from, to]) => {
-      const wire = wires.wires.find((entry) => entry.from === from);
-      const y1 = rowY(OUTPUT_LABELS.indexOf(from as typeof OUTPUT_LABELS[number]));
-      const y2 = rowY(wires.connectors.indexOf(to));
-      return `<path d="M6 ${y1} C 38 ${y1}, 62 ${y2}, 94 ${y2}" stroke="${esc(wire?.color ?? '#dcdcd2')}" />`;
-    }).join('');
-    const left = OUTPUT_LABELS.map((label, index) => {
-      const wire = wires.wires.find((entry) => entry.from === label);
-      const linked = Boolean(wires.linked[label]);
-      const held = wires.holding === label;
-      if (!wire) return `<li class="wire-port dead" style="--row:${index}"><b>${label}</b><i aria-hidden="true"></i><small>sem fio</small></li>`;
-      return `<li class="wire-port${linked ? ' linked' : ''}${held ? ' held' : ''}" style="--row:${index};--wire:${esc(wire.color)}">
-        <b>${label}</b>
-        <button data-action="wire-hold" data-wire="${label}"${linked ? ' disabled' : ''} aria-label="Fio da saída ${label}"><i aria-hidden="true"></i></button>
-      </li>`;
-    }).join('');
-    const right = wires.connectors.map((label, index) => {
-      const taken = connectorTaken(wires, label);
-      return `<li class="wire-socket${taken ? ' taken' : ''}" style="--row:${index}">
-        <button data-action="wire-link" data-connector="${label}"${taken || !wires.holding ? ' disabled' : ''} aria-label="Conector ${label}"><i aria-hidden="true"></i></button>
-        <b>${label}</b>
-      </li>`;
-    }).join('');
-    const remaining = wires.wires.length - Object.keys(wires.linked).length;
-    return `<div class="challenge-layer" data-role="wire-panel" data-shock="false" role="dialog" aria-label="Conectar os fios">
-      <section class="wire-board">
-        <header><small>PAINEL DE MANUTENÇÃO</small><h2>Conectar os fios</h2><p>Cada fio tem um destino certo. Errar fecha o circuito em você.</p></header>
-        <div class="wire-field">
-          <ul class="wire-column left">${left}</ul>
-          <svg class="wire-canvas" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${curves}</svg>
-          <ul class="wire-column right">${right}</ul>
-        </div>
-        <footer>
-          <span class="wire-count">${remaining === 0 ? 'Painel fechado.' : `${remaining} fio${remaining === 1 ? '' : 's'} na mão`}</span>
-          <span class="wire-mistakes">${wires.mistakes} choque${wires.mistakes === 1 ? '' : 's'}</span>
-          <button class="danger-button" data-action="challenge-give-up">Largar o painel</button>
-        </footer>
-      </section>
-      <div class="wire-shock" aria-hidden="true"></div>
-    </div>`;
   }
 
   /**
@@ -2086,7 +1875,9 @@ export class GameApp {
   private updateLegend(): void {
     const strip = this.root.querySelector<HTMLElement>('[data-role="legend"]');
     if (!strip) return;
-    const visible = this.messageVisible();
+    // Numa conversa a legenda cala: ela e a barra de respostas disputam o mesmo lugar
+    // na tela, e o que o NPC diz já está no balão.
+    const visible = this.messageVisible() && !this.game?.dialogue;
     const key = visible ? `${this.legendIndex}:${this.currentLegend()}` : '';
     if (key === this.paintedLegend) return;
     this.paintedLegend = key;

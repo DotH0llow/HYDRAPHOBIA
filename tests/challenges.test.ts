@@ -293,3 +293,16 @@ describe('arrastar as outras listas', () => {
     expect(project.moveItem(items[0]!, items[0]!, true)).toBe(false);
   });
 });
+
+describe('o painel aguenta um sorteio preso', () => {
+  it('monta um painel inteiro mesmo com o sorteio sempre em 1', () => {
+    // O modo de teste do editor usa exatamente este sorteio, para o teste ser sempre
+    // igual. Com ele, o embaralhamento caía uma casa fora do vetor e o painel vinha
+    // com buracos — e a tela do editor parava de ser desenhável.
+    const panel = createWirePanel({ kind: 'wires', wireCount: 5 }, () => 1);
+    expect(panel.connectors).toHaveLength(6);
+    expect(panel.connectors.every((label) => typeof label === 'string')).toBe(true);
+    expect(panel.wires.every((wire) => typeof wire.from === 'string' && typeof wire.color === 'string')).toBe(true);
+    expect(new Set(panel.connectors).size).toBe(6);
+  });
+});

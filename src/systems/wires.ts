@@ -23,10 +23,15 @@ export const MAX_WIRES = 6;
 /** Dano de cada ligação errada, quando o nível não escolheu outro. */
 export const DEFAULT_SHOCK_DAMAGE = 3;
 
+/**
+ * Embaralha sem confiar no sorteio. O modo de teste do editor usa um sorteio preso em
+ * 1, e `Math.floor(1 * (index + 1))` cai uma casa fora do vetor: o embaralhamento
+ * trocava a posição por `undefined` e o painel inteiro deixava de ser desenhável.
+ */
 const shuffled = <T>(values: readonly T[], random: () => number): T[] => {
   const copy = [...values];
   for (let index = copy.length - 1; index > 0; index -= 1) {
-    const other = Math.floor(random() * (index + 1));
+    const other = Math.min(index, Math.max(0, Math.floor(random() * (index + 1))));
     [copy[index], copy[other]] = [copy[other]!, copy[index]!];
   }
   return copy;

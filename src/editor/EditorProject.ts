@@ -5,7 +5,7 @@ import type { CutsceneMediaType, EncounterAction, HotspotVisibility } from '../t
 import { EDITOR_STORAGE_KEY } from '../config/storage';
 import { isLightShape } from '../systems/lighting';
 import { syncToDisk } from '../systems/localSync';
-import { createChallenge, createChallengeOutcome, createNpc, createNpcAnswer, createNpcLine, createRoomNpc, DEFAULT_ENTITIES, DEFAULT_ITEM_IMAGES, DEFAULT_ITEMS, detectMediaType, isFullRoomView } from './types';
+import { createChallenge, createChallengeOutcome, createNpc, createNpcAnswer, createNpcLine, createRoomNpc, DEFAULT_ENTITIES, DEFAULT_ITEM_IMAGES, DEFAULT_ITEM_VALUES, DEFAULT_ITEMS, detectMediaType, isFullRoomView } from './types';
 import type { EditorChallenge, EditorChallengeOutcome, EditorConnection, EditorEntity, EditorHotspot, EditorHotspotAction, EditorItem, EditorLevel, EditorLight, EditorNpc, EditorNpcAnswer, EditorNpcLine, EditorProjectData, EditorRoom, EditorRoomMedia, EditorRoomNpc, EditorRoomView } from './types';
 
 export { EDITOR_STORAGE_KEY } from '../config/storage';
@@ -810,8 +810,10 @@ export class EditorProject {
       effectAmount: effect === 'none' || effect === 'light' ? 0 : number(item.effectAmount, 20, 1, 100),
       // Um mapa salvo antes das artes existirem ganha a imagem padrão do item.
       image: typeof item.image === 'string' && item.image ? item.image : DEFAULT_ITEM_IMAGES[id],
-      // Um item sem valor escrito vale 1: nada no jogo é de graça, nem o que não serve.
-      value: Math.round(number(item.value, 1, 0, 999)),
+      // Um item sem valor escrito vale 1 — nada no jogo é de graça, nem o que não serve.
+      // Os itens de fábrica recebem o valor deles, e não o mínimo, ao abrir um projeto
+      // gravado antes de a economia existir.
+      value: Math.round(number(item.value, DEFAULT_ITEM_VALUES[id] ?? 1, 0, 999)),
       batterySeconds: effect === 'light' ? number(item.batterySeconds, 240, 10, 7200) : undefined,
     }];
   }

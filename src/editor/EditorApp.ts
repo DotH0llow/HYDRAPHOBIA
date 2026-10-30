@@ -8,6 +8,7 @@ import { DEFAULT_PREFERENCES } from '../systems/SaveSystem';
 import { labelAnchorOf } from '../systems/hotspots';
 import { localSyncAvailable, pushToRepository } from '../systems/localSync';
 import { roomMediaMarkup, sceneFrameStyle } from '../systems/roomView';
+import { challengeMarkup, dialogueMarkup, historyMarkup, npcSceneMarkup } from '../ui/npcViews';
 import type { EncounterAction, ItemId } from '../types';
 import { createId, EditorProject } from './EditorProject';
 import { entitiesToRuntime, itemsToRuntime, npcsToRuntime, projectToWorld } from './mapAdapter';
@@ -98,8 +99,11 @@ export class EditorApp {
   private testGame: Game | null = null;
   /** De onde o teste começou, para o botão de reiniciar voltar ao mesmo lugar. */
   private testStartRoom: string | null = null;
+  /** Até quando a moldura do painel de fios mostra o choque, no teste. */
+  private testShockUntil = 0;
   private testMode = false;
   private testInventoryOpen = false;
+  private testHistoryOpen = false;
   private testJumpscareUntil = 0;
   private testAttackNonce = 0;
   private lastFrame = performance.now();
@@ -1006,6 +1010,7 @@ export class EditorApp {
         <div class="test-scene-frame" style="${sceneFrameStyle(room.view)}">
           <img src="${esc(room.image)}" alt="${esc(room.description)}" />
           ${roomMediaMarkup(room.media, false, esc)}
+          ${npcSceneMarkup(game)}
           ${this.testHotspotMarkup(game, room)}
           ${roomMediaMarkup(room.media, true, esc)}
         </div>
@@ -1016,6 +1021,9 @@ export class EditorApp {
       <nav class="test-exits">${exits.map(([direction, exit]) => `<button data-test-action="move" data-direction="${esc(direction)}"><i>↗</i><span>${esc(exit.label)}</span>${exit.requiresItem ? `<small>requer ${esc(items[exit.requiresItem]?.name ?? exit.requiresItem)}</small>` : ''}</button>`).join('') || '<span class="dead-end">Sem saídas configuradas</span>'}</nav>
       <div class="test-message">${esc(game.message)}</div>
       ${this.testInventoryOpen ? this.testInventoryTemplate() : ''}
+      ${game.dialogue ? dialogueMarkup(game, items) : ''}
+      ${game.challenge ? challengeMarkup(game) : ''}
+      ${this.testHistoryOpen ? historyMarkup(game) : ''}
       ${game.encounter ? this.testEncounterTemplate() : ''}
       ${game.status === 'cutscene' ? this.testCutsceneTemplate(game) : ''}
       ${game.status === 'gameover' ? '<div class="test-modal"><section><small>FIM DO TESTE</small><h2>O jogador não sobreviveu</h2><button data-test-action="restart">Reiniciar nesta sala</button><button data-test-action="exit">Voltar ao editor</button></section></div>' : ''}
@@ -1138,7 +1146,13 @@ export class EditorApp {
       }
       return;
     }
-    if (this.testMode || this.confirm) return;
+    // No teste o editor não tem atalhos, com uma exceção: o H do histórico é parte da
+    // mecânica, e testá-la sem ele seria testar outra coisa.
+    if (this.testMode) {
+      if (this.testGame && event.key.toLowerCase() === 'h') { this.testHistoryOpen = !this.testHistoryOpen; this.render(); }
+      return;
+    }
+    if (this.confirm) return;
     // O alvo pode não ser um elemento (teclado sem foco): só então vale o atalho.
     const target = event.target as Element | null;
     if (target && typeof target.closest === 'function' && target.closest('input, textarea, select, [contenteditable="true"]')) return;
@@ -2598,6 +2612,26 @@ export class EditorApp {
       case 'use-item': game.useItem(data.item as ItemId); this.audio.play('use'); this.testInventoryOpen = false; break;
       case 'encounter': { const result = game.respondToEncounter(data.choice as EncounterAction); this.audio.play(result.attack ? 'jumpscare' : 'step'); break; }
       case 'restart': this.startTest(this.testStartRoom ?? undefined); return;
+      case 'npc': game.startDialogue(data.npc ?? ''); this.testHistoryOpen = false; break;
+      case 'dialogue-answer': game.answerDialogue(data.answer ?? ''); break;
+      case 'dialogue-end': game.endDialogue(); break;
+      case 'dialogue-trade': game.openTrade(); break;
+      case 'trade-close': game.closeTrade(); break;
+      case 'trade-adjust': game.adjustTrade(data.side === 'ask' ? 'ask' : 'offer', data.item as ItemId, Number(data.amount) || 0); break;
+      case 'trade-confirm': game.confirmTrade(); break;
+      case 'history': this.testHistoryOpen = !this.testHistoryOpen; break;
+      case 'wire-hold': game.holdWire(data.wire ?? ''); break;
+      case 'wire-link': {
+        const result = game.linkWire(data.connector ?? '');
+        if (result.kind === 'shock') { this.testShockUntil = performance.now() + 520; this.audio.play('jumpscare'); }
+        else if (result.kind === 'solved' && result.outcome?.sound) void this.audio.playEffectFile(result.outcome.sound, result.outcome.soundVolume ?? 1);
+        break;
+      }
+      case 'challenge-give-up': {
+        const outcome = game.giveUpChallenge();
+        if (outcome?.sound) void this.audio.playEffectFile(outcome.sound, outcome.soundVolume ?? 1);
+        break;
+      }
     }
     if (game.attackNonce !== this.testAttackNonce) { this.testAttackNonce = game.attackNonce; this.testJumpscareUntil = performance.now() + 1550; }
     this.lastTestKey = '';
@@ -2614,7 +2648,9 @@ export class EditorApp {
         this.testJumpscareUntil = now + 1550;
         this.audio.play('jumpscare');
       }
-      const key = JSON.stringify({ position: this.testGame.position, status: this.testGame.status, message: this.testGame.message, inventory: this.testGame.inventory, selected: this.testGame.selectedItem, encounter: this.testGame.encounter?.id, cutscene: this.testGame.cutscene?.hotspotId ?? null, attack: this.testAttackNonce, jump: now < this.testJumpscareUntil, panel: this.testInventoryOpen, flags: this.testGame.flags });
+      const dialogue = this.testGame.dialogue;
+      const challenge = this.testGame.challenge;
+      const key = JSON.stringify({ position: this.testGame.position, status: this.testGame.status, message: this.testGame.message, inventory: this.testGame.inventory, selected: this.testGame.selectedItem, encounter: this.testGame.encounter?.id, cutscene: this.testGame.cutscene?.hotspotId ?? null, attack: this.testAttackNonce, jump: now < this.testJumpscareUntil, panel: this.testInventoryOpen, flags: this.testGame.flags, history: this.testHistoryOpen, dialogue: dialogue ? `${dialogue.npcId}:${dialogue.lineId}:${dialogue.trading}:${JSON.stringify([dialogue.ask, dialogue.offer])}` : null, challenge: challenge ? `${challenge.intro ? 'intro' : 'panel'}:${Object.keys(challenge.wires.linked).length}:${challenge.wires.holding ?? ''}:${challenge.wires.mistakes}` : null });
       if (key !== this.lastTestKey) { this.lastTestKey = key; this.render(); }
       else this.updateTestReadouts();
     }
@@ -2631,6 +2667,8 @@ export class EditorApp {
       if (root?.querySelector('b')) root.querySelector('b')!.textContent = String(Math.round(value));
       const bar = root?.querySelector<HTMLElement>('em'); if (bar) bar.style.width = `${value}%`;
     });
+    const panel = this.root.querySelector<HTMLElement>('[data-role="wire-panel"]');
+    if (panel) panel.dataset.shock = String(performance.now() < this.testShockUntil);
     const timer = this.root.querySelector<HTMLElement>('.test-timer i');
     if (timer && this.testGame.encounter) timer.style.width = `${(this.testGame.encounter.remaining / this.testGame.encounter.timeLimit) * 100}%`;
     if (this.testGame.cutscene) {

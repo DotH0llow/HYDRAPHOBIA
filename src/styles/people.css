@@ -1,0 +1,218 @@
+/*
+ * Gente na cena, e o painel de fios.
+ *
+ * Este arquivo é lido pelo jogo e pelo editor, como `paths.css`: o balão de fala, a
+ * tela de trocas, o histórico e o painel de fios aparecem iguais nos dois, e testar
+ * um nível no editor só vale alguma coisa se o que se vê lá for o que o jogador vê.
+ * Mexer aqui muda os dois juntos.
+ */
+
+/*
+ * As cores vêm do jogo. O editor não declara estas três, e o desenho daqui depende
+ * delas: elas ficam junto do que as usa, com os mesmos valores dos dois lados.
+ */
+:root { --acid: #d7df77; --yellow: #b9a953; --red: #d7473c; }
+
+/*
+ * Os botões destas camadas. O jogo já veste todo botão da tela; o editor, não — e no
+ * teste eles apareciam como caixas brancas do navegador. Como o desenho é o mesmo nos
+ * dois lugares, ele mora aqui, junto do resto.
+ */
+.dialogue-tools button, .trade-close, .trade-count button, .history-panel > header > button,
+.trade-panel > footer > button:not(.people-cta) {
+  border: 1px solid #4b4f3d; background: #11140e; color: #c6c8b6;
+  font: .66rem "Courier New", monospace; letter-spacing: .06em; cursor: pointer;
+}
+.dialogue-tools button:hover, .trade-close:hover, .trade-count button:hover:not(:disabled),
+.history-panel > header > button:hover, .trade-panel > footer > button:not(.people-cta):hover {
+  border-color: var(--acid); color: var(--acid);
+}
+
+/* O histórico se posiciona sozinho: `modal-layer` só existe no jogo. */
+.history-layer { position: absolute; z-index: 40; inset: 0; display: grid; place-items: center; background: #020302d9; backdrop-filter: blur(8px); }
+/* O botão que fecha uma troca e o que fecha o histórico: o `.primary` do editor é
+   restrito à barra de cima, então o desenho deles mora aqui. */
+.people-cta { padding: .5rem 1rem; border: 1px solid var(--acid); background: var(--acid); color: #11140d; font: 700 .7rem "Courier New", monospace; letter-spacing: .08em; cursor: pointer; }
+.people-cta:disabled { border-color: #4a4d3c; background: #23261d; color: #74776d; cursor: default; }
+
+/* O botão de largar o painel também, pelo mesmo motivo. */
+.wire-quit { padding: .45rem .9rem; border: 1px solid #7a3f37; background: #1a0d0b; color: #e0b3ad; font: .68rem "Courier New", monospace; letter-spacing: .08em; cursor: pointer; }
+.wire-quit:hover { border-color: var(--red); color: #f3d4cf; }
+/*
+ * ============================================================
+ * Gente na cena: NPCs, balão de fala, troca e histórico
+ * ============================================================
+ *
+ * O NPC fica plantado em um ponto da cena, com a altura escolhida no editor. A largura
+ * vem da proporção da arte, e não de um número: trocar o boneco de teste pela arte
+ * final não deve mexer no enquadramento de ninguém.
+ */
+.npc-figure { position: absolute; z-index: 4; height: var(--npc-height, 42%); transform: translate(-50%, -100%) scaleX(var(--npc-flip, 1)); pointer-events: none; }
+.npc-figure .npc-hit { display: block; height: 100%; padding: 0; border: 0; background: transparent; pointer-events: auto; cursor: pointer; filter: drop-shadow(0 10px 18px #000000a8); }
+.npc-figure img, .npc-figure svg { display: block; height: 100%; width: auto; }
+.npc-dummy-shadow { fill: #00000066; }
+/* O contorno só aparece sob o mouse: fora disso, quem está na cena faz parte dela. */
+.npc-figure .npc-hit:hover { filter: drop-shadow(0 0 10px #d7df7788) drop-shadow(0 10px 18px #000000a8); }
+.npc-figure .npc-tag {
+  position: absolute; left: 50%; bottom: -1.35rem; transform: translateX(-50%) scaleX(var(--npc-flip, 1));
+  padding: .1rem .4rem; border: 1px solid #5f5f49; background: #070907d9;
+  color: var(--acid); font: .58rem "Courier New", monospace; letter-spacing: .1em; text-transform: uppercase;
+  opacity: 0; transition: opacity .18s; white-space: nowrap;
+}
+.npc-figure .npc-hit:hover + .npc-tag, .npc-figure.talking .npc-tag { opacity: 1; }
+.npc-figure.talking .npc-hit { filter: drop-shadow(0 0 14px #d7df7755) drop-shadow(0 10px 18px #000000a8); }
+
+/* A conversa cobre a cena por inteiro, mas quase tudo nela é transparente: o que
+   importa é o balão sobre a pessoa e a barra de respostas embaixo. */
+.dialogue-layer { position: absolute; z-index: 26; inset: 0; }
+/*
+ * O balão. A largura tem um teto e a altura não tem nenhum: escrever mais faz o balão
+ * crescer para cima (ou para baixo, quando a pessoa está no alto da cena), e nunca
+ * cortar o texto. A ponta sai da borda apontando para quem fala.
+ */
+.speech-balloon {
+  position: absolute; z-index: 2; width: max-content; max-width: min(430px, 44vw); min-width: 180px;
+  padding: .85rem 1.05rem 1rem; border: 1px solid #8b8b6b; border-radius: 14px;
+  background: linear-gradient(160deg, #f3f0e2, #d9d6c4); color: #16180f;
+  box-shadow: 0 18px 44px #000000b0, inset 0 0 0 1px #ffffff80;
+  transform: translate(-50%, calc(-100% - 22px)); animation: balloon-in .22s ease-out;
+}
+.speech-balloon[data-side="below"] { transform: translate(-50%, 22px); }
+.speech-balloon header { display: flex; align-items: baseline; gap: .5rem; margin-bottom: .4rem; border-bottom: 1px solid #0000002e; padding-bottom: .3rem; }
+.speech-balloon header b { color: #2d3119; font: 700 .72rem "Courier New", monospace; letter-spacing: .12em; text-transform: uppercase; }
+.speech-balloon header small { color: #5c5a44; font-size: .6rem; font-style: italic; }
+.speech-balloon p { margin: 0; font: .82rem/1.55 Georgia, serif; overflow-wrap: break-word; }
+/* A ponta é um quadrado girado, e não um triângulo: assim ela herda a borda e o fundo
+   do balão e continua certa se o balão mudar de cor. */
+.speech-balloon .balloon-tail {
+  position: absolute; left: 50%; bottom: -9px; width: 18px; height: 18px; margin-left: -9px;
+  background: #dcd9c7; border-right: 1px solid #8b8b6b; border-bottom: 1px solid #8b8b6b;
+  transform: rotate(45deg);
+}
+.speech-balloon[data-side="below"] .balloon-tail { top: -9px; bottom: auto; background: #f1eee0; border: 1px solid #8b8b6b; border-right: 0; border-bottom: 0; }
+@keyframes balloon-in { from { opacity: 0; transform: translate(-50%, calc(-100% - 10px)) scale(.96); } }
+
+/* No teste do editor a barra sobe: embaixo dela ficam as saídas da sala. */
+.editor-playtest .dialogue-bar { bottom: 5.4rem; }
+.dialogue-bar { position: absolute; z-index: 3; left: 50%; bottom: 1.1rem; width: min(760px, calc(100vw - 2.4rem)); transform: translateX(-50%); display: flex; flex-direction: column; gap: .5rem; }
+.dialogue-answers { display: flex; flex-direction: column; gap: .35rem; }
+.dialogue-answer {
+  display: flex; align-items: baseline; gap: .6rem; width: 100%; padding: .6rem .8rem;
+  border: 1px solid #5c5c48; border-left: 3px solid var(--acid); background: #0a0c0ae8;
+  color: #d8d6c4; font: .74rem/1.4 Georgia, serif; text-align: left; cursor: pointer;
+}
+.dialogue-answer:hover:not(:disabled) { background: #1a1e14; border-left-color: #f1f6a8; }
+.dialogue-answer small { flex: 0 0 auto; color: var(--yellow); font: .58rem "Courier New", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.dialogue-answer.unavailable { border-left-color: #6a3a33; opacity: .55; cursor: not-allowed; }
+.dialogue-answer.unavailable small { color: #c2655a; }
+.dialogue-tools { display: flex; justify-content: flex-end; gap: .4rem; }
+.dialogue-tools button { padding: .38rem .7rem; font-size: .64rem; }
+.dialogue-tools button em { color: var(--acid); font-style: normal; }
+.dialogue-tools .dialogue-leave { border-color: #6d4c46; }
+
+/* A caixa de histórico fica no canto, e só em salas onde há alguém para conversar. */
+.history-button { position: absolute; z-index: 11; right: 1.2rem; bottom: 5rem; width: 150px; min-height: 48px; border: 1px solid #676754; background: #0a0c0ae8; cursor: pointer; display: grid; grid-template-columns: 30px 1fr; text-align: left; padding: .45rem .7rem; }
+.history-button > span { grid-row: 1 / 3; align-self: center; color: var(--acid); font-size: 1.2rem; }
+.history-button b { align-self: end; font-size: .64rem; text-transform: uppercase; }
+.history-button small { align-self: start; color: #777767; font: .58rem "Courier New", monospace; }
+
+.history-layer .history-panel { width: min(620px, calc(100vw - 2.4rem)); max-height: min(78vh, 720px); display: flex; flex-direction: column; gap: 1rem; padding: clamp(1.1rem, 3vw, 2rem); border: 1px solid #62624c; background: linear-gradient(150deg, #131612f8, #080a08fc); }
+.history-panel > header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid #4e4e40; padding-bottom: .8rem; }
+.history-panel header small { color: #858665; font-size: .62rem; letter-spacing: .14em; }
+.history-panel h2 { margin: .2rem 0 0; font-size: 1.6rem; font-weight: 300; }
+.history-panel header > button { width: 40px; height: 40px; padding: 0; font-size: 1.2rem; line-height: 1; }
+.history-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: .55rem; padding-right: .4rem; }
+.history-line { max-width: 86%; padding: .5rem .7rem; border: 1px solid #45453a; background: #0b0e0b; }
+.history-line small { display: block; margin-bottom: .22rem; color: #86866a; font: .56rem "Courier New", monospace; letter-spacing: .1em; text-transform: uppercase; }
+.history-line p { margin: 0; font: .76rem/1.5 Georgia, serif; }
+.history-line.npc { align-self: flex-start; border-left: 3px solid #8b8b6b; }
+/* A fala do jogador vem do outro lado, na cor dele: o histórico tem de se ler de longe. */
+.history-line.player { align-self: flex-end; border-right: 3px solid var(--acid); text-align: right; }
+.history-line.player small { color: var(--yellow); }
+.history-empty { margin: 0; color: #80806c; font: .74rem Georgia, serif; font-style: italic; }
+
+/*
+ * A troca. Duas colunas, o mesmo peso: o que ele tem e o que você tem. Não há moeda —
+ * os dois lados são somados na mesma escala de valor, e o botão só acende quando o que
+ * você oferece alcança o que você pede.
+ */
+.trade-layer { position: absolute; z-index: 32; inset: 0; display: grid; place-items: center; background: #02030294; backdrop-filter: blur(6px); }
+.trade-panel { width: min(840px, calc(100vw - 2.4rem)); max-height: min(84vh, 760px); display: flex; flex-direction: column; gap: .9rem; padding: clamp(1.1rem, 3vw, 1.9rem); border: 1px solid #62624c; background: linear-gradient(150deg, #141813f8, #080a08fc); box-shadow: 0 30px 80px #000; }
+.trade-panel > header { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; border-bottom: 1px solid #4e4e40; padding-bottom: .8rem; }
+.trade-panel header small { color: #858665; font: .62rem "Courier New", monospace; letter-spacing: .14em; }
+.trade-panel h2 { margin: .2rem 0 0; font-size: 1.55rem; font-weight: 300; }
+.trade-mood { min-width: 180px; text-align: right; }
+.trade-mood b { display: block; margin: .15rem 0 .3rem; color: var(--acid); font-size: .82rem; font-weight: 400; }
+.trade-mood i { display: block; height: 5px; background: #23261d; }
+.trade-mood u { display: block; height: 100%; background: linear-gradient(90deg, #6d6a3a, var(--acid)); text-decoration: none; }
+.trade-close { position: absolute; top: -.3rem; right: -.3rem; width: 38px; height: 38px; padding: 0; font-size: 1.2rem; line-height: 1; }
+.trade-warning { margin: 0; padding: .45rem .7rem; border-left: 3px solid var(--red); background: #1a0d0b; color: #e0b3ad; font: .7rem/1.45 Georgia, serif; }
+.trade-columns { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.trade-side { min-height: 0; display: flex; flex-direction: column; }
+.trade-side h3 { margin: 0 0 .5rem; color: #999984; font: .64rem "Courier New", monospace; font-weight: 400; letter-spacing: .14em; text-transform: uppercase; }
+.trade-side ul { flex: 1; min-height: 0; margin: 0; padding: 0; list-style: none; overflow-y: auto; display: flex; flex-direction: column; gap: .35rem; }
+.trade-row { display: grid; grid-template-columns: 42px 1fr auto auto; align-items: center; gap: .55rem; padding: .4rem .5rem; border: 1px solid #45453a; background: #0b0e0b; }
+.trade-row.chosen { border-color: var(--acid); background: #171b11; }
+.trade-art { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid #3a3a31; background: #060806; color: #d4d594; font: 1.2rem Georgia, serif; overflow: hidden; }
+.trade-art img { width: 100%; height: 100%; object-fit: contain; }
+.trade-name b { display: block; font-size: .72rem; font-weight: 500; }
+.trade-name small { color: #7c7c68; font: .58rem "Courier New", monospace; }
+.trade-price { min-width: 2.2rem; color: var(--acid); font: 700 .9rem "Courier New", monospace; text-align: right; }
+.trade-count { display: flex; align-items: center; gap: .2rem; }
+.trade-count button { width: 26px; height: 26px; padding: 0; font-size: .8rem; line-height: 1; }
+.trade-count em { min-width: 1.4rem; color: #d8d6c4; font: .76rem "Courier New", monospace; font-style: normal; text-align: center; }
+.trade-empty { padding: .6rem; color: #80806c; font: .72rem Georgia, serif; font-style: italic; }
+.trade-panel > footer { display: flex; align-items: center; gap: .6rem; border-top: 1px solid #4e4e40; padding-top: .8rem; }
+.trade-scale { flex: 1; display: flex; gap: 1.2rem; color: #999984; font: .66rem "Courier New", monospace; letter-spacing: .08em; }
+.trade-scale b { color: #d8d6c4; font-size: .9rem; }
+.trade-scale b.ok { color: var(--acid); }
+.trade-scale b.short { color: var(--red); }
+
+/*
+ * ============================================================
+ * Desafio: o painel de fios
+ * ============================================================
+ *
+ * Seis saídas com letras à esquerda, seis conectores com números à direita, e os fios
+ * desenhados em SVG por cima — o traço precisa poder ir de qualquer linha a qualquer
+ * outra, e nenhuma borda de CSS faz essa curva.
+ */
+.challenge-layer { position: absolute; z-index: 34; inset: 0; display: grid; place-items: center; background: #020302e6; }
+.challenge-intro .cutscene-media { animation: none; }
+.wire-board { width: min(760px, calc(100vw - 2.4rem)); padding: clamp(1.1rem, 3vw, 1.8rem); border: 1px solid #5c5c48; background: linear-gradient(160deg, #15180f, #0a0c08); box-shadow: 0 30px 80px #000, inset 0 0 90px #00000090; }
+.wire-board > header small { color: #858665; font: .62rem "Courier New", monospace; letter-spacing: .16em; }
+.wire-board h2 { margin: .2rem 0 .3rem; font-size: 1.5rem; font-weight: 300; }
+.wire-board > header p { margin: 0 0 1rem; color: #9a9a85; font: .72rem/1.5 Georgia, serif; }
+.wire-field { position: relative; display: grid; grid-template-columns: 110px 1fr 110px; gap: .6rem; height: 320px; padding: .6rem 0; border-top: 1px solid #3a3a30; border-bottom: 1px solid #3a3a30; }
+.wire-column { display: grid; grid-template-rows: repeat(6, 1fr); margin: 0; padding: 0; list-style: none; }
+.wire-column.left li { justify-content: flex-start; }
+.wire-column.right li { justify-content: flex-end; }
+.wire-port, .wire-socket { grid-row: calc(var(--row) + 1); display: flex; align-items: center; gap: .5rem; }
+.wire-port b, .wire-socket b { width: 1.4rem; color: var(--acid); font: 700 .86rem "Courier New", monospace; text-align: center; }
+.wire-port button, .wire-socket button { padding: 0; border: 0; background: transparent; cursor: pointer; }
+/* A ponta do fio: um anel de metal com o fio saindo dele, na cor sorteada do painel. */
+.wire-port i { display: block; width: 46px; height: 12px; border-radius: 6px; background: linear-gradient(90deg, #2a2a24 0 10px, var(--wire, #555) 10px); box-shadow: inset 0 1px 0 #ffffff26; }
+.wire-port.dead i { width: 18px; background: #23231e; box-shadow: none; }
+.wire-port.dead { opacity: .4; }
+.wire-port.dead small { color: #6d6d5c; font: .54rem "Courier New", monospace; }
+.wire-port button:hover i { box-shadow: inset 0 1px 0 #ffffff40, 0 0 12px var(--wire, #888); }
+.wire-port.held i { animation: wire-held .7s ease-in-out infinite alternate; }
+.wire-port.linked { opacity: .75; }
+.wire-port.linked button { cursor: default; }
+@keyframes wire-held { to { transform: translateX(6px); box-shadow: inset 0 1px 0 #ffffff55, 0 0 18px var(--wire, #fff); } }
+.wire-socket i { display: block; width: 26px; height: 26px; border: 2px solid #4b4b3e; border-radius: 50%; background: radial-gradient(circle at 35% 32%, #3a3a30, #101009); }
+.wire-socket button:not(:disabled):hover i { border-color: var(--acid); box-shadow: 0 0 14px #d7df7766; }
+.wire-socket button:disabled { cursor: default; }
+.wire-socket.taken i { border-color: #6d6d52; background: radial-gradient(circle at 35% 32%, #7d7d62, #2a2a20); }
+.wire-canvas { position: absolute; inset: .6rem 100px; width: calc(100% - 200px); height: calc(100% - 1.2rem); pointer-events: none; }
+.wire-canvas path { fill: none; stroke-width: 2.4; stroke-linecap: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 2px 4px #000); }
+.wire-board > footer { display: flex; align-items: center; gap: .8rem; margin-top: 1rem; }
+.wire-count { flex: 1; color: #d8d6c4; font: .7rem "Courier New", monospace; letter-spacing: .08em; }
+.wire-mistakes { color: var(--red); font: .7rem "Courier New", monospace; }
+/* O choque: a tela toda pisca em vermelho por meio segundo. Não há explicação na tela. */
+.wire-shock { position: absolute; inset: 0; background: radial-gradient(circle at 50% 50%, #ff4a3a00 35%, #ff2a1acc); opacity: 0; pointer-events: none; }
+.challenge-layer[data-shock="true"] .wire-shock { animation: wire-shock .5s steps(3) 1; }
+.challenge-layer[data-shock="true"] .wire-board { animation: wire-jolt .22s steps(2) 2; }
+@keyframes wire-shock { from { opacity: .95; } to { opacity: 0; } }
+@keyframes wire-jolt { 0% { transform: translate(0, 0); } 50% { transform: translate(5px, -3px); } 100% { transform: translate(-4px, 2px); } }
+

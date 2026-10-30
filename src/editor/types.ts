@@ -380,6 +380,16 @@ export const DEFAULT_ITEM_IMAGES: Readonly<Record<string, string>> = {
   almondWater: '/assets/items/almondWater.webp',
   ration: '/assets/items/ration.webp',
   medkit: '/assets/items/medkit.webp',
+  lantern: '/assets/items/lantern.webp',
+};
+
+/**
+ * Valor de troca dos itens que já vêm com o jogo. Fica separado pelo mesmo motivo das
+ * imagens: um projeto salvo antes de a economia existir recebe os valores ao abrir, em
+ * vez de ver o cartão de acesso e o kit médico valendo o mesmo que uma tampa de lata.
+ */
+export const DEFAULT_ITEM_VALUES: Readonly<Record<string, number>> = {
+  accessCard: 6, almondWater: 4, ration: 4, fuse: 5, medkit: 9, lantern: 12,
 };
 
 export const DEFAULT_ITEMS: EditorItem[] = [
@@ -388,7 +398,7 @@ export const DEFAULT_ITEMS: EditorItem[] = [
   { id: 'ration', name: 'Ração selada', icon: '▰', description: 'Uma barra de emergência dura, mas ainda comestível.', useText: 'Sem gosto. Ainda assim, alimento.', effect: 'feed', effectAmount: 48, image: DEFAULT_ITEM_IMAGES.ration, value: 4 },
   { id: 'fuse', name: 'Fusível industrial', icon: '⌁', description: 'Pesado demais para o tamanho. Os contatos não estão oxidados.', useText: 'Talvez pertença a um painel elétrico.', effect: 'none', effectAmount: 0, value: 5 },
   { id: 'medkit', name: 'Kit de primeiros socorros', icon: '✚', description: 'Gaze, antisséptico e analgésicos dentro do prazo.', useText: 'Os ferimentos foram tratados.', effect: 'heal', effectAmount: 52, image: DEFAULT_ITEM_IMAGES.medkit, value: 9 },
-  { id: 'lantern', name: 'Lanterna de mão', icon: '⌾', description: 'Corpo de borracha gasto e uma lente trincada. A pilha ainda tem carga.', useText: 'Ela acende sozinha onde está escuro, e se apaga onde não precisa.', effect: 'light', effectAmount: 0, value: 12, batterySeconds: 240 },
+  { id: 'lantern', name: 'Lanterna de mão', icon: '⌾', description: 'Corpo de borracha gasto e uma lente trincada. A pilha ainda tem carga.', useText: 'Ela acende sozinha onde está escuro, e se apaga onde não precisa.', effect: 'light', effectAmount: 0, image: DEFAULT_ITEM_IMAGES.lantern, value: 12, batterySeconds: 240 },
 ];
 
 export const DEFAULT_ENTITIES: EditorEntity[] = [

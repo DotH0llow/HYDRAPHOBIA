@@ -49,7 +49,7 @@ export const shiftReputation = (memory: NpcMemory, amount: number): void => {
 /** Como o vendedor descreve a própria vontade de negociar, pela reputação. */
 export const moodLabel = (reputation: number): string => {
   if (reputation >= 78) return 'Confia em você';
-  if (reputation >= 56) return 'Cordial';
+  if (reputation >= 52) return 'Cordial';
   if (reputation >= 34) return 'Reservado';
   if (reputation >= 16) return 'Desconfiado';
   return 'Mal tolera você';
