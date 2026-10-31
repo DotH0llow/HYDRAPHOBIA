@@ -1,0 +1,9 @@
+Special Elite — Astigmatic One Eye Typographic Institute
+Licença Apache 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
+
+É a letra das falas: o balão dos NPCs, as respostas do jogador e o histórico
+das conversas. Os arquivos vêm do Google Fonts e ficam aqui de propósito, para
+o jogo não depender de nada da rede — ele roda inteiro no navegador, offline.
+
+special-elite-latin.woff2      U+0000-00FF (cobre todos os acentos do português)
+special-elite-latin-ext.woff2  latim estendido

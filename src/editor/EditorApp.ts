@@ -897,8 +897,9 @@ export class EditorApp {
     return `<div class="properties-heading"><div><small>PESSOA</small><h2>${esc(npc.name)}</h2></div><button class="danger" data-action="delete-npc" data-npc="${esc(npc.id)}">Excluir</button></div>
       <div class="field-row">
         <label><span>Nome</span><input data-npc-field="name" value="${esc(npc.name)}" maxlength="64" /></label>
-        <label><span>Ofício (linha de cima do balão)</span><input data-npc-field="title" value="${esc(npc.title)}" maxlength="64" placeholder="vendedor de restos" /></label>
+        <label><span>Ofício (anotação sua)</span><input data-npc-field="title" value="${esc(npc.title)}" maxlength="64" placeholder="vendedor de restos" /></label>
       </div>
+      <p class="panel-hint">O ofício não aparece em lugar nenhum do jogo: na cena, o que o jogador vê ao passar o mouse na pessoa é só o nome dela.</p>
       <label><span>Arte (opcional)</span><div class="input-with-browse"><input data-npc-field="art" value="${esc(npc.art)}" placeholder="/assets/props/vendedor.webp" /><button type="button" data-action="browse-file" data-target-field="npc-art" data-accept="image/*,.gif">Procurar</button></div></label>
       ${npc.art ? `<div class="image-preview"><img src="${esc(npc.art)}" alt="Prévia de ${esc(npc.name)}" /><span>${esc(npc.art)}</span></div>` : '<p class="panel-hint">Em branco, o jogo desenha o boneco de teste em SVG — um manequim de madeira, sem rosto. Ele serve para a cena já poder ser jogada antes de a arte existir.</p>'}
       <label><span>Som a cada fala (opcional)</span><div class="input-with-browse"><input data-npc-field="voice" list="hotspot-sound-files" value="${esc(npc.voice)}" placeholder="/assets/audio/FX/..." />${this.listenButtons()}</div></label>

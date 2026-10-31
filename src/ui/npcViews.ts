@@ -34,9 +34,15 @@ export const npcSceneMarkup = (game: Game): string => {
     if (!definition) return '';
     const talking = game.dialogue?.npcId === entry.npcId;
     const art = definition.art ? `<img src="${esc(definition.art)}" alt="${esc(definition.name)}" />` : NPC_DUMMY_ART;
+    // A etiqueta sai para o lado em que sobra cena, e some junto com o ponteiro.
+    const side = entry.x >= 50 ? 'left' : 'right';
     return `<div class="npc-figure${talking ? ' talking' : ''}" data-npc-figure="${esc(entry.npcId)}" style="left:${entry.x}%;top:${entry.y}%;--npc-height:${entry.height}%;--npc-flip:${entry.flip ? -1 : 1}">
       <button class="npc-hit" data-action="npc" data-test-action="npc" data-npc="${esc(entry.npcId)}" aria-label="Falar com ${esc(definition.name)}">${art}</button>
-      <span class="npc-tag">${esc(definition.name)}</span>
+      <span class="npc-label" data-side="${side}" aria-hidden="true">
+        <b>${esc(definition.name)}</b>
+        <svg class="npc-leader" viewBox="0 0 42 22" preserveAspectRatio="none"><line x1="0" y1="0" x2="42" y2="22" vector-effect="non-scaling-stroke" /></svg>
+        <i class="npc-dot"></i>
+      </span>
     </div>`;
   }).join('');
 };
@@ -64,22 +70,23 @@ const npcAnchor = (game: Game, npcId: NpcId): { entry: RoomNpc | undefined; x: n
 };
 
 /**
- * A tinta do balão. O contorno é feito com um filtro de turbulência em cima de uma
- * borda comum: a linha sai tremida, como traço de caneta, e o texto por cima continua
- * limpo — o filtro vale só para a camada da tinta, nunca para o que está escrito.
+ * A ponta do balão. Ela é desenhada, e não uma caixa girada: o traço afina até o bico,
+ * como numa HQ. A tira de creme no topo cobre a borda do balão na largura da ponta —
+ * é ela que faz as duas peças parecerem uma só, sem emenda.
  */
-const INK_FILTER = `<svg class="ink-defs" width="0" height="0" aria-hidden="true" focusable="false"><filter id="balloon-rough" x="-12%" y="-12%" width="124%" height="124%">
-  <feTurbulence type="fractalNoise" baseFrequency="0.019 0.027" numOctaves="3" seed="11" result="ruido" />
-  <feDisplacementMap in="SourceGraphic" in2="ruido" scale="6" xChannelSelector="R" yChannelSelector="G" />
-</filter></svg>`;
+const BALLOON_TAIL = `<svg class="balloon-tail" viewBox="0 0 36 36" aria-hidden="true" focusable="false">
+  <path d="M7 0 C 10 13, 16 25, 32 34 C 20 23, 19 11, 21 0" />
+  <rect class="tail-join" x="0" y="0" width="36" height="3.4" />
+</svg>`;
 
 /**
  * O balão de fala. Ele cresce com o texto — a largura tem um teto e a altura não tem
  * nenhum — e a ponta sai dele apontando para quem está falando. As respostas ficam
  * numa barra própria, embaixo: dentro do balão elas o transformariam num menu.
  *
- * O nome não entra no balão: ele é uma etiqueta à parte, presa à pessoa por um fio e
- * um ponto, como a legenda de uma foto de arquivo. O balão fica sendo só a fala.
+ * No balão só existe a fala. O nome é a etiqueta da cena, que aparece ao passar o
+ * mouse na pessoa; e a troca abre por uma resposta escrita no editor, nunca por um
+ * botão da barra — um botão ali diria que dá para trocar com quem não quer trocar.
  */
 export const dialogueMarkup = (game: Game, items: ItemLibrary): string => {
   const dialogue = game.dialogue;
@@ -88,23 +95,11 @@ export const dialogueMarkup = (game: Game, items: ItemLibrary): string => {
   const line = game.dialogueLine;
   if (!definition || !line) return '';
   if (dialogue.trading) return tradeMarkup(game, items, definition);
-  const { entry, x, y, side } = npcAnchor(game, dialogue.npcId);
-  // A etiqueta fica do lado oposto ao balão, para os dois não disputarem o mesmo canto.
-  const tagLeft = side === 'right' || (side === 'above' && (entry?.x ?? 50) >= 28);
-  const dot = { x: (entry?.x ?? 50) + (tagLeft ? -1.5 : 1.5), y: (entry?.y ?? 60) - (entry?.height ?? 40) * 0.68 };
-  const tag = { x: Math.max(2, Math.min(98, dot.x + (tagLeft ? -11 : 11))), y: dot.y - (entry?.height ?? 40) * 0.2 };
+  const { x, y, side } = npcAnchor(game, dialogue.npcId);
   return `<div class="dialogue-layer">
-    ${INK_FILTER}
-    <svg class="nametag-leader" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-      <line x1="${tag.x}" y1="${tag.y}" x2="${dot.x}" y2="${dot.y}" vector-effect="non-scaling-stroke" />
-    </svg>
-    <i class="nametag-dot" style="left:${dot.x}%;top:${dot.y}%" aria-hidden="true"></i>
-    <div class="npc-nametag" data-side="${tagLeft ? 'left' : 'right'}" style="left:${tag.x}%;top:${tag.y}%">
-      <span>${esc(definition.name)}</span>${definition.title ? `<em>${esc(definition.title)}</em>` : ''}
-    </div>
     <article class="speech-balloon" data-side="${side}" style="left:${x}%;top:${y}%">
-      <i class="balloon-ink" aria-hidden="true"><i class="balloon-tail"></i></i>
       <p data-role="balloon-text">${esc(line.text)}</p>
+      ${BALLOON_TAIL}
     </article>
     <div class="dialogue-bar">
       <div class="dialogue-answers">
@@ -119,9 +114,8 @@ export const dialogueMarkup = (game: Game, items: ItemLibrary): string => {
         }).join('')}
       </div>
       <div class="dialogue-tools">
-        ${definition.trades ? '<button data-action="dialogue-trade" data-test-action="dialogue-trade">Trocar</button>' : ''}
         <button data-action="history" data-test-action="history">Histórico <em>H</em></button>
-        <button class="dialogue-leave" data-action="dialogue-end" data-test-action="dialogue-end">Encerrar</button>
+        <button class="dialogue-leave" data-action="dialogue-end" data-test-action="dialogue-end">Ir</button>
       </div>
     </div>
   </div>`;

@@ -14,6 +14,31 @@
 :root { --acid: #d7df77; --yellow: #b9a953; --red: #d7473c; }
 
 /*
+ * A letra das falas. É uma máquina de escrever gasta: cai bem no balão de HQ e é a
+ * mesma voz do resto do jogo, que já é um registro datilografado. Os arquivos moram
+ * em `public/assets/fonts` de propósito — o jogo roda offline e não busca nada na rede.
+ */
+@font-face {
+  font-family: 'Special Elite';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/assets/fonts/special-elite-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Special Elite';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/assets/fonts/special-elite-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/** Tudo o que é dito em voz alta no jogo usa esta letra. */
+:root { --fala: 'Special Elite', 'Courier New', monospace; }
+
+/*
  * Os botões destas camadas. O jogo já veste todo botão da tela; o editor, não — e no
  * teste eles apareciam como caixas brancas do navegador. Como o desenho é o mesmo nos
  * dois lugares, ele mora aqui, junto do resto.
@@ -48,41 +73,68 @@
  * vem da proporção da arte, e não de um número: trocar o boneco de teste pela arte
  * final não deve mexer no enquadramento de ninguém.
  */
-.npc-figure { position: absolute; z-index: 4; height: var(--npc-height, 42%); transform: translate(-50%, -100%) scaleX(var(--npc-flip, 1)); pointer-events: none; }
-.npc-figure .npc-hit { display: block; height: 100%; padding: 0; border: 0; background: transparent; pointer-events: auto; cursor: pointer; filter: drop-shadow(0 10px 18px #000000a8); }
+/*
+ * O espelhamento vale só para a arte: na moldura ele viraria a etiqueta junto.
+ *
+ * A pessoa fica acima dos interagíveis da sala (que são z-index 4 e 5): quem está em
+ * pé na cena tem de poder ser clicado mesmo que um objeto esteja desenhado ali atrás.
+ * E o que recebe o clique é o desenho, não a caixa dele — com o boneco em SVG, isso
+ * quer dizer o corpo dele, e o que passa entre os braços cai no cenário de novo.
+ */
+.npc-figure { position: absolute; z-index: 6; height: var(--npc-height, 42%); transform: translate(-50%, -100%); pointer-events: none; }
+.npc-figure .npc-hit { display: block; height: 100%; padding: 0; border: 0; background: transparent; transform: scaleX(var(--npc-flip, 1)); pointer-events: none; cursor: pointer; filter: drop-shadow(0 10px 18px #000000a8); }
+.npc-figure .npc-hit > svg, .npc-figure .npc-hit > img { pointer-events: auto; }
 .npc-figure img, .npc-figure svg { display: block; height: 100%; width: auto; }
 .npc-dummy-shadow { fill: #00000066; }
 /* O contorno só aparece sob o mouse: fora disso, quem está na cena faz parte dela. */
 .npc-figure .npc-hit:hover { filter: drop-shadow(0 0 10px #d7df7788) drop-shadow(0 10px 18px #000000a8); }
-.npc-figure .npc-tag {
-  position: absolute; left: 50%; bottom: -1.35rem; transform: translateX(-50%) scaleX(var(--npc-flip, 1));
-  padding: .1rem .4rem; border: 1px solid #5f5f49; background: #070907d9;
-  color: var(--acid); font: .58rem "Courier New", monospace; letter-spacing: .1em; text-transform: uppercase;
-  opacity: 0; transition: opacity .18s; white-space: nowrap;
+/*
+ * A etiqueta com o nome. Ela não fica na tela o tempo todo: aparece quando o ponteiro
+ * encosta na pessoa e some quando ele sai. O ofício não aparece em lugar nenhum do
+ * jogo — ele é nota de quem monta o nível, e na cena era só mais texto sobre a arte.
+ */
+.npc-label {
+  position: absolute; top: 26%; z-index: 2; display: flex; align-items: flex-end;
+  opacity: 0; transition: opacity .28s ease; pointer-events: none;
 }
-.npc-figure .npc-hit:hover + .npc-tag { opacity: 1; }
-/* Falando, quem diz o nome é a etiqueta presa a ele: a legenda de baixo cala. */
-.npc-figure.talking .npc-tag { opacity: 0; }
+.npc-label[data-side="left"] { right: 50%; flex-direction: row; }
+.npc-label[data-side="right"] { left: 50%; flex-direction: row-reverse; }
+.npc-label b {
+  margin-bottom: 19px; padding: .25rem .5rem; border: 1px solid var(--acid); background: #060705c2;
+  color: var(--acid); font: .56rem/1.3 "Courier New", monospace; letter-spacing: .14em; text-transform: uppercase;
+  white-space: nowrap;
+}
+.npc-leader { width: 42px; height: 22px; }
+.npc-label[data-side="right"] .npc-leader { transform: scaleX(-1); }
+.npc-leader line { stroke: var(--acid); stroke-width: 1; opacity: .8; }
+.npc-dot { width: 7px; height: 7px; margin: 0 0 -3px -3px; border-radius: 50%; background: var(--acid); box-shadow: 0 0 8px #d7df7799; }
+.npc-label[data-side="right"] .npc-dot { margin: 0 -3px -3px 0; }
+.npc-hit:hover + .npc-label { opacity: 1; }
 .npc-figure.talking .npc-hit { filter: drop-shadow(0 0 14px #d7df7755) drop-shadow(0 10px 18px #000000a8); }
 
 /* A conversa cobre a cena por inteiro, mas quase tudo nela é transparente: o que
    importa é o balão sobre a pessoa, a etiqueta com o nome e a barra de respostas. */
-.dialogue-layer { position: absolute; z-index: 26; inset: 0; }
+/* A camada da conversa cobre a tela inteira, mas não intercepta o ponteiro: ela
+   engolia o hover da pessoa, e a etiqueta com o nome nunca aparecia durante a fala. */
+.dialogue-layer { position: absolute; z-index: 26; inset: 0; pointer-events: none; }
+.dialogue-bar { pointer-events: auto; }
 .ink-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
 
 /*
  * O balão. A largura tem um teto e a altura não tem nenhum: escrever mais faz o balão
- * crescer para cima (ou para baixo, quando a pessoa está no alto da cena), e nunca
+ * crescer para cima (ou para o lado, quando a pessoa está no alto da cena), e nunca
  * cortar o texto.
  *
- * O contorno é uma camada à parte, por baixo do texto, com um filtro de turbulência em
- * cima: a borda sai tremida, de caneta, e o que está escrito continua limpo. Filtrar o
- * balão inteiro deixaria as letras tortas junto.
+ * O traço é limpo e firme, de quadrinho — o contorno é a borda do próprio balão, sem
+ * filtro nenhum em cima. A versão anterior tremia o traço com turbulência e o
+ * resultado parecia rabiscado à mão, não desenhado.
  */
 .speech-balloon {
   position: absolute; z-index: 2; width: max-content; max-width: min(430px, 44vw); min-width: 170px;
-  padding: .9rem 1.15rem 1rem; color: #15140e;
-  transform: translate(-50%, calc(-100% - 26px)); animation: balloon-in .2s ease-out;
+  padding: .95rem 1.2rem 1rem; color: #15140e;
+  border: 3px solid #14130d; border-radius: 26px 30px 26px 30px / 30px 26px 30px 26px;
+  background: #f0ead6;
+  transform: translate(-50%, calc(-100% - 30px)); animation: balloon-in .2s ease-out;
   filter: drop-shadow(0 16px 34px #000000a8);
 }
 /*
@@ -90,48 +142,24 @@
  * Aqui ele é mais estreito do que em cima — de lado só existe meia tela para ele.
  */
 .speech-balloon[data-side="right"], .speech-balloon[data-side="left"] { max-width: min(360px, 38vw); }
-.speech-balloon[data-side="right"] { transform: translate(26px, -42%); }
-.speech-balloon[data-side="left"] { transform: translate(calc(-100% - 26px), -42%); }
-.balloon-ink {
-  position: absolute; z-index: -1; inset: 0;
-  border: 4px solid #14130d; border-radius: 30px 34px 28px 32px;
-  background: #f0ead6; filter: url(#balloon-rough);
-}
-/* A ponta é um quadrado girado com duas bordas: ela herda o mesmo filtro do contorno,
-   então a emenda com o balão sai irregular do mesmo jeito que o resto do traço. */
-.balloon-ink .balloon-tail {
-  position: absolute; left: 50%; bottom: -14px; width: 28px; height: 28px; margin-left: -14px;
-  background: #f0ead6; border-right: 4px solid #14130d; border-bottom: 4px solid #14130d;
-  transform: rotate(45deg);
-}
-.speech-balloon[data-side="right"] .balloon-ink .balloon-tail {
-  left: -14px; bottom: auto; top: 38%; margin: -14px 0 0;
-  border: 4px solid #14130d; border-top: 0; border-right: 0;
-}
-.speech-balloon[data-side="left"] .balloon-ink .balloon-tail {
-  left: auto; right: -14px; bottom: auto; top: 38%; margin: -14px 0 0;
-  border: 4px solid #14130d; border-left: 0; border-bottom: 0;
-}
-.speech-balloon p { margin: 0; font: .78rem/1.6 "Courier New", monospace; overflow-wrap: break-word; }
-/* A entrada mexe só na opacidade: o balão tem quatro posições possíveis, e animar a
-   transformação fazia a animação brigar com a posição e jogá-lo para o lugar errado. */
-@keyframes balloon-in { from { opacity: 0; } }
+.speech-balloon[data-side="right"] { transform: translate(30px, -42%); }
+.speech-balloon[data-side="left"] { transform: translate(calc(-100% - 30px), -42%); }
+.speech-balloon p { margin: 0; font: .86rem/1.55 var(--fala); overflow-wrap: break-word; }
 
 /*
- * A etiqueta do nome. Ela não entra no balão: fica presa à pessoa por um fio e um
- * ponto, como a legenda de uma foto de arquivo — o balão fica sendo só a fala.
+ * A ponta. O desenho dela aponta para baixo; nos balões de lado o mesmo desenho gira
+ * um quarto de volta, e a tira de creme do topo acompanha, cobrindo a borda do balão
+ * exatamente na largura da ponta.
  */
-.npc-nametag {
-  position: absolute; z-index: 2; display: grid; gap: .1rem; padding: .25rem .5rem;
-  border: 1px solid var(--acid); background: #06070599;
-  color: var(--acid); font: .56rem/1.3 "Courier New", monospace; letter-spacing: .14em; text-transform: uppercase;
-  white-space: nowrap; transform: translate(-100%, -50%); animation: balloon-in .2s ease-out;
-}
-.npc-nametag[data-side="right"] { transform: translate(0, -50%); }
-.npc-nametag em { color: #9a9a7a; font-size: .52rem; font-style: normal; letter-spacing: .1em; }
-.nametag-leader { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; }
-.nametag-leader line { stroke: var(--acid); stroke-width: 1; opacity: .75; }
-.nametag-dot { position: absolute; z-index: 2; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%; background: var(--acid); box-shadow: 0 0 8px #d7df7799; }
+.balloon-tail { position: absolute; width: 36px; height: 36px; overflow: hidden; }
+.balloon-tail path { fill: #f0ead6; stroke: #14130d; stroke-width: 3; stroke-linejoin: round; }
+.balloon-tail .tail-join { fill: #f0ead6; }
+.speech-balloon[data-side="above"] .balloon-tail { left: calc(50% - 18px); bottom: -33px; }
+.speech-balloon[data-side="right"] .balloon-tail { left: -33px; top: calc(42% - 18px); transform: rotate(90deg); }
+.speech-balloon[data-side="left"] .balloon-tail { right: -33px; top: calc(42% - 18px); transform: rotate(-90deg); }
+/* A entrada mexe só na opacidade: o balão tem três posições possíveis, e animar a
+   transformação fazia a animação brigar com a posição e jogá-lo para o lugar errado. */
+@keyframes balloon-in { from { opacity: 0; } }
 
 /* No teste do editor a barra sobe: embaixo dela ficam as saídas da sala. */
 .editor-playtest .dialogue-bar { bottom: 9rem; }
@@ -140,7 +168,7 @@
 .dialogue-answer {
   display: flex; align-items: baseline; gap: .6rem; width: 100%; padding: .6rem .8rem;
   border: 1px solid #5c5c48; border-left: 3px solid var(--acid); background: #0a0c0ae8;
-  color: #d8d6c4; font: .74rem/1.4 "Courier New", monospace; text-align: left; cursor: pointer;
+  color: #d8d6c4; font: .82rem/1.4 var(--fala); text-align: left; cursor: pointer;
 }
 .dialogue-answer:hover:not(:disabled) { background: #1a1e14; border-left-color: #f1f6a8; }
 .dialogue-answer small { flex: 0 0 auto; color: var(--yellow); font-size: .58rem; letter-spacing: .08em; text-transform: uppercase; }
@@ -165,12 +193,12 @@
 .history-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: .55rem; padding-right: .4rem; }
 .history-line { max-width: 86%; padding: .5rem .7rem; border: 1px solid #45453a; background: #0b0e0b; }
 .history-line small { display: block; margin-bottom: .22rem; color: #86866a; font: .56rem "Courier New", monospace; letter-spacing: .1em; text-transform: uppercase; }
-.history-line p { margin: 0; font: .76rem/1.5 "Courier New", monospace; }
+.history-line p { margin: 0; font: .84rem/1.5 var(--fala); }
 .history-line.npc { align-self: flex-start; border-left: 3px solid #8b8b6b; }
 /* A fala do jogador vem do outro lado, na cor dele: o histórico tem de se ler de longe. */
 .history-line.player { align-self: flex-end; border-right: 3px solid var(--acid); text-align: right; }
 .history-line.player small { color: var(--yellow); }
-.history-empty { margin: 0; color: #80806c; font: .74rem "Courier New", monospace; font-style: italic; }
+.history-empty { margin: 0; color: #80806c; font: .82rem var(--fala); font-style: italic; }
 
 /*
  * ============================================================
@@ -254,7 +282,7 @@
 .trade-interest span { color: #9a9d82; font: .58rem "Courier New", monospace; letter-spacing: .14em; text-transform: uppercase; }
 .trade-interest i { display: block; height: 10px; border: 1px solid #4a4d38; background: #0c0e08; }
 .trade-interest u { display: block; height: 100%; background: linear-gradient(90deg, #6d6a3a, var(--acid)); text-decoration: none; transition: width .18s; }
-.trade-feeling { margin: 0; color: #c9cbb4; font: .68rem/1.45 "Courier New", monospace; text-align: center; }
+.trade-feeling { margin: 0; color: #c9cbb4; font: .78rem/1.45 var(--fala); text-align: center; }
 .trade-warning { margin: 0; padding: .4rem .6rem; border-left: 3px solid var(--red); background: #1a0d0b; color: #e0b3ad; font: .64rem/1.4 "Courier New", monospace; }
 .trade-actions { display: flex; justify-content: center; gap: .6rem; }
 .trade-actions button { min-width: 150px; padding: .55rem 1rem; font: .7rem "Courier New", monospace; letter-spacing: .1em; text-transform: uppercase; }
