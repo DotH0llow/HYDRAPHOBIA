@@ -148,6 +148,11 @@ export interface EditorNpc {
   stock: InventoryEntry[];
   lines: EditorNpcLine[];
   voice: string;
+  /** Tamanho do balão em pixels; zero deixa o automático, que cresce com o texto. */
+  balloonWidth: number;
+  balloonHeight: number;
+  /** Opacidade do balão, de 0,2 a 1. */
+  balloonOpacity: number;
 }
 
 /** Onde um NPC está plantado dentro de uma cena. */
@@ -174,6 +179,7 @@ export const createNpcLine = (id: string, text = 'O que ele diz aqui.'): EditorN
 export const createNpc = (id: NpcId, lineId: string): EditorNpc => ({
   id, name: 'Alguém', title: '', art: '', personality: 'cordial', reputation: 55, trades: true,
   stock: [], lines: [createNpcLine(lineId, 'Você não deveria estar aqui.')], voice: '',
+  balloonWidth: 0, balloonHeight: 0, balloonOpacity: 1,
 });
 
 export interface EditorLight {
@@ -284,6 +290,8 @@ export interface EditorItem {
   effect: ItemEffect;
   effectAmount: number;
   image?: string;
+  /** O desenho a traço que vai para a carta de papel da mesa de trocas. */
+  drawing?: string;
   /** Quanto ele vale nas trocas. É a única moeda que o jogo tem. */
   value: number;
   /** Só na lanterna: segundos de luz com a bateria cheia. */
@@ -388,17 +396,27 @@ export const DEFAULT_ITEM_IMAGES: Readonly<Record<string, string>> = {
  * imagens: um projeto salvo antes de a economia existir recebe os valores ao abrir, em
  * vez de ver o cartão de acesso e o kit médico valendo o mesmo que uma tampa de lata.
  */
+/** A segunda arte dos itens de fábrica: o desenho que vai para a carta de troca. */
+export const DEFAULT_ITEM_DRAWINGS: Readonly<Record<string, string>> = {
+  accessCard: '/assets/items/desenho/accessCard.webp',
+  almondWater: '/assets/items/desenho/almondWater.webp',
+  ration: '/assets/items/desenho/ration.webp',
+  fuse: '/assets/items/desenho/fuse.webp',
+  medkit: '/assets/items/desenho/medkit.webp',
+  lantern: '/assets/items/desenho/lantern.webp',
+};
+
 export const DEFAULT_ITEM_VALUES: Readonly<Record<string, number>> = {
   accessCard: 6, almondWater: 4, ration: 4, fuse: 5, medkit: 9, lantern: 12,
 };
 
 export const DEFAULT_ITEMS: EditorItem[] = [
-  { id: 'accessCard', name: 'Cartão sem nome', icon: '▣', description: 'Um cartão magnético amarelado. A tarja ainda parece intacta.', useText: 'Ele deve abrir algum leitor próximo.', effect: 'none', effectAmount: 0, image: DEFAULT_ITEM_IMAGES.accessCard, value: 6 },
-  { id: 'almondWater', name: 'Água de amêndoas', icon: '◒', description: 'Uma garrafa lacrada. O líquido tem um cheiro doce e vagamente familiar.', useText: 'A sede recua. Por enquanto.', effect: 'hydrate', effectAmount: 58, image: DEFAULT_ITEM_IMAGES.almondWater, value: 4 },
-  { id: 'ration', name: 'Ração selada', icon: '▰', description: 'Uma barra de emergência dura, mas ainda comestível.', useText: 'Sem gosto. Ainda assim, alimento.', effect: 'feed', effectAmount: 48, image: DEFAULT_ITEM_IMAGES.ration, value: 4 },
-  { id: 'fuse', name: 'Fusível industrial', icon: '⌁', description: 'Pesado demais para o tamanho. Os contatos não estão oxidados.', useText: 'Talvez pertença a um painel elétrico.', effect: 'none', effectAmount: 0, value: 5 },
-  { id: 'medkit', name: 'Kit de primeiros socorros', icon: '✚', description: 'Gaze, antisséptico e analgésicos dentro do prazo.', useText: 'Os ferimentos foram tratados.', effect: 'heal', effectAmount: 52, image: DEFAULT_ITEM_IMAGES.medkit, value: 9 },
-  { id: 'lantern', name: 'Lanterna de mão', icon: '⌾', description: 'Corpo de borracha gasto e uma lente trincada. A pilha ainda tem carga.', useText: 'Ela acende sozinha onde está escuro, e se apaga onde não precisa.', effect: 'light', effectAmount: 0, image: DEFAULT_ITEM_IMAGES.lantern, value: 12, batterySeconds: 240 },
+  { id: 'accessCard', name: 'Cartão sem nome', icon: '▣', description: 'Um cartão magnético amarelado. A tarja ainda parece intacta.', useText: 'Ele deve abrir algum leitor próximo.', effect: 'none', effectAmount: 0, image: DEFAULT_ITEM_IMAGES.accessCard, drawing: DEFAULT_ITEM_DRAWINGS.accessCard, value: 6 },
+  { id: 'almondWater', name: 'Água de amêndoas', icon: '◒', description: 'Uma garrafa lacrada. O líquido tem um cheiro doce e vagamente familiar.', useText: 'A sede recua. Por enquanto.', effect: 'hydrate', effectAmount: 58, image: DEFAULT_ITEM_IMAGES.almondWater, drawing: DEFAULT_ITEM_DRAWINGS.almondWater, value: 4 },
+  { id: 'ration', name: 'Ração selada', icon: '▰', description: 'Uma barra de emergência dura, mas ainda comestível.', useText: 'Sem gosto. Ainda assim, alimento.', effect: 'feed', effectAmount: 48, image: DEFAULT_ITEM_IMAGES.ration, drawing: DEFAULT_ITEM_DRAWINGS.ration, value: 4 },
+  { id: 'fuse', name: 'Fusível industrial', icon: '⌁', description: 'Pesado demais para o tamanho. Os contatos não estão oxidados.', useText: 'Talvez pertença a um painel elétrico.', effect: 'none', effectAmount: 0, drawing: DEFAULT_ITEM_DRAWINGS.fuse, value: 5 },
+  { id: 'medkit', name: 'Kit de primeiros socorros', icon: '✚', description: 'Gaze, antisséptico e analgésicos dentro do prazo.', useText: 'Os ferimentos foram tratados.', effect: 'heal', effectAmount: 52, image: DEFAULT_ITEM_IMAGES.medkit, drawing: DEFAULT_ITEM_DRAWINGS.medkit, value: 9 },
+  { id: 'lantern', name: 'Lanterna de mão', icon: '⌾', description: 'Corpo de borracha gasto e uma lente trincada. A pilha ainda tem carga.', useText: 'Ela acende sozinha onde está escuro, e se apaga onde não precisa.', effect: 'light', effectAmount: 0, image: DEFAULT_ITEM_IMAGES.lantern, drawing: DEFAULT_ITEM_DRAWINGS.lantern, value: 12, batterySeconds: 240 },
 ];
 
 export const DEFAULT_ENTITIES: EditorEntity[] = [

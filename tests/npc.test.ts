@@ -230,3 +230,51 @@ describe('pessoas no editor', () => {
     expect(runtime[npc.id]!.stock).toEqual([{ id: 'medkit', quantity: 2 }]);
   });
 });
+
+describe('o balão de cada pessoa', () => {
+  it('nasce automático e guarda o tamanho e a opacidade escolhidos', () => {
+    const storage = new MemoryStorage();
+    const project = new EditorProject(storage);
+    const npc = project.addNpc();
+    // Zero nos dois tamanhos é o automático: a largura vai até um teto e a altura segue o texto.
+    expect(npc.balloonWidth).toBe(0);
+    expect(npc.balloonHeight).toBe(0);
+    expect(npc.balloonOpacity).toBe(1);
+
+    npc.balloonWidth = 320;
+    npc.balloonHeight = 160;
+    npc.balloonOpacity = 0.7;
+    project.save();
+    const voltou = new EditorProject(storage).findNpc(npc.id)!;
+    expect([voltou.balloonWidth, voltou.balloonHeight, voltou.balloonOpacity]).toEqual([320, 160, 0.7]);
+  });
+
+  it('o automático não vira medida nenhuma no jogo', () => {
+    const project = new EditorProject(null);
+    const npc = project.addNpc();
+    const automatico = npcsToRuntime(project.data.npcs)[npc.id]!;
+    expect(automatico.balloonWidth).toBeUndefined();
+    expect(automatico.balloonHeight).toBeUndefined();
+    // Opacidade cheia também não precisa atravessar: é o padrão do desenho.
+    expect(automatico.balloonOpacity).toBeUndefined();
+
+    npc.balloonWidth = 300;
+    npc.balloonOpacity = 0.5;
+    const escolhido = npcsToRuntime(project.data.npcs)[npc.id]!;
+    expect(escolhido.balloonWidth).toBe(300);
+    expect(escolhido.balloonOpacity).toBe(0.5);
+  });
+
+  it('a opacidade fica entre 0,2 e 1, e a largura não passa do limite', () => {
+    const project = new EditorProject(null, {
+      version: 1, name: 'x', activeLevelId: 'n', updatedAt: '',
+      levels: [{ id: 'n', name: 'N', startRoomId: 's', rooms: [{ id: 's', name: 'S', code: '', description: '', image: '', position: { x: 0, y: 0 }, hotspots: [] }], connections: [] }],
+      items: [], entities: [],
+      npcs: [{ id: 'alguem', name: 'Alguém', balloonWidth: 9999, balloonHeight: -40, balloonOpacity: 0.01 }],
+    } as never);
+    const npc = project.findNpc('alguem')!;
+    expect(npc.balloonWidth).toBe(1200);
+    expect(npc.balloonHeight).toBe(0);
+    expect(npc.balloonOpacity).toBe(0.2);
+  });
+});

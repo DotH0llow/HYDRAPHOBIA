@@ -7,6 +7,7 @@ import { DEFAULT_PATH_POSITIONS, defaultArrowRotation } from '../config/paths';
 import { DEFAULT_PREFERENCES } from '../systems/SaveSystem';
 import { labelAnchorOf } from '../systems/hotspots';
 import { localSyncAvailable, pushToRepository } from '../systems/localSync';
+import { SANDBOX } from '../config/storage';
 import { roomMediaMarkup, sceneFrameStyle } from '../systems/roomView';
 import { challengeMarkup, dialogueMarkup, historyMarkup, npcSceneMarkup } from '../ui/npcViews';
 import type { EncounterAction, ItemId } from '../types';
@@ -204,7 +205,7 @@ export class EditorApp {
     return `<main class="editor-shell">
       <header class="editor-topbar">
         <div class="editor-brand"><a href="/" aria-label="Voltar ao jogo">HYDRAPHOBIA</a><span>Editor visual de salas</span></div>
-        <div class="editor-status"><i></i><span>Salvamento local automático</span><small>${this.project.data.updatedAt ? new Date(this.project.data.updatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'novo mapa'}</small></div>
+        <div class="editor-status ${SANDBOX ? 'isolated' : ''}"><i></i><span>${SANDBOX ? 'Modo isolado — nada daqui chega ao projeto' : 'Salvamento local automático'}</span><small>${this.project.data.updatedAt ? new Date(this.project.data.updatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'novo mapa'}</small></div>
         <nav>
           <button data-action="panel-map" class="${this.activePanel === 'map' ? 'primary' : ''}">Mapa</button>
           <button data-action="panel-items" class="${this.activePanel === 'items' ? 'primary' : ''}">Itens</button>
@@ -783,6 +784,9 @@ export class EditorApp {
       <label><span>Ícone (texto/emoji)</span><input data-item-field="icon" value="${esc(item.icon)}" maxlength="4" /></label>
       <label><span>Imagem (opcional, substitui o ícone)</span><div class="input-with-browse"><input data-item-field="image" value="${esc(item.image ?? '')}" placeholder="/assets/items/exemplo.png" /><button type="button" data-action="browse-file" data-target-field="item-image" data-accept="image/*">Procurar</button></div></label>
       ${item.image ? `<div class="image-preview"><img src="${esc(item.image)}" alt="Prévia de ${esc(item.name)}" /><span>${esc(item.image)}</span></div>` : ''}
+      <label><span>Desenho para a mesa de trocas</span><div class="input-with-browse"><input data-item-field="drawing" value="${esc(item.drawing ?? '')}" placeholder="/assets/items/desenho/exemplo.webp" /><button type="button" data-action="browse-file" data-target-field="item-drawing" data-accept="image/*">Procurar</button></div></label>
+      <p class="panel-hint">A carta de troca é um recorte de papel, e a foto escura do item some nele. Este é o segundo desenho do item — traço preto sobre fundo branco, como uma gravura. Todo item novo precisa do seu; sem ele, a carta mostra a foto invertida, que fica borrada.</p>
+      ${item.drawing ? `<div class="image-preview light"><img src="${esc(item.drawing)}" alt="Prévia do desenho de ${esc(item.name)}" /><span>${esc(item.drawing)}</span></div>` : ''}
       <label><span>Descrição</span><textarea data-item-field="description" rows="3">${esc(item.description)}</textarea></label>
       <label><span>Texto ao usar</span><textarea data-item-field="useText" rows="2">${esc(item.useText)}</textarea></label>
       <label><span>Efeito ao usar</span><select data-item-field="effect"><option value="none" ${item.effect === 'none' ? 'selected' : ''}>Nenhum (item de cenário)</option><option value="heal" ${item.effect === 'heal' ? 'selected' : ''}>Cura vida</option><option value="hydrate" ${item.effect === 'hydrate' ? 'selected' : ''}>Mata a sede</option><option value="feed" ${item.effect === 'feed' ? 'selected' : ''}>Mata a fome</option><option value="light" ${item.effect === 'light' ? 'selected' : ''}>Ilumina (lanterna com pilha)</option></select></label>
@@ -904,6 +908,16 @@ export class EditorApp {
       ${npc.art ? `<div class="image-preview"><img src="${esc(npc.art)}" alt="Prévia de ${esc(npc.name)}" /><span>${esc(npc.art)}</span></div>` : '<p class="panel-hint">Em branco, o jogo desenha o boneco de teste em SVG — um manequim de madeira, sem rosto. Ele serve para a cena já poder ser jogada antes de a arte existir.</p>'}
       <label><span>Som a cada fala (opcional)</span><div class="input-with-browse"><input data-npc-field="voice" list="hotspot-sound-files" value="${esc(npc.voice)}" placeholder="/assets/audio/FX/..." />${this.listenButtons()}</div></label>
       <datalist id="hotspot-sound-files">${this.audioFiles.map((file) => `<option value="${esc(file)}"></option>`).join('')}</datalist>
+      <section class="property-section">
+        <div class="panel-title"><span>Balão de fala</span></div>
+        <div class="field-row">
+          <label><span>Largura (px)</span><input type="number" min="0" max="1200" step="10" data-npc-field="balloonWidth" value="${npc.balloonWidth}" /></label>
+          <label><span>Altura (px)</span><input type="number" min="0" max="900" step="10" data-npc-field="balloonHeight" value="${npc.balloonHeight}" /></label>
+        </div>
+        <p class="panel-hint">Zero em qualquer um dos dois devolve o automático: a largura vai até um teto e a altura acompanha o texto. Fixe-os para quem fala sempre a mesma quantidade de coisa, ou para um balão que precisa caber num canto apertado da cena.</p>
+        <label><span>Opacidade</span><div class="slider-row"><input type="range" min="0.2" max="1" step="0.05" data-npc-field="balloonOpacity" value="${npc.balloonOpacity}" /><b data-role="npc-balloon-opacity">${Math.round(npc.balloonOpacity * 100)}%</b></div></label>
+        <p class="panel-hint">Abaixo de 100% a cena aparece através do balão — e o texto clareia junto, então vá com cuidado.</p>
+      </section>
       <section class="property-section">
         <div class="panel-title"><span>Negócio</span></div>
         <label><span>Personalidade</span><select data-npc-field="personality">${NPC_PERSONALITIES.map((entry) => `<option value="${entry.id}" ${npc.personality === entry.id ? 'selected' : ''}>${esc(entry.label)}</option>`).join('')}</select></label>
@@ -1103,6 +1117,10 @@ export class EditorApp {
       else if (input.dataset?.sceneField) this.applySceneField(input);
       else if (input.dataset?.roomAudioField === 'volume') {
         const readout = this.root.querySelector<HTMLElement>('[data-role="room-audio-volume"]');
+        if (readout) readout.textContent = `${Math.round(Number(input.value) * 100)}%`;
+      }
+      else if (input.dataset?.npcField === 'balloonOpacity') {
+        const readout = this.root.querySelector<HTMLElement>('[data-role="npc-balloon-opacity"]');
         if (readout) readout.textContent = `${Math.round(Number(input.value) * 100)}%`;
       }
       else if (input.dataset?.npcField === 'reputation') {
@@ -1686,6 +1704,7 @@ export class EditorApp {
       const target = this.browseTarget;
       if (target === 'room-image' && this.selectedRoom) { this.selectedRoom.image = objectUrl; this.project.save(); }
       else if (target === 'item-image' && this.selectedItem) { this.selectedItem.image = objectUrl; this.project.save(); }
+      else if (target === 'item-drawing' && this.selectedItem) { this.selectedItem.drawing = objectUrl; this.project.save(); }
       else if (target === 'entity-image' && this.selectedEntity) { this.selectedEntity.image = objectUrl; this.project.save(); }
       else if (target === 'entity-scene' && this.selectedEntity) { this.selectedEntity.heartWall = objectUrl; this.project.save(); }
       else if (target === 'npc-art' && this.selectedNpc) { this.selectedNpc.art = objectUrl; this.project.save(); }
@@ -1733,6 +1752,7 @@ export class EditorApp {
       else if (itemField === 'batterySeconds') item.batterySeconds = clamp(Number(input.value), 10, 7200);
       else if (itemField === 'effect') item.effect = input.value as EditorItem['effect'];
       else if (itemField === 'image') item.image = input.value || undefined;
+      else if (itemField === 'drawing') item.drawing = input.value || undefined;
       else if (itemField === 'name' || itemField === 'icon' || itemField === 'description' || itemField === 'useText') item[itemField] = input.value;
       this.project.save(); this.render();
       return;
@@ -1826,6 +1846,9 @@ export class EditorApp {
     if (field) {
       if (field === 'trades') npc.trades = (input as HTMLInputElement).checked;
       else if (field === 'reputation') npc.reputation = clamp(Math.round(Number(input.value)), 0, 100);
+      else if (field === 'balloonWidth') npc.balloonWidth = clamp(Math.round(Number(input.value)), 0, 1200);
+      else if (field === 'balloonHeight') npc.balloonHeight = clamp(Math.round(Number(input.value)), 0, 900);
+      else if (field === 'balloonOpacity') npc.balloonOpacity = clamp(Number(input.value), 0.2, 1);
       else if (field === 'personality') {
         npc.personality = input.value as EditorNpc['personality'];
         // Trocar a personalidade traz a reputação dela: é para isso que ela existe.

@@ -1,4 +1,4 @@
-import { EDITOR_STORAGE_KEY, SAVE_STORAGE_KEY } from '../config/storage';
+import { EDITOR_STORAGE_KEY, SANDBOX, SAVE_STORAGE_KEY } from '../config/storage';
 
 /**
  * A cópia local do projeto, mantida em disco dentro do repositório.
@@ -14,7 +14,8 @@ import { EDITOR_STORAGE_KEY, SAVE_STORAGE_KEY } from '../config/storage';
  * `main`.
  *
  * Fora do servidor de desenvolvimento nada disto acontece — todas as funções saem
- * caladas e o jogo continua inteiro no `localStorage`.
+ * caladas e o jogo continua inteiro no `localStorage`. No modo isolado (`?isolado`)
+ * também não: lá o trabalho é descartável de propósito e não deve chegar ao disco.
  */
 
 type SyncFile = 'project' | 'progress';
@@ -31,7 +32,8 @@ const WRITE_DELAY_MS = 700;
  * A ponte só existe num navegador rodando o servidor de desenvolvimento. Nos testes e
  * no build estático não há `window` nem servidor, e tudo aqui vira um gesto vazio.
  */
-const available = (): boolean => typeof window !== 'undefined'
+const available = (): boolean => !SANDBOX
+  && typeof window !== 'undefined'
   && typeof fetch === 'function'
   && typeof import.meta !== 'undefined'
   && import.meta.env?.DEV === true;

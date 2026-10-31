@@ -435,3 +435,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .room-npc > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: .35rem; }
 .room-npc > header b { color: var(--acid); font-size: .7rem; }
 .room-npc > header button { width: 24px; height: 24px; padding: 0; font-size: .8rem; line-height: 1; }
+
+/* O aviso do modo isolado: o que se faz nele não existe para o projeto de verdade. */
+.editor-status.isolated { border: 1px solid var(--danger); background: #1d0f0c; color: #e0b3ad; padding: .2rem .6rem; }
+.editor-status.isolated i { background: var(--danger); }
+
+/* O desenho do item é traço preto sobre branco: a prévia dele precisa de fundo claro. */
+.image-preview.light img { background: #e9e3c8; }

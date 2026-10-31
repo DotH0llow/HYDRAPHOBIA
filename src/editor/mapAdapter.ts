@@ -161,7 +161,7 @@ export const projectToWorld = (levels: readonly EditorLevel[], activeLevelId: st
 export const itemsToRuntime = (items: EditorItem[]): Record<ItemId, ItemDefinition> => {
   const result: Record<ItemId, ItemDefinition> = {};
   items.forEach((item) => {
-    result[item.id] = { name: item.name, icon: item.icon, description: item.description, useText: item.useText, effect: item.effect, effectAmount: item.effectAmount, image: item.image, value: item.value, batterySeconds: item.batterySeconds };
+    result[item.id] = { name: item.name, icon: item.icon, description: item.description, useText: item.useText, effect: item.effect, effectAmount: item.effectAmount, image: item.image, drawing: item.drawing, value: item.value, batterySeconds: item.batterySeconds };
   });
   return result;
 };
@@ -194,6 +194,9 @@ export const npcsToRuntime = (npcs: EditorNpc[]): Record<NpcId, NpcDefinition> =
       trades: npc.trades,
       stock: npc.stock.map((entry) => ({ ...entry })),
       voice: npc.voice || undefined,
+      balloonWidth: npc.balloonWidth || undefined,
+      balloonHeight: npc.balloonHeight || undefined,
+      balloonOpacity: npc.balloonOpacity < 1 ? npc.balloonOpacity : undefined,
       lines: npc.lines.map((line) => ({
         id: line.id,
         text: line.text,

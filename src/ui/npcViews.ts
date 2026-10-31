@@ -70,6 +70,18 @@ const npcAnchor = (game: Game, npcId: NpcId): { entry: RoomNpc | undefined; x: n
 };
 
 /**
+ * O tamanho e a opacidade do balão, quando a pessoa pediu os seus. Cada um é opcional
+ * por conta própria: dá para fixar só a largura e deixar a altura seguir o texto.
+ */
+const balloonStyle = (npc: NpcDefinition): string => {
+  const parts: string[] = [];
+  if (npc.balloonWidth) parts.push(`--balao-largura:${npc.balloonWidth}px`);
+  if (npc.balloonHeight) parts.push(`--balao-altura:${npc.balloonHeight}px`);
+  if (typeof npc.balloonOpacity === 'number' && npc.balloonOpacity < 1) parts.push(`--balao-opacidade:${npc.balloonOpacity}`);
+  return parts.length > 0 ? `;${parts.join(';')}` : '';
+};
+
+/**
  * A ponta do balão. Ela é desenhada, e não uma caixa girada: o traço afina até o bico,
  * como numa HQ. A tira de creme no topo cobre a borda do balão na largura da ponta —
  * é ela que faz as duas peças parecerem uma só, sem emenda.
@@ -97,7 +109,7 @@ export const dialogueMarkup = (game: Game, items: ItemLibrary): string => {
   if (dialogue.trading) return tradeMarkup(game, items, definition);
   const { x, y, side } = npcAnchor(game, dialogue.npcId);
   return `<div class="dialogue-layer">
-    <article class="speech-balloon" data-side="${side}" style="left:${x}%;top:${y}%">
+    <article class="speech-balloon" data-side="${side}" style="left:${x}%;top:${y}%${balloonStyle(definition)}">
       <p data-role="balloon-text">${esc(line.text)}</p>
       ${BALLOON_TAIL}
     </article>
@@ -125,12 +137,14 @@ export const dialogueMarkup = (game: Game, items: ItemLibrary): string => {
  * "Itens de O homem do carrinho" não é português. Quando o nome começa com artigo, a
  * preposição se junta a ele — e quase todo nome de NPC deste jogo começa com artigo.
  */
-const ownerLabel = (name: string): string => {
+const ownerOf = (name: string): string => {
   const parts = /^(O|A|Os|As)\s+(.+)$/.exec(name.trim());
-  if (!parts) return `Itens de ${name}`;
+  if (!parts) return `de ${name}`;
   const joined = ({ O: 'do', A: 'da', Os: 'dos', As: 'das' } as Record<string, string>)[parts[1]!]!;
-  return `Itens ${joined} ${parts[2]}`;
+  return `${joined} ${parts[2]}`;
 };
+
+const ownerLabel = (name: string): string => `Itens ${ownerOf(name)}`;
 
 /**
  * Molduras desenhadas à mão.
@@ -155,6 +169,17 @@ const roughFrame = (seed = 0, extra = ''): string => {
   </svg>`;
 };
 
+/**
+ * Riscos de giz soltos nas bordas da chapa. Eles não querem dizer nada — é alguém que
+ * testou a ponta do giz antes de escrever, e é isso que faz o quadro parecer usado.
+ */
+const SCRIBBLES = `<svg class="trade-scribbles" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+  <path d="M3 18 C 8 14, 12 21, 17 16" /><path d="M2 26 C 9 24, 13 29, 20 25" />
+  <path d="M4 72 C 10 66, 9 78, 15 71" /><path d="M2 84 C 11 80, 14 88, 22 83" />
+  <path d="M80 10 C 87 6, 92 13, 98 8" /><path d="M84 88 C 90 82, 94 92, 99 86" />
+  <path d="M34 93 C 41 89, 46 96, 53 91" />
+</svg>`;
+
 /** A seta grossa que separa o que sai do que entra, na mesa de trocas. */
 const DEAL_ARROW = `<svg class="deal-arrow" viewBox="0 0 54 34" aria-hidden="true"><path d="M1.5 12.5 C 12 11.8, 22 12.2, 31 11.6 L 24.5 1.5 L 52.5 17.2 L 25 33 L 31.5 22.4 C 22 21.8, 12 22.2, 1.8 21.6 Z" /></svg>`;
 
@@ -168,6 +193,18 @@ const DEAL_ARROW = `<svg class="deal-arrow" viewBox="0 0 54 34" aria-hidden="tru
  * fotografias; as molduras e a seta são desenhadas aqui. A arte de cada item entra
  * invertida no papel, imprimindo como desenho a traço em vez de foto colada.
  */
+/**
+ * A arte do item dentro da carta de papel. O certo é o desenho a traço, preto sobre
+ * branco: ele multiplica no papel e some o branco, imprimindo como uma gravura. Sem
+ * desenho, resta inverter a foto escura do inventário — funciona, mas borra, e é por
+ * isso que o editor cobra um desenho de todo item novo.
+ */
+const itemArt = (item: ItemDefinition): string => {
+  if (item.drawing) return `<span class="card-art"><img class="art-drawing" src="${esc(item.drawing)}" alt="" /></span>`;
+  if (item.image) return `<span class="card-art"><img class="art-photo" src="${esc(item.image)}" alt="" /></span>`;
+  return `<span class="card-art"><em>${esc(item.icon)}</em></span>`;
+};
+
 export const tradeMarkup = (game: Game, items: ItemLibrary, definition: NpcDefinition): string => {
   const dialogue = game.dialogue!;
   const memory = game.npcMemory(dialogue.npcId);
@@ -184,7 +221,7 @@ export const tradeMarkup = (game: Game, items: ItemLibrary, definition: NpcDefin
     return `<button class="trade-card${chosen ? ' chosen' : ''}${onTable > 0 ? ' on-table' : ''}" style="--tilt:${(index % 3) - 1}"
       data-action="trade-pick" data-test-action="trade-pick" data-side="${side}" data-item="${esc(id)}"
       aria-pressed="${chosen}" title="${esc(item.name)} · ${side === 'ask' ? 'ele cobra' : 'ele paga'} ${price}">
-      <span class="card-art">${item.image ? `<img src="${esc(item.image)}" alt="" />` : `<em>${esc(item.icon)}</em>`}</span>
+      ${itemArt(item)}
       <b>${esc(item.name)}</b>
       <i class="card-price">${price}</i>
       <em class="card-count">${available}</em>
@@ -196,7 +233,7 @@ export const tradeMarkup = (game: Game, items: ItemLibrary, definition: NpcDefin
     const item = items[entry.id];
     if (!item) return '';
     return `<button class="deal-card" style="--tilt:${(index % 3) - 1}" data-action="trade-adjust" data-test-action="trade-adjust" data-side="${side}" data-item="${esc(entry.id)}" data-amount="-1" title="Tirar ${esc(item.name)} da mesa">
-      <span class="card-art">${item.image ? `<img src="${esc(item.image)}" alt="" />` : `<em>${esc(item.icon)}</em>`}</span>
+      ${itemArt(item)}
       <em class="card-count">${entry.quantity}</em>
     </button>`;
   };
@@ -213,12 +250,13 @@ export const tradeMarkup = (game: Game, items: ItemLibrary, definition: NpcDefin
     `<button class="trade-action${forte ? ' strong' : ''}" data-action="${action}" data-test-action="${action}"${ligado ? '' : ' disabled'}>${roughFrame(label.length)}<span>${esc(label)}</span></button>`;
 
   return `<div class="trade-layer" role="dialog" aria-label="Troca com ${esc(definition.name)}">
+    <div class="trade-plate" aria-hidden="true"></div>
+    ${SCRIBBLES}
     <section class="trade-board">
       <header class="trade-top">
         <h2 class="paper-note trade-title"><span>Troca improvisada</span></h2>
         <button class="trade-close" data-action="trade-close" data-test-action="trade-close" aria-label="Fechar a troca">&times;</button>
       </header>
-      <div class="trade-middle">
       <div class="trade-grid">
         <section class="trade-col">
           ${roughFrame(0)}
@@ -235,7 +273,7 @@ export const tradeMarkup = (game: Game, items: ItemLibrary, definition: NpcDefin
             <div class="deal-side">${dialogue.ask.map((entry, index) => tableCard('ask', entry, index)).join('') || '<i class="deal-slot"></i>'}</div>
           </div>
           <div class="trade-interest">
-            <span>Interesse na troca</span>
+            <span>Interesse ${esc(ownerOf(definition.name))}</span>
             <i>${roughFrame(0)}<u style="width:${interest}%" data-role="trade-interest"></u></i>
           </div>
           <p class="trade-feeling">${esc(game.tradeFeeling)}</p>
@@ -253,7 +291,6 @@ export const tradeMarkup = (game: Game, items: ItemLibrary, definition: NpcDefin
         ${acao('trade-confirm', 'Confirmar troca', enough && chose, true)}
         ${acao('trade-close', 'Fechar', true)}
       </footer>
-      </div>
     </section>
   </div>`;
 };

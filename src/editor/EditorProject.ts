@@ -5,7 +5,7 @@ import type { CutsceneMediaType, EncounterAction, HotspotVisibility } from '../t
 import { EDITOR_STORAGE_KEY } from '../config/storage';
 import { isLightShape } from '../systems/lighting';
 import { syncToDisk } from '../systems/localSync';
-import { createChallenge, createChallengeOutcome, createNpc, createNpcAnswer, createNpcLine, createRoomNpc, DEFAULT_ENTITIES, DEFAULT_ITEM_IMAGES, DEFAULT_ITEM_VALUES, DEFAULT_ITEMS, detectMediaType, isFullRoomView } from './types';
+import { createChallenge, createChallengeOutcome, createNpc, createNpcAnswer, createNpcLine, createRoomNpc, DEFAULT_ENTITIES, DEFAULT_ITEM_DRAWINGS, DEFAULT_ITEM_IMAGES, DEFAULT_ITEM_VALUES, DEFAULT_ITEMS, detectMediaType, isFullRoomView } from './types';
 import type { EditorChallenge, EditorChallengeOutcome, EditorConnection, EditorEntity, EditorHotspot, EditorHotspotAction, EditorItem, EditorLevel, EditorLight, EditorNpc, EditorNpcAnswer, EditorNpcLine, EditorProjectData, EditorRoom, EditorRoomMedia, EditorRoomNpc, EditorRoomView } from './types';
 
 export { EDITOR_STORAGE_KEY } from '../config/storage';
@@ -810,6 +810,8 @@ export class EditorProject {
       effectAmount: effect === 'none' || effect === 'light' ? 0 : number(item.effectAmount, 20, 1, 100),
       // Um mapa salvo antes das artes existirem ganha a imagem padrão do item.
       image: typeof item.image === 'string' && item.image ? item.image : DEFAULT_ITEM_IMAGES[id],
+      // Como a imagem: um projeto gravado antes do desenho existir recebe o dele.
+      drawing: typeof item.drawing === 'string' && item.drawing ? item.drawing : DEFAULT_ITEM_DRAWINGS[id],
       // Um item sem valor escrito vale 1 — nada no jogo é de graça, nem o que não serve.
       // Os itens de fábrica recebem o valor deles, e não o mínimo, ao abrir um projeto
       // gravado antes de a economia existir.
@@ -960,6 +962,10 @@ export class EditorProject {
       }) : [],
       lines: lines.length > 0 ? lines : [createNpcLine(createId('fala'))],
       voice: typeof raw.voice === 'string' ? raw.voice.trim() : '',
+      // Zero é o automático; abaixo de 120px o balão não caberia nem uma linha.
+      balloonWidth: Math.round(number(raw.balloonWidth, 0, 0, 1200)) || 0,
+      balloonHeight: Math.round(number(raw.balloonHeight, 0, 0, 900)) || 0,
+      balloonOpacity: number(raw.balloonOpacity, 1, 0.2, 1),
     }];
   }
 

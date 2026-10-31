@@ -139,6 +139,16 @@ export interface NpcDefinition {
   lines: NpcLine[];
   /** Som curto a cada fala dele. */
   voice?: string;
+  /**
+   * O balão desta pessoa. Zero em qualquer um dos dois tamanhos devolve o automático:
+   * a largura vai até um teto e a altura acompanha o texto. Fixá-los serve para quem
+   * fala sempre a mesma quantidade de coisa, ou para um balão que precisa caber num
+   * canto apertado da cena.
+   */
+  balloonWidth?: number;
+  balloonHeight?: number;
+  /** De 0,2 a 1. Um balão mais apagado deixa a cena aparecer através dele. */
+  balloonOpacity?: number;
 }
 
 /** Onde um NPC está plantado dentro de uma cena, em % dela. */
@@ -242,6 +252,12 @@ export interface ItemDefinition {
   effectAmount: number;
   image?: string;
   /**
+   * A segunda arte do item: o desenho a traço que vai para a carta de papel da mesa
+   * de trocas. A foto do inventário não serve lá — ela é escura e some no papel —, e
+   * inverter a foto dava um borrão. Ausente, a carta cai de volta na foto invertida.
+   */
+  drawing?: string;
+  /**
    * Quanto este item vale na troca. Não existe dinheiro no jogo: o preço de tudo é
    * medido nesta escala, e quem compra entrega itens que somem o valor pedido.
    */
@@ -309,12 +325,12 @@ export interface EntityDefinition {
 }
 
 export const ITEMS: Record<ItemId, ItemDefinition> = {
-  accessCard: { name: 'Cartão sem nome', icon: '▣', description: 'Um cartão magnético amarelado. A tarja ainda parece intacta.', useText: 'Ele deve abrir algum leitor próximo.', effect: 'none', effectAmount: 0, image: '/assets/items/accessCard.webp', value: 6 },
-  almondWater: { name: 'Água de amêndoas', icon: '◒', description: 'Uma garrafa lacrada. O líquido tem um cheiro doce e vagamente familiar.', useText: 'A sede recua. Por enquanto.', effect: 'hydrate', effectAmount: 58, image: '/assets/items/almondWater.webp', value: 4 },
-  ration: { name: 'Ração selada', icon: '▰', description: 'Uma barra de emergência dura, mas ainda comestível.', useText: 'Sem gosto. Ainda assim, alimento.', effect: 'feed', effectAmount: 48, image: '/assets/items/ration.webp', value: 4 },
-  fuse: { name: 'Fusível industrial', icon: '⌁', description: 'Pesado demais para o tamanho. Os contatos não estão oxidados.', useText: 'Talvez pertença a um painel elétrico.', effect: 'none', effectAmount: 0, value: 5 },
-  medkit: { name: 'Kit de primeiros socorros', icon: '✚', description: 'Gaze, antisséptico e analgésicos dentro do prazo.', useText: 'Os ferimentos foram tratados.', effect: 'heal', effectAmount: 52, image: '/assets/items/medkit.webp', value: 9 },
-  lantern: { name: 'Lanterna de mão', icon: '⌾', description: 'Corpo de borracha gasto e uma lente trincada. A pilha ainda tem carga.', useText: 'Ela acende sozinha onde está escuro, e se apaga onde não precisa.', effect: 'light', effectAmount: 0, image: '/assets/items/lantern.webp', value: 12, batterySeconds: 240 },
+  accessCard: { name: 'Cartão sem nome', icon: '▣', description: 'Um cartão magnético amarelado. A tarja ainda parece intacta.', useText: 'Ele deve abrir algum leitor próximo.', effect: 'none', effectAmount: 0, image: '/assets/items/accessCard.webp', drawing: '/assets/items/desenho/accessCard.webp', value: 6 },
+  almondWater: { name: 'Água de amêndoas', icon: '◒', description: 'Uma garrafa lacrada. O líquido tem um cheiro doce e vagamente familiar.', useText: 'A sede recua. Por enquanto.', effect: 'hydrate', effectAmount: 58, image: '/assets/items/almondWater.webp', drawing: '/assets/items/desenho/almondWater.webp', value: 4 },
+  ration: { name: 'Ração selada', icon: '▰', description: 'Uma barra de emergência dura, mas ainda comestível.', useText: 'Sem gosto. Ainda assim, alimento.', effect: 'feed', effectAmount: 48, image: '/assets/items/ration.webp', drawing: '/assets/items/desenho/ration.webp', value: 4 },
+  fuse: { name: 'Fusível industrial', icon: '⌁', description: 'Pesado demais para o tamanho. Os contatos não estão oxidados.', useText: 'Talvez pertença a um painel elétrico.', effect: 'none', effectAmount: 0, drawing: '/assets/items/desenho/fuse.webp', value: 5 },
+  medkit: { name: 'Kit de primeiros socorros', icon: '✚', description: 'Gaze, antisséptico e analgésicos dentro do prazo.', useText: 'Os ferimentos foram tratados.', effect: 'heal', effectAmount: 52, image: '/assets/items/medkit.webp', drawing: '/assets/items/desenho/medkit.webp', value: 9 },
+  lantern: { name: 'Lanterna de mão', icon: '⌾', description: 'Corpo de borracha gasto e uma lente trincada. A pilha ainda tem carga.', useText: 'Ela acende sozinha onde está escuro, e se apaga onde não precisa.', effect: 'light', effectAmount: 0, image: '/assets/items/lantern.webp', drawing: '/assets/items/desenho/lantern.webp', value: 12, batterySeconds: 240 },
 };
 
 export const ENTITIES: Record<EntityId, EntityDefinition> = {

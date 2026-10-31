@@ -127,7 +127,9 @@
  * resultado parecia rabiscado à mão, não desenhado.
  */
 .speech-balloon {
-  position: absolute; z-index: 2; width: max-content; max-width: min(430px, 44vw); min-width: 170px;
+  position: absolute; z-index: 2; opacity: var(--balao-opacidade, 1);
+  width: var(--balao-largura, max-content); max-width: var(--balao-largura, min(430px, 44vw)); min-width: 170px;
+  min-height: var(--balao-altura, auto);
   padding: .5rem .75rem .6rem; color: #15140e;
   /*
    * O contorno é um desenho, não uma borda. Ele entra por `border-image`: os quatro
@@ -145,7 +147,7 @@
  * Ao lado: o balão encosta na altura do rosto, e a ponta sai da borda virada para lá.
  * Aqui ele é mais estreito do que em cima — de lado só existe meia tela para ele.
  */
-.speech-balloon[data-side="right"], .speech-balloon[data-side="left"] { max-width: min(360px, 38vw); }
+.speech-balloon[data-side="right"], .speech-balloon[data-side="left"] { max-width: var(--balao-largura, min(360px, 38vw)); }
 .speech-balloon[data-side="right"] { transform: translate(22px, -42%); }
 .speech-balloon[data-side="left"] { transform: translate(calc(-100% - 22px), -42%); }
 .speech-balloon p { margin: 0; font: .86rem/1.55 var(--fala); overflow-wrap: break-word; }
@@ -168,7 +170,7 @@
 .speech-balloon[data-side="left"] .balloon-tail { right: -42px; top: calc(42% - 22px); transform: rotate(-90deg); }
 /* A entrada mexe só na opacidade: o balão tem três posições possíveis, e animar a
    transformação fazia a animação brigar com a posição e jogá-lo para o lugar errado. */
-@keyframes balloon-in { from { opacity: 0; } }
+@keyframes balloon-in { from { opacity: 0; } to { opacity: var(--balao-opacidade, 1); } }
 
 /* No teste do editor a barra sobe: embaixo dela ficam as saídas da sala. */
 .editor-playtest .dialogue-bar { bottom: 9rem; }
@@ -214,26 +216,36 @@
  * A mesa de trocas
  * ============================================================
  *
- * Não é uma caixa no meio da tela: é a tela inteira virando uma chapa suja de parede,
- * com recortes de papel colados em cima. A chapa, o papel e a fita são fotografias
- * (`/assets/ui`); as molduras, a seta e os riscos são desenhados aqui, tortos de
- * propósito. Uma borda reta de CSS fazia a tela inteira parecer um formulário.
+ * Uma chapa suja pregada na parede da sala, com recortes de papel colados em cima. Ela
+ * não cobre a tela: ocupa a parte de baixo e deixa o lugar aparecer acima, porque a
+ * troca acontece ali, naquela sala, e não numa tela à parte. A borda de cima é
+ * rasgada, por máscara — uma linha reta entregaria o retângulo por trás de tudo.
+ *
+ * A chapa, o papel e a fita são fotografias (`/assets/ui`). As molduras, a seta e os
+ * riscos são desenhados aqui, tortos de propósito: uma borda reta de CSS fazia a tela
+ * inteira parecer um formulário.
  */
 .trade-layer {
   position: absolute; z-index: 32; inset: 0;
-  background: #070805 url('/assets/ui/troca-quadro.webp') center / cover no-repeat;
+  background: linear-gradient(to bottom, #0203040d 0%, #02030459 30%, #020304b3 44%, #020304d9 56%);
 }
-/* A chapa é muito mais clara do que o jogo: esta camada a puxa para a noite. */
-.trade-layer::before {
-  content: ''; position: absolute; inset: 0; pointer-events: none;
-  background: radial-gradient(ellipse at 50% 42%, #05060430 0%, #050604b8 70%, #030402f2 100%);
+.trade-plate {
+  position: absolute; left: 0; right: 0; bottom: 0; top: 36%;
+  background: #0a0b07 url('/assets/ui/troca-quadro.webp') center / cover no-repeat;
+  -webkit-mask: url("data:image/svg+xml,<svg xmlns='http%3A//www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'><path d='M0 9 C 7 4, 13 11, 21 7 C 29 3, 34 10, 43 6 C 52 2, 57 9, 66 5 C 74 2, 79 10, 88 6 C 94 3, 97 8, 100 5 L 100 100 L 0 100 Z' fill='black'/></svg>") center / 100% 100% no-repeat;
+  mask: url("data:image/svg+xml,<svg xmlns='http%3A//www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'><path d='M0 9 C 7 4, 13 11, 21 7 C 29 3, 34 10, 43 6 C 52 2, 57 9, 66 5 C 74 2, 79 10, 88 6 C 94 3, 97 8, 100 5 L 100 100 L 0 100 Z' fill='black'/></svg>") center / 100% 100% no-repeat;
+  box-shadow: 0 -22px 50px #000000a0;
 }
+/* Riscos de giz soltos: alguém testou a ponta antes de escrever. */
+.trade-scribbles { position: absolute; inset: 36% 0 0 0; width: 100%; height: 64%; pointer-events: none; }
+.trade-scribbles path { fill: none; stroke: #e6e4cc; stroke-width: 1.4; stroke-linecap: round; opacity: .2; vector-effect: non-scaling-stroke; }
+
 .trade-board {
-  position: absolute; inset: 0; z-index: 1;
-  display: grid; grid-template-rows: auto minmax(0, 1fr); gap: .7rem;
-  padding: 1rem clamp(.8rem, 2.4vw, 2.2rem) 1.1rem;
+  position: absolute; left: 0; right: 0; bottom: 0; top: 36%; z-index: 1;
+  display: flex; flex-direction: column; gap: clamp(.4rem, 1vh, .9rem);
+  padding: 0 clamp(.8rem, 3vw, 3rem) clamp(.8rem, 2vh, 1.5rem);
 }
-.trade-top { display: flex; align-items: flex-start; justify-content: space-between; }
+.trade-top { display: flex; align-items: flex-start; justify-content: space-between; margin-top: -1.6rem; }
 
 /*
  * Um recorte de papel com fita nas pontas. É a mesma foto no título e nas abas das
@@ -241,97 +253,95 @@
  * iguais. A sobra de papel em volta do texto vem do `padding`, não da imagem.
  */
 .paper-note {
-  margin: 0; padding: .5rem 2rem .62rem; color: #1b1c12;
+  margin: 0; padding: .45rem 1.8rem .55rem; color: #1b1c12;
   background: url('/assets/ui/troca-tira.webp') center / 100% 100% no-repeat;
-  font: 400 .78rem/1 var(--fala); letter-spacing: .14em; text-transform: uppercase;
+  font: 400 .72rem/1 var(--fala); letter-spacing: .14em; text-transform: uppercase;
   text-align: center; white-space: nowrap;
   filter: drop-shadow(0 6px 14px #000000b0);
 }
-.trade-title { padding: .75rem 3rem .9rem; font-size: 1.5rem; letter-spacing: .18em; transform: rotate(-.9deg); }
+.trade-title { padding: .7rem 2.6rem .85rem; font-size: clamp(1.1rem, 2.4vw, 1.7rem); letter-spacing: .16em; transform: rotate(-1.1deg); }
 .trade-col > .paper-note, .trade-deal > .paper-note {
-  position: absolute; top: -.75rem; left: 50%; z-index: 3; transform: translateX(-50%) rotate(-.6deg);
+  position: absolute; top: -.7rem; left: 50%; z-index: 3; transform: translateX(-50%) rotate(-.6deg);
 }
 .trade-col:last-child > .paper-note { transform: translateX(-50%) rotate(.7deg); }
-.trade-close { position: relative; z-index: 3; width: 36px; height: 36px; padding: 0; border: 1px solid #8a8768; background: #0a0b07b0; color: #c9cbb4; font: 1.1rem/1 var(--fala); cursor: pointer; }
+.trade-close { position: relative; z-index: 3; width: 34px; height: 34px; margin-top: 1.9rem; padding: 0; border: 1px solid #8a8768; background: #0a0b07b0; color: #c9cbb4; font: 1rem/1 var(--fala); cursor: pointer; }
 .trade-close:hover { border-color: var(--acid); color: var(--acid); }
 
 /* As molduras: dois traços quase iguais, como quem passou a caneta duas vezes. */
 .rough-frame { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.rough-frame path { fill: none; stroke: #cfcdb0; stroke-width: 1.5; stroke-linecap: round; opacity: .42; }
-.rough-frame .rough-second { stroke-width: 1; opacity: .2; transform: translate(1.2px, -1px); }
-.frame-dashed path { stroke-dasharray: 7 6; opacity: .3; }
-.frame-acid path { stroke: var(--acid); stroke-width: 2.4; opacity: .95; }
-.frame-acid .rough-second { stroke-width: 1.4; opacity: .4; }
+.rough-frame path { fill: none; stroke: #d6d4b6; stroke-width: 1.6; stroke-linecap: round; opacity: .5; }
+.rough-frame .rough-second { stroke-width: 1; opacity: .24; transform: translate(1.4px, -1.2px); }
+.frame-dashed path { stroke-dasharray: 8 7; opacity: .34; }
+.frame-acid path { stroke: var(--acid); stroke-width: 2.6; opacity: 1; }
+.frame-acid .rough-second { stroke-width: 1.5; opacity: .45; }
 
-/*
- * As colunas e os botões andam juntos, no meio da chapa, e têm a altura do que há
- * dentro delas: esticadas até embaixo sobrava um vazio enorme sob uma carta só, e os
- * botões ficavam soltos lá longe, sem relação com a mesa que comandam.
- */
-.trade-middle { min-height: 0; align-self: center; display: flex; flex-direction: column; gap: clamp(.9rem, 2.4vh, 1.8rem); }
-.trade-grid { width: 100%; min-height: 0; display: grid; grid-template-columns: 1fr minmax(260px, .92fr) 1fr; gap: clamp(.7rem, 1.8vw, 1.6rem); }
-.trade-col, .trade-deal { position: relative; min-height: 190px; max-height: 100%; display: flex; flex-direction: column; gap: .5rem; padding: 1.3rem .8rem .9rem; }
+.trade-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr minmax(240px, .86fr) 1fr; gap: clamp(.6rem, 1.6vw, 1.4rem); }
+.trade-col, .trade-deal { position: relative; min-height: 0; display: flex; flex-direction: column; gap: .4rem; padding: 1.1rem .7rem .7rem; }
 .trade-cards {
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
-  gap: clamp(.5rem, 1.2vw, 1rem); align-content: start; padding: .5rem;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: clamp(.45rem, 1.1vw, .9rem); align-content: center; justify-items: center; padding: .55rem;
 }
 
 /*
- * Uma carta. O papel e a fita são a foto; a arte do item entra invertida e
- * multiplicando por cima dela, então o fundo preto da foto do item vira branco e some
- * no papel, e o que estava iluminado imprime escuro — um desenho a traço, e não uma
- * foto preta colada no recorte.
+ * Uma carta. O papel e a fita são a foto; por cima dela entra o desenho a traço do
+ * item, multiplicando — o branco do desenho some no papel e só a tinta fica, como uma
+ * gravura impressa ali. Um item sem desenho cai na foto do inventário, invertida.
  */
 .trade-card, .deal-card {
-  position: relative; display: grid; gap: .2rem; padding: 1rem .95rem 1.1rem;
+  position: relative; display: grid; gap: .1rem; width: 100%; max-width: 128px; padding: .9rem .75rem 1rem;
   border: 0; background: url('/assets/ui/troca-carta.webp') center / 100% 100% no-repeat;
-  color: #1b1c12; cursor: pointer; transform: rotate(calc(var(--tilt, 0) * .9deg));
+  color: #15160d; cursor: pointer; transform: rotate(calc(var(--tilt, 0) * 1deg));
   filter: drop-shadow(0 5px 12px #000000a0);
 }
-.trade-card:hover, .deal-card:hover { filter: drop-shadow(0 5px 14px #000000a0) brightness(1.1); }
-.trade-card.on-table { opacity: .66; }
-.card-art { display: grid; place-items: center; aspect-ratio: 1.08; overflow: hidden; }
-/* O `multiply` precisa de um fundo para multiplicar contra: o papel está no botão. */
-.card-art img { width: 100%; height: 100%; object-fit: contain; filter: invert(1) grayscale(1) brightness(.98) contrast(1.95); mix-blend-mode: multiply; }
+.trade-card:hover, .deal-card:hover { filter: drop-shadow(0 5px 14px #000000a0) brightness(1.08); }
+.trade-card.on-table { opacity: .62; }
+.card-art { display: grid; place-items: center; aspect-ratio: 1; overflow: hidden; }
+.card-art img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
+/* O desenho já é tinta preta sobre branco: basta multiplicar no papel. */
+.art-drawing { filter: contrast(1.12); }
+/* A foto é o contrário — escura sobre preto —, e só serve invertida. */
+.art-photo { filter: invert(1) grayscale(1) brightness(.98) contrast(1.95); }
 .card-art em { color: #2a2c1c; font: 1.6rem Georgia, serif; font-style: normal; }
-.trade-card b { min-height: 2.5em; display: grid; align-content: center; font: 400 .54rem/1.3 var(--fala); letter-spacing: .04em; text-transform: uppercase; text-align: center; overflow-wrap: anywhere; }
+.trade-card b { min-height: 2.5em; display: grid; align-content: center; color: #11120a; font: 400 .62rem/1.22 var(--fala); letter-spacing: .03em; text-transform: uppercase; text-align: center; overflow-wrap: anywhere; }
 .card-count {
-  position: absolute; right: -7px; bottom: -7px; display: grid; place-items: center;
-  width: 22px; height: 22px; border-radius: 50%;
-  background: #0c0d08; color: #e8e2c6; font: .58rem var(--fala); font-style: normal;
-  box-shadow: 0 2px 6px #000000c0;
+  position: absolute; right: -8px; bottom: -8px; display: grid; place-items: center;
+  width: 23px; height: 23px; border-radius: 50%;
+  background: #0b0c07; color: #ece6ca; font: .6rem var(--fala); font-style: normal;
+  box-shadow: 0 2px 7px #000000c0;
 }
-.card-price { position: absolute; left: -5px; top: -6px; padding: .05rem .3rem; background: #0c0d08; color: var(--acid); font: .56rem var(--fala); font-style: normal; box-shadow: 0 2px 6px #000000c0; }
+/* O preço fica discreto, como um código a lápis: a conta quem conta é a barra. */
+.card-price { position: absolute; left: 4px; top: 2px; color: #6d6a4a; font: .54rem var(--fala); font-style: normal; }
 .trade-empty { margin: auto; padding: .6rem; color: #9a9d82; font: .78rem var(--fala); font-style: italic; text-align: center; }
 
-.trade-table { position: relative; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: .5rem; padding: .9rem .7rem; }
-.deal-side { display: flex; flex-wrap: wrap; justify-content: center; gap: .5rem; min-height: 86px; align-content: center; }
-.deal-card { width: 72px; padding: .75rem .6rem .8rem; }
-.deal-card .card-count { right: -6px; bottom: -6px; width: 19px; height: 19px; font-size: .52rem; }
-.deal-slot { width: 66px; height: 78px; border: 1px dashed #4a4d38; opacity: .5; }
-.deal-arrow { width: 54px; height: 34px; fill: var(--acid); filter: drop-shadow(0 0 9px #d7df7755); }
-.trade-interest { display: grid; gap: .3rem; padding: 0 .3rem; }
-.trade-interest > span { color: #a8ab8e; font: .6rem var(--fala); letter-spacing: .16em; text-transform: uppercase; }
-.trade-interest i { position: relative; display: block; height: 15px; background: #0b0d0750; }
-.trade-interest u { display: block; height: 100%; background: linear-gradient(90deg, #7b7840, var(--acid)); text-decoration: none; transition: width .2s; }
-.trade-feeling { margin: 0; padding: 0 .3rem; color: #d2d4bc; font: .82rem/1.45 var(--fala); text-align: center; }
-.trade-warning { margin: 0 .3rem; padding: .4rem .6rem; border-left: 3px solid var(--red); background: #1a0d0bcc; color: #e0b3ad; font: .74rem/1.4 var(--fala); }
+.trade-table { position: relative; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: .4rem; padding: .8rem .6rem; }
+.deal-side { display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem; min-height: 92px; align-content: center; }
+.deal-card { width: 74px; max-width: 74px; padding: .65rem .5rem .7rem; }
+.deal-card .card-count { right: -7px; bottom: -7px; width: 20px; height: 20px; font-size: .54rem; }
+.deal-slot { width: 74px; height: 86px; border: 1px dashed #4a4d38; opacity: .45; }
+.deal-arrow { width: 52px; height: 32px; fill: var(--acid); filter: drop-shadow(0 0 9px #d7df7766); }
+/* A etiqueta vai em cima da barra: ao lado dela, um nome comprido comia a barra toda. */
+.trade-interest { display: grid; gap: .25rem; padding: 0 .3rem; }
+.trade-interest > span { color: #b2b596; font: .58rem var(--fala); letter-spacing: .14em; text-transform: uppercase; }
+.trade-interest i { position: relative; display: block; height: 17px; border: 1px solid #a9a888; background: #07080588; box-shadow: inset 0 0 10px #000000a0; }
+.trade-interest u { display: block; height: 100%; background: linear-gradient(90deg, #8b8846, var(--acid)); text-decoration: none; transition: width .2s; }
+.trade-feeling { margin: 0; padding: 0 .3rem; color: #d2d4bc; font: .8rem/1.4 var(--fala); text-align: center; }
+.trade-warning { margin: 0 .3rem; padding: .35rem .6rem; border-left: 3px solid var(--red); background: #1a0d0bcc; color: #e0b3ad; font: .72rem/1.35 var(--fala); }
 
-.trade-actions { display: flex; justify-content: center; gap: clamp(.5rem, 1.6vw, 1.4rem); }
+.trade-actions { display: flex; justify-content: center; gap: clamp(.4rem, 1.4vw, 1.2rem); }
 .trade-action {
-  position: relative; min-width: clamp(130px, 13vw, 190px); padding: .7rem 1rem; border: 0;
-  background: #0a0b07b0; color: #d8d6c4; font: .74rem var(--fala); letter-spacing: .14em; text-transform: uppercase;
+  position: relative; min-width: clamp(120px, 12vw, 180px); padding: .6rem 1rem; border: 0;
+  background: #0a0b0799; color: #d8d6c4; font: .72rem var(--fala); letter-spacing: .14em; text-transform: uppercase;
   cursor: pointer;
 }
 .trade-action span { position: relative; z-index: 1; }
 .trade-action:hover:not(:disabled) { color: var(--acid); }
-.trade-action:hover:not(:disabled) .rough-frame path { stroke: var(--acid); opacity: .8; }
+.trade-action:hover:not(:disabled) .rough-frame path { stroke: var(--acid); opacity: .85; }
 .trade-action:disabled { color: #6f7161; cursor: default; }
 .trade-action:disabled .rough-frame path { opacity: .18; }
 /* O botão que fecha o negócio é o único cheio: ele tem de se achar de longe. */
 .trade-action.strong:not(:disabled) { background: var(--acid); color: #11140d; }
-.trade-action.strong:not(:disabled) .rough-frame path { stroke: #11140d; opacity: .6; }
+.trade-action.strong:not(:disabled) .rough-frame path { stroke: #11140d; opacity: .55; }
 .trade-action.strong:not(:disabled):hover { color: #11140d; background: #e6ee8a; }
 
 /*
