@@ -584,6 +584,43 @@ export class Game {
     return { ask, offer };
   }
 
+  /** Destaca uma carta da mesa; é sobre ela que "Oferecer" e "Retirar" agem. */
+  pickTrade(side: 'ask' | 'offer', id: ItemId): void {
+    if (!this.dialogue) return;
+    const same = this.dialogue.pick?.side === side && this.dialogue.pick.id === id;
+    this.dialogue.pick = same ? undefined : { side, id };
+  }
+
+  /** Move a carta destacada para a mesa, ou a traz de volta. */
+  movePicked(amount: number): void {
+    const pick = this.dialogue?.pick;
+    if (pick) this.adjustTrade(pick.side, pick.id, amount);
+  }
+
+  /**
+   * O quanto a proposta interessa ao vendedor, de 0 a 1. É o mesmo cálculo do preço,
+   * só que mostrado como vontade em vez de número: o jogador vê o quanto falta sem
+   * precisar somar nada de cabeça.
+   */
+  get tradeInterest(): number {
+    const { ask, offer } = this.tradeTotals;
+    if (ask === 0) return offer > 0 ? 1 : 0;
+    return Math.max(0, Math.min(1, offer / ask));
+  }
+
+  /** O que ele diria da proposta, se dissesse. */
+  get tradeFeeling(): string {
+    const { ask, offer } = this.tradeTotals;
+    if (ask === 0 && offer === 0) return 'Nada foi posto sobre a mesa.';
+    if (ask === 0) return 'Ele olha o que você deixou e espera o pedido que não vem.';
+    if (offer === 0) return 'Ele espera você pôr alguma coisa do seu lado.';
+    if (offer >= ask) return 'Ele já estendeu a mão. O negócio está feito.';
+    const ratio = offer / ask;
+    if (ratio >= 0.7) return 'Está quase. Falta pouco para ele topar.';
+    if (ratio >= 0.3) return 'A proposta ainda não parece boa.';
+    return 'Ele nem olha para o que você ofereceu.';
+  }
+
   /** Põe mais uma unidade na pilha de um dos lados, ou tira uma dela. */
   adjustTrade(side: 'ask' | 'offer', id: ItemId, amount: number): void {
     const dialogue = this.dialogue;
@@ -630,6 +667,7 @@ export class Game {
     shiftReputation(memory, TRADE_REPUTATION_GAIN + Math.min(4, Math.floor((offer - ask) / 3)));
     dialogue.ask = [];
     dialogue.offer = [];
+    dialogue.pick = undefined;
     this.message = 'A troca está feita.';
     return { changed: true, message: this.message };
   }

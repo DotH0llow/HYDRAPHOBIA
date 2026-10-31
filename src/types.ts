@@ -112,6 +112,11 @@ export interface DialogueState {
   /** O que o jogador está oferecendo e o que está pedindo, por item. */
   offer: InventoryEntry[];
   ask: InventoryEntry[];
+  /**
+   * A carta destacada na mesa. Ela é o que os botões "Oferecer" e "Retirar" movem —
+   * a mesa não tem mais e menos em cada item, tem uma carta na mão e dois botões.
+   */
+  pick?: { side: 'ask' | 'offer'; id: ItemId };
 }
 
 /** Uma fala guardada no histórico da conversa. */

@@ -18,13 +18,13 @@
  * teste eles apareciam como caixas brancas do navegador. Como o desenho é o mesmo nos
  * dois lugares, ele mora aqui, junto do resto.
  */
-.dialogue-tools button, .trade-close, .trade-count button, .history-panel > header > button,
-.trade-panel > footer > button:not(.people-cta) {
+.dialogue-tools button, .trade-close, .history-panel > header > button,
+.trade-actions button:not(.people-cta) {
   border: 1px solid #4b4f3d; background: #11140e; color: #c6c8b6;
   font: .66rem "Courier New", monospace; letter-spacing: .06em; cursor: pointer;
 }
-.dialogue-tools button:hover, .trade-close:hover, .trade-count button:hover:not(:disabled),
-.history-panel > header > button:hover, .trade-panel > footer > button:not(.people-cta):hover {
+.dialogue-tools button:hover, .trade-close:hover, .history-panel > header > button:hover,
+.trade-actions button:not(.people-cta):hover:not(:disabled) {
   border-color: var(--acid); color: var(--acid);
 }
 
@@ -34,6 +34,7 @@
    restrito à barra de cima, então o desenho deles mora aqui. */
 .people-cta { padding: .5rem 1rem; border: 1px solid var(--acid); background: var(--acid); color: #11140d; font: 700 .7rem "Courier New", monospace; letter-spacing: .08em; cursor: pointer; }
 .people-cta:disabled { border-color: #4a4d3c; background: #23261d; color: #74776d; cursor: default; }
+.trade-actions button:disabled { opacity: .45; cursor: default; }
 
 /* O botão de largar o painel também, pelo mesmo motivo. */
 .wire-quit { padding: .45rem .9rem; border: 1px solid #7a3f37; background: #1a0d0b; color: #e0b3ad; font: .68rem "Courier New", monospace; letter-spacing: .08em; cursor: pointer; }
@@ -59,50 +60,90 @@
   color: var(--acid); font: .58rem "Courier New", monospace; letter-spacing: .1em; text-transform: uppercase;
   opacity: 0; transition: opacity .18s; white-space: nowrap;
 }
-.npc-figure .npc-hit:hover + .npc-tag, .npc-figure.talking .npc-tag { opacity: 1; }
+.npc-figure .npc-hit:hover + .npc-tag { opacity: 1; }
+/* Falando, quem diz o nome é a etiqueta presa a ele: a legenda de baixo cala. */
+.npc-figure.talking .npc-tag { opacity: 0; }
 .npc-figure.talking .npc-hit { filter: drop-shadow(0 0 14px #d7df7755) drop-shadow(0 10px 18px #000000a8); }
 
 /* A conversa cobre a cena por inteiro, mas quase tudo nela é transparente: o que
-   importa é o balão sobre a pessoa e a barra de respostas embaixo. */
+   importa é o balão sobre a pessoa, a etiqueta com o nome e a barra de respostas. */
 .dialogue-layer { position: absolute; z-index: 26; inset: 0; }
+.ink-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+
 /*
  * O balão. A largura tem um teto e a altura não tem nenhum: escrever mais faz o balão
  * crescer para cima (ou para baixo, quando a pessoa está no alto da cena), e nunca
- * cortar o texto. A ponta sai da borda apontando para quem fala.
+ * cortar o texto.
+ *
+ * O contorno é uma camada à parte, por baixo do texto, com um filtro de turbulência em
+ * cima: a borda sai tremida, de caneta, e o que está escrito continua limpo. Filtrar o
+ * balão inteiro deixaria as letras tortas junto.
  */
 .speech-balloon {
-  position: absolute; z-index: 2; width: max-content; max-width: min(430px, 44vw); min-width: 180px;
-  padding: .85rem 1.05rem 1rem; border: 1px solid #8b8b6b; border-radius: 14px;
-  background: linear-gradient(160deg, #f3f0e2, #d9d6c4); color: #16180f;
-  box-shadow: 0 18px 44px #000000b0, inset 0 0 0 1px #ffffff80;
-  transform: translate(-50%, calc(-100% - 22px)); animation: balloon-in .22s ease-out;
+  position: absolute; z-index: 2; width: max-content; max-width: min(430px, 44vw); min-width: 170px;
+  padding: .9rem 1.15rem 1rem; color: #15140e;
+  transform: translate(-50%, calc(-100% - 26px)); animation: balloon-in .2s ease-out;
+  filter: drop-shadow(0 16px 34px #000000a8);
 }
-.speech-balloon[data-side="below"] { transform: translate(-50%, 22px); }
-.speech-balloon header { display: flex; align-items: baseline; gap: .5rem; margin-bottom: .4rem; border-bottom: 1px solid #0000002e; padding-bottom: .3rem; }
-.speech-balloon header b { color: #2d3119; font: 700 .72rem "Courier New", monospace; letter-spacing: .12em; text-transform: uppercase; }
-.speech-balloon header small { color: #5c5a44; font-size: .6rem; font-style: italic; }
-.speech-balloon p { margin: 0; font: .82rem/1.55 Georgia, serif; overflow-wrap: break-word; }
-/* A ponta é um quadrado girado, e não um triângulo: assim ela herda a borda e o fundo
-   do balão e continua certa se o balão mudar de cor. */
-.speech-balloon .balloon-tail {
-  position: absolute; left: 50%; bottom: -9px; width: 18px; height: 18px; margin-left: -9px;
-  background: #dcd9c7; border-right: 1px solid #8b8b6b; border-bottom: 1px solid #8b8b6b;
+/*
+ * Ao lado: o balão encosta na altura do rosto, e a ponta sai da borda virada para lá.
+ * Aqui ele é mais estreito do que em cima — de lado só existe meia tela para ele.
+ */
+.speech-balloon[data-side="right"], .speech-balloon[data-side="left"] { max-width: min(360px, 38vw); }
+.speech-balloon[data-side="right"] { transform: translate(26px, -42%); }
+.speech-balloon[data-side="left"] { transform: translate(calc(-100% - 26px), -42%); }
+.balloon-ink {
+  position: absolute; z-index: -1; inset: 0;
+  border: 4px solid #14130d; border-radius: 30px 34px 28px 32px;
+  background: #f0ead6; filter: url(#balloon-rough);
+}
+/* A ponta é um quadrado girado com duas bordas: ela herda o mesmo filtro do contorno,
+   então a emenda com o balão sai irregular do mesmo jeito que o resto do traço. */
+.balloon-ink .balloon-tail {
+  position: absolute; left: 50%; bottom: -14px; width: 28px; height: 28px; margin-left: -14px;
+  background: #f0ead6; border-right: 4px solid #14130d; border-bottom: 4px solid #14130d;
   transform: rotate(45deg);
 }
-.speech-balloon[data-side="below"] .balloon-tail { top: -9px; bottom: auto; background: #f1eee0; border: 1px solid #8b8b6b; border-right: 0; border-bottom: 0; }
-@keyframes balloon-in { from { opacity: 0; transform: translate(-50%, calc(-100% - 10px)) scale(.96); } }
+.speech-balloon[data-side="right"] .balloon-ink .balloon-tail {
+  left: -14px; bottom: auto; top: 38%; margin: -14px 0 0;
+  border: 4px solid #14130d; border-top: 0; border-right: 0;
+}
+.speech-balloon[data-side="left"] .balloon-ink .balloon-tail {
+  left: auto; right: -14px; bottom: auto; top: 38%; margin: -14px 0 0;
+  border: 4px solid #14130d; border-left: 0; border-bottom: 0;
+}
+.speech-balloon p { margin: 0; font: .78rem/1.6 "Courier New", monospace; overflow-wrap: break-word; }
+/* A entrada mexe só na opacidade: o balão tem quatro posições possíveis, e animar a
+   transformação fazia a animação brigar com a posição e jogá-lo para o lugar errado. */
+@keyframes balloon-in { from { opacity: 0; } }
+
+/*
+ * A etiqueta do nome. Ela não entra no balão: fica presa à pessoa por um fio e um
+ * ponto, como a legenda de uma foto de arquivo — o balão fica sendo só a fala.
+ */
+.npc-nametag {
+  position: absolute; z-index: 2; display: grid; gap: .1rem; padding: .25rem .5rem;
+  border: 1px solid var(--acid); background: #06070599;
+  color: var(--acid); font: .56rem/1.3 "Courier New", monospace; letter-spacing: .14em; text-transform: uppercase;
+  white-space: nowrap; transform: translate(-100%, -50%); animation: balloon-in .2s ease-out;
+}
+.npc-nametag[data-side="right"] { transform: translate(0, -50%); }
+.npc-nametag em { color: #9a9a7a; font-size: .52rem; font-style: normal; letter-spacing: .1em; }
+.nametag-leader { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; }
+.nametag-leader line { stroke: var(--acid); stroke-width: 1; opacity: .75; }
+.nametag-dot { position: absolute; z-index: 2; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%; background: var(--acid); box-shadow: 0 0 8px #d7df7799; }
 
 /* No teste do editor a barra sobe: embaixo dela ficam as saídas da sala. */
-.editor-playtest .dialogue-bar { bottom: 5.4rem; }
+.editor-playtest .dialogue-bar { bottom: 9rem; }
 .dialogue-bar { position: absolute; z-index: 3; left: 50%; bottom: 1.1rem; width: min(760px, calc(100vw - 2.4rem)); transform: translateX(-50%); display: flex; flex-direction: column; gap: .5rem; }
 .dialogue-answers { display: flex; flex-direction: column; gap: .35rem; }
 .dialogue-answer {
   display: flex; align-items: baseline; gap: .6rem; width: 100%; padding: .6rem .8rem;
   border: 1px solid #5c5c48; border-left: 3px solid var(--acid); background: #0a0c0ae8;
-  color: #d8d6c4; font: .74rem/1.4 Georgia, serif; text-align: left; cursor: pointer;
+  color: #d8d6c4; font: .74rem/1.4 "Courier New", monospace; text-align: left; cursor: pointer;
 }
 .dialogue-answer:hover:not(:disabled) { background: #1a1e14; border-left-color: #f1f6a8; }
-.dialogue-answer small { flex: 0 0 auto; color: var(--yellow); font: .58rem "Courier New", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.dialogue-answer small { flex: 0 0 auto; color: var(--yellow); font-size: .58rem; letter-spacing: .08em; text-transform: uppercase; }
 .dialogue-answer.unavailable { border-left-color: #6a3a33; opacity: .55; cursor: not-allowed; }
 .dialogue-answer.unavailable small { color: #c2655a; }
 .dialogue-tools { display: flex; justify-content: flex-end; gap: .4rem; }
@@ -124,49 +165,98 @@
 .history-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: .55rem; padding-right: .4rem; }
 .history-line { max-width: 86%; padding: .5rem .7rem; border: 1px solid #45453a; background: #0b0e0b; }
 .history-line small { display: block; margin-bottom: .22rem; color: #86866a; font: .56rem "Courier New", monospace; letter-spacing: .1em; text-transform: uppercase; }
-.history-line p { margin: 0; font: .76rem/1.5 Georgia, serif; }
+.history-line p { margin: 0; font: .76rem/1.5 "Courier New", monospace; }
 .history-line.npc { align-self: flex-start; border-left: 3px solid #8b8b6b; }
 /* A fala do jogador vem do outro lado, na cor dele: o histórico tem de se ler de longe. */
 .history-line.player { align-self: flex-end; border-right: 3px solid var(--acid); text-align: right; }
 .history-line.player small { color: var(--yellow); }
-.history-empty { margin: 0; color: #80806c; font: .74rem Georgia, serif; font-style: italic; }
+.history-empty { margin: 0; color: #80806c; font: .74rem "Courier New", monospace; font-style: italic; }
 
 /*
- * A troca. Duas colunas, o mesmo peso: o que ele tem e o que você tem. Não há moeda —
- * os dois lados são somados na mesma escala de valor, e o botão só acende quando o que
- * você oferece alcança o que você pede.
+ * ============================================================
+ * A mesa de trocas
+ * ============================================================
+ *
+ * Um quadro escuro com recortes de papel colados: meus itens de um lado, os dele do
+ * outro, e no meio o que está sendo trocado. O preço não aparece como conta — aparece
+ * como o interesse dele na proposta, que é o mesmo número dito de outro jeito.
  */
 .trade-layer { position: absolute; z-index: 32; inset: 0; display: grid; place-items: center; background: #02030294; backdrop-filter: blur(6px); }
-.trade-panel { width: min(840px, calc(100vw - 2.4rem)); max-height: min(84vh, 760px); display: flex; flex-direction: column; gap: .9rem; padding: clamp(1.1rem, 3vw, 1.9rem); border: 1px solid #62624c; background: linear-gradient(150deg, #141813f8, #080a08fc); box-shadow: 0 30px 80px #000; }
-.trade-panel > header { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; border-bottom: 1px solid #4e4e40; padding-bottom: .8rem; }
-.trade-panel header small { color: #858665; font: .62rem "Courier New", monospace; letter-spacing: .14em; }
-.trade-panel h2 { margin: .2rem 0 0; font-size: 1.55rem; font-weight: 300; }
-.trade-mood { min-width: 180px; text-align: right; }
-.trade-mood b { display: block; margin: .15rem 0 .3rem; color: var(--acid); font-size: .82rem; font-weight: 400; }
-.trade-mood i { display: block; height: 5px; background: #23261d; }
-.trade-mood u { display: block; height: 100%; background: linear-gradient(90deg, #6d6a3a, var(--acid)); text-decoration: none; }
-.trade-close { position: absolute; top: -.3rem; right: -.3rem; width: 38px; height: 38px; padding: 0; font-size: 1.2rem; line-height: 1; }
-.trade-warning { margin: 0; padding: .45rem .7rem; border-left: 3px solid var(--red); background: #1a0d0b; color: #e0b3ad; font: .7rem/1.45 Georgia, serif; }
-.trade-columns { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-.trade-side { min-height: 0; display: flex; flex-direction: column; }
-.trade-side h3 { margin: 0 0 .5rem; color: #999984; font: .64rem "Courier New", monospace; font-weight: 400; letter-spacing: .14em; text-transform: uppercase; }
-.trade-side ul { flex: 1; min-height: 0; margin: 0; padding: 0; list-style: none; overflow-y: auto; display: flex; flex-direction: column; gap: .35rem; }
-.trade-row { display: grid; grid-template-columns: 42px 1fr auto auto; align-items: center; gap: .55rem; padding: .4rem .5rem; border: 1px solid #45453a; background: #0b0e0b; }
-.trade-row.chosen { border-color: var(--acid); background: #171b11; }
-.trade-art { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid #3a3a31; background: #060806; color: #d4d594; font: 1.2rem Georgia, serif; overflow: hidden; }
-.trade-art img { width: 100%; height: 100%; object-fit: contain; }
-.trade-name b { display: block; font-size: .72rem; font-weight: 500; }
-.trade-name small { color: #7c7c68; font: .58rem "Courier New", monospace; }
-.trade-price { min-width: 2.2rem; color: var(--acid); font: 700 .9rem "Courier New", monospace; text-align: right; }
-.trade-count { display: flex; align-items: center; gap: .2rem; }
-.trade-count button { width: 26px; height: 26px; padding: 0; font-size: .8rem; line-height: 1; }
-.trade-count em { min-width: 1.4rem; color: #d8d6c4; font: .76rem "Courier New", monospace; font-style: normal; text-align: center; }
-.trade-empty { padding: .6rem; color: #80806c; font: .72rem Georgia, serif; font-style: italic; }
-.trade-panel > footer { display: flex; align-items: center; gap: .6rem; border-top: 1px solid #4e4e40; padding-top: .8rem; }
-.trade-scale { flex: 1; display: flex; gap: 1.2rem; color: #999984; font: .66rem "Courier New", monospace; letter-spacing: .08em; }
-.trade-scale b { color: #d8d6c4; font-size: .9rem; }
-.trade-scale b.ok { color: var(--acid); }
-.trade-scale b.short { color: var(--red); }
+.trade-board {
+  position: relative; width: min(1100px, calc(100vw - 2rem)); max-height: min(86vh, 780px);
+  display: flex; flex-direction: column; gap: .8rem; padding: 1.5rem clamp(1rem, 2.5vw, 1.8rem) 1.1rem;
+  border: 1px solid #3c3f30; background: linear-gradient(150deg, #17180f, #0a0b07 60%);
+  box-shadow: 0 30px 90px #000, inset 0 0 120px #00000090;
+}
+/* Fita adesiva nos cantos: é o que faz o quadro parecer montado às pressas. */
+.trade-board::before, .trade-board::after {
+  content: ''; position: absolute; width: 86px; height: 22px; background: #d9d3b388; mix-blend-mode: screen; opacity: .35;
+}
+.trade-board::before { top: -9px; left: 26px; transform: rotate(-4deg); }
+.trade-board::after { bottom: -9px; right: 32px; transform: rotate(3deg); }
+.trade-title {
+  align-self: flex-start; margin: -2.6rem 0 0; padding: .35rem 1.1rem;
+  border: 1px solid #6f7154; background: #e9e3c8; color: #16180f;
+  font: 700 1.25rem/1 "Courier New", monospace; letter-spacing: .1em; text-transform: uppercase;
+  transform: rotate(-.7deg); box-shadow: 0 6px 18px #000000a0;
+}
+.trade-close { position: absolute; top: .7rem; right: .8rem; width: 34px; height: 34px; padding: 0; font-size: 1.1rem; line-height: 1; }
+.trade-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr minmax(260px, .9fr) 1fr; gap: .9rem; }
+.trade-col, .trade-deal { min-height: 0; display: flex; flex-direction: column; gap: .55rem; padding: .7rem; border: 1px solid #343728; background: #0b0d07cc; }
+.trade-col h3, .trade-deal h3 {
+  align-self: center; margin: -1.3rem 0 .2rem; padding: .18rem .7rem;
+  border: 1px solid #6f7154; background: #e9e3c8; color: #16180f;
+  font: 700 .62rem/1 "Courier New", monospace; letter-spacing: .14em; text-transform: uppercase;
+  transform: rotate(-.4deg);
+}
+.trade-cards { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: .55rem; align-content: start; padding: .2rem; }
+
+/*
+ * Uma carta. O papel é claro e a arte do item entra invertida, multiplicando: o fundo
+ * preto da foto vira branco e some no papel, e só o que estava iluminado fica — o
+ * objeto imprime como um desenho a traço, em vez de uma foto preta colada no quadro.
+ */
+.trade-card, .deal-card {
+  position: relative; display: grid; gap: .25rem; padding: .4rem .35rem .5rem;
+  border: 1px solid #8a8768; background: linear-gradient(160deg, #e8e2c6, #cfc9a9);
+  color: #1b1c12; cursor: pointer; transform: rotate(calc(var(--tilt, 0) * .7deg));
+  box-shadow: 0 4px 10px #00000080;
+}
+.trade-card:hover, .deal-card:hover { background: linear-gradient(160deg, #f3eed4, #ded8b6); }
+.trade-card.chosen { outline: 2px solid var(--acid); outline-offset: 1px; box-shadow: 0 0 16px #d7df7755, 0 4px 10px #00000080; }
+.trade-card.on-table { opacity: .72; }
+.card-art { display: grid; place-items: center; aspect-ratio: 1.05; overflow: hidden; }
+/*
+ * A arte entra invertida e multiplicando: o fundo preto da foto vira branco e some no
+ * papel, e o que estava iluminado imprime escuro. O resultado é um desenho a traço em
+ * vez de uma foto preta colada no quadro. O brilho a mais empurra os meios-tons para o
+ * papel, senão o objeto inteiro sai como um borrão cinza.
+ */
+.card-art img { width: 100%; height: 100%; object-fit: contain; filter: invert(1) grayscale(1) brightness(1.06) contrast(1.6); mix-blend-mode: multiply; }
+.card-art em { color: #2a2c1c; font: 1.5rem Georgia, serif; font-style: normal; }
+.trade-card b { min-height: 2.4em; display: grid; align-content: center; font: 700 .54rem/1.2 "Courier New", monospace; letter-spacing: .06em; text-transform: uppercase; text-align: center; }
+.card-count {
+  position: absolute; right: 3px; bottom: 3px; display: grid; place-items: center;
+  width: 20px; height: 20px; border: 1px solid #8a8768; border-radius: 50%;
+  background: #15160e; color: #e8e2c6; font: .56rem "Courier New", monospace; font-style: normal;
+}
+.card-price { position: absolute; left: 3px; top: 3px; padding: 0 .28rem; border: 1px solid #8a8768; background: #15160e; color: var(--acid); font: 700 .54rem "Courier New", monospace; font-style: normal; }
+.trade-empty { margin: auto; padding: .6rem; color: #7c7f68; font: .68rem "Courier New", monospace; font-style: italic; text-align: center; }
+
+.trade-table { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: .5rem; padding: .5rem; border: 1px dashed #4a4d38; background: #07080500; }
+.deal-side { display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem; min-height: 72px; align-content: center; }
+.deal-card { width: 56px; padding: .3rem; }
+.deal-card .card-count { right: 2px; bottom: 2px; width: 17px; height: 17px; font-size: .5rem; }
+.deal-slot { width: 56px; height: 62px; border: 1px dashed #3c3f2c; }
+.deal-arrow { width: 44px; height: 30px; fill: var(--acid); filter: drop-shadow(0 0 8px #d7df7744); }
+.trade-interest { display: grid; gap: .25rem; }
+.trade-interest span { color: #9a9d82; font: .58rem "Courier New", monospace; letter-spacing: .14em; text-transform: uppercase; }
+.trade-interest i { display: block; height: 10px; border: 1px solid #4a4d38; background: #0c0e08; }
+.trade-interest u { display: block; height: 100%; background: linear-gradient(90deg, #6d6a3a, var(--acid)); text-decoration: none; transition: width .18s; }
+.trade-feeling { margin: 0; color: #c9cbb4; font: .68rem/1.45 "Courier New", monospace; text-align: center; }
+.trade-warning { margin: 0; padding: .4rem .6rem; border-left: 3px solid var(--red); background: #1a0d0b; color: #e0b3ad; font: .64rem/1.4 "Courier New", monospace; }
+.trade-actions { display: flex; justify-content: center; gap: .6rem; }
+.trade-actions button { min-width: 150px; padding: .55rem 1rem; font: .7rem "Courier New", monospace; letter-spacing: .1em; text-transform: uppercase; }
 
 /*
  * ============================================================

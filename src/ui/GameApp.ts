@@ -284,7 +284,7 @@ export class GameApp {
       dialogue: this.game.dialogue ? `${this.game.dialogue.npcId}:${this.game.dialogue.lineId}:${this.game.dialogue.trading}` : null,
       challenge: this.game.challenge ? `${this.game.challenge.hotspotId}:${this.game.challenge.intro ? 'intro' : 'panel'}:${Object.keys(this.game.challenge.wires.linked).length}:${this.game.challenge.wires.holding ?? ''}` : null,
       historyOpen: this.historyOpen,
-      trade: this.game.dialogue?.trading ? JSON.stringify([this.game.dialogue.offer, this.game.dialogue.ask]) : '',
+      trade: this.game.dialogue?.trading ? JSON.stringify([this.game.dialogue.offer, this.game.dialogue.ask, this.game.dialogue.pick]) : '',
       inventory: this.game.inventory,
       inventoryOpen: this.inventoryOpen,
       focusedItem: this.focusedItem,
@@ -1154,6 +1154,9 @@ export class GameApp {
       case 'dialogue-end': this.game?.endDialogue(); this.audio.play('click'); break;
       case 'dialogue-trade': this.game?.openTrade(); this.audio.play('click'); break;
       case 'trade-close': this.game?.closeTrade(); this.audio.play('click'); break;
+      case 'trade-pick': this.game?.pickTrade(data.side === 'ask' ? 'ask' : 'offer', data.item as ItemId); this.audio.play('click'); break;
+      case 'trade-offer': this.game?.movePicked(1); this.audio.play('click'); break;
+      case 'trade-withdraw': this.game?.movePicked(-1); this.audio.play('click'); break;
       case 'trade-adjust': this.game?.adjustTrade(data.side === 'ask' ? 'ask' : 'offer', data.item as ItemId, Number(data.amount) || 0); this.audio.play('click'); break;
       case 'trade-confirm': this.confirmTrade(); break;
       case 'history': this.historyOpen = !this.historyOpen; this.audio.play('click'); break;

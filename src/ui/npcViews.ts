@@ -1,7 +1,7 @@
 import type { Game } from '../core/Game';
 import type { ItemDefinition, NpcDefinition, RoomDefinition, RoomNpc } from '../config/world';
 import type { ItemId, NpcId } from '../types';
-import { moodLabel, NPC_DUMMY_ART } from '../systems/npc';
+import { NPC_DUMMY_ART } from '../systems/npc';
 import { connectorTaken, OUTPUT_LABELS } from '../systems/wires';
 
 /**
@@ -48,18 +48,38 @@ export const npcSceneMarkup = (game: Game): string => {
  * partir do Y dela, então o balão por cima sai da altura `y - altura`. Quem é alto
  * demais para caber com o balão em cima recebe o balão por baixo, saindo dos ombros.
  */
-const npcAnchor = (game: Game, npcId: NpcId): { entry: RoomNpc | undefined; y: number; below: boolean } => {
+const npcAnchor = (game: Game, npcId: NpcId): { entry: RoomNpc | undefined; x: number; y: number; side: 'above' | 'left' | 'right' } => {
   const entry = (game.room as RoomDefinition).npcs?.find((item) => item.npcId === npcId);
-  if (!entry) return { entry, y: 40, below: false };
+  if (!entry) return { entry, x: 50, y: 40, side: 'above' };
   const head = entry.y - entry.height;
-  const below = head < 26;
-  return { entry, y: below ? Math.min(92, head + entry.height * 0.3) : head, below };
+  // Com a cabeça perto da borda de cima não há tela para o balão: ele vai para o lado
+  // em que sobra cena, na altura do rosto, e a ponta aponta de lado em vez de de baixo.
+  if (head < 26) {
+    // O balão só vai para a direita se couber inteiro lá; senão vai para a esquerda.
+    const toRight = entry.x < 46;
+    const x = toRight ? Math.max(4, Math.min(50, entry.x + 4)) : Math.max(50, Math.min(96, entry.x - 4));
+    return { entry, x, y: Math.max(8, head + entry.height * 0.14), side: toRight ? 'right' : 'left' };
+  }
+  return { entry, x: Math.max(16, Math.min(84, entry.x)), y: head, side: 'above' };
 };
+
+/**
+ * A tinta do balão. O contorno é feito com um filtro de turbulência em cima de uma
+ * borda comum: a linha sai tremida, como traço de caneta, e o texto por cima continua
+ * limpo — o filtro vale só para a camada da tinta, nunca para o que está escrito.
+ */
+const INK_FILTER = `<svg class="ink-defs" width="0" height="0" aria-hidden="true" focusable="false"><filter id="balloon-rough" x="-12%" y="-12%" width="124%" height="124%">
+  <feTurbulence type="fractalNoise" baseFrequency="0.019 0.027" numOctaves="3" seed="11" result="ruido" />
+  <feDisplacementMap in="SourceGraphic" in2="ruido" scale="6" xChannelSelector="R" yChannelSelector="G" />
+</filter></svg>`;
 
 /**
  * O balão de fala. Ele cresce com o texto — a largura tem um teto e a altura não tem
  * nenhum — e a ponta sai dele apontando para quem está falando. As respostas ficam
  * numa barra própria, embaixo: dentro do balão elas o transformariam num menu.
+ *
+ * O nome não entra no balão: ele é uma etiqueta à parte, presa à pessoa por um fio e
+ * um ponto, como a legenda de uma foto de arquivo. O balão fica sendo só a fala.
  */
 export const dialogueMarkup = (game: Game, items: ItemLibrary): string => {
   const dialogue = game.dialogue;
@@ -68,13 +88,23 @@ export const dialogueMarkup = (game: Game, items: ItemLibrary): string => {
   const line = game.dialogueLine;
   if (!definition || !line) return '';
   if (dialogue.trading) return tradeMarkup(game, items, definition);
-  const { entry, y, below } = npcAnchor(game, dialogue.npcId);
-  const x = Math.max(16, Math.min(84, entry?.x ?? 50));
+  const { entry, x, y, side } = npcAnchor(game, dialogue.npcId);
+  // A etiqueta fica do lado oposto ao balão, para os dois não disputarem o mesmo canto.
+  const tagLeft = side === 'right' || (side === 'above' && (entry?.x ?? 50) >= 28);
+  const dot = { x: (entry?.x ?? 50) + (tagLeft ? -1.5 : 1.5), y: (entry?.y ?? 60) - (entry?.height ?? 40) * 0.68 };
+  const tag = { x: Math.max(2, Math.min(98, dot.x + (tagLeft ? -11 : 11))), y: dot.y - (entry?.height ?? 40) * 0.2 };
   return `<div class="dialogue-layer">
-    <article class="speech-balloon" data-side="${below ? 'below' : 'above'}" style="left:${x}%;top:${y}%">
-      <header><b>${esc(definition.name)}</b>${definition.title ? `<small>${esc(definition.title)}</small>` : ''}</header>
+    ${INK_FILTER}
+    <svg class="nametag-leader" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+      <line x1="${tag.x}" y1="${tag.y}" x2="${dot.x}" y2="${dot.y}" vector-effect="non-scaling-stroke" />
+    </svg>
+    <i class="nametag-dot" style="left:${dot.x}%;top:${dot.y}%" aria-hidden="true"></i>
+    <div class="npc-nametag" data-side="${tagLeft ? 'left' : 'right'}" style="left:${tag.x}%;top:${tag.y}%">
+      <span>${esc(definition.name)}</span>${definition.title ? `<em>${esc(definition.title)}</em>` : ''}
+    </div>
+    <article class="speech-balloon" data-side="${side}" style="left:${x}%;top:${y}%">
+      <i class="balloon-ink" aria-hidden="true"><i class="balloon-tail"></i></i>
       <p data-role="balloon-text">${esc(line.text)}</p>
-      <i class="balloon-tail" aria-hidden="true"></i>
     </article>
     <div class="dialogue-bar">
       <div class="dialogue-answers">
@@ -98,51 +128,103 @@ export const dialogueMarkup = (game: Game, items: ItemLibrary): string => {
 };
 
 /**
- * A tela de trocas. Não há dinheiro: os dois lados da mesa são medidos na mesma escala
- * de valor, e a troca fecha quando o que o jogador põe alcança o que ele pede. O
- * vendedor cobra pelo humor que tem — e um pouco mais de quem chega mal.
+ * "Itens de O homem do carrinho" não é português. Quando o nome começa com artigo, a
+ * preposição se junta a ele — e quase todo nome de NPC deste jogo começa com artigo.
+ */
+const ownerLabel = (name: string): string => {
+  const parts = /^(O|A|Os|As)\s+(.+)$/.exec(name.trim());
+  if (!parts) return `Itens de ${name}`;
+  const joined = ({ O: 'do', A: 'da', Os: 'dos', As: 'das' } as Record<string, string>)[parts[1]!]!;
+  return `Itens ${joined} ${parts[2]}`;
+};
+
+/** A seta grossa que separa o que sai do que entra, na mesa de trocas. */
+const DEAL_ARROW = `<svg class="deal-arrow" viewBox="0 0 48 32" aria-hidden="true"><path d="M2 13 h28 l-6 -10 l20 15 l-20 15 l6 -10 h-28 z" /></svg>`;
+
+/**
+ * A mesa de trocas. Não há dinheiro: os dois lados são medidos na mesma escala de
+ * valor, e o que o jogador oferece precisa alcançar o que ele pede. O número não
+ * aparece — aparece a vontade do vendedor, que é o mesmo cálculo dito de outro jeito.
+ *
+ * O desenho é o de uma mesa improvisada: as cartas são recortes de papel colados num
+ * quadro escuro, e a arte de cada item é invertida para imprimir no papel como um
+ * desenho a traço, em vez de ficar uma foto preta colada ali.
  */
 export const tradeMarkup = (game: Game, items: ItemLibrary, definition: NpcDefinition): string => {
   const dialogue = game.dialogue!;
   const memory = game.npcMemory(dialogue.npcId);
   const totals = game.tradeTotals;
   const tense = game.stats.anxiety >= 60;
-  const row = (side: 'ask' | 'offer', id: ItemId, available: number): string => {
+  const pick = dialogue.pick;
+
+  const card = (side: 'ask' | 'offer', id: ItemId, available: number, index: number): string => {
     const item = items[id];
     if (!item) return '';
     const price = side === 'ask' ? game.askPriceOf(id) : game.offerPriceOf(id);
-    const chosen = (side === 'ask' ? dialogue.ask : dialogue.offer).find((entry) => entry.id === id)?.quantity ?? 0;
-    return `<li class="trade-row${chosen > 0 ? ' chosen' : ''}">
-      <span class="trade-art">${item.image ? `<img src="${esc(item.image)}" alt="" />` : esc(item.icon)}</span>
-      <span class="trade-name"><b>${esc(item.name)}</b><small>${available} em estoque</small></span>
-      <span class="trade-price">${price}</span>
-      <span class="trade-count"><button data-action="trade-adjust" data-test-action="trade-adjust" data-side="${side}" data-item="${esc(id)}" data-amount="-1" aria-label="Menos um">&minus;</button><em>${chosen}</em><button data-action="trade-adjust" data-test-action="trade-adjust" data-side="${side}" data-item="${esc(id)}" data-amount="1" aria-label="Mais um">+</button></span>
-    </li>`;
+    const onTable = (side === 'ask' ? dialogue.ask : dialogue.offer).find((entry) => entry.id === id)?.quantity ?? 0;
+    const chosen = pick?.side === side && pick.id === id;
+    return `<button class="trade-card${chosen ? ' chosen' : ''}${onTable > 0 ? ' on-table' : ''}" style="--tilt:${(index % 3) - 1}"
+      data-action="trade-pick" data-test-action="trade-pick" data-side="${side}" data-item="${esc(id)}"
+      aria-pressed="${chosen}" title="${esc(item.name)} · ${side === 'ask' ? 'ele cobra' : 'ele paga'} ${price}">
+      <span class="card-art">${item.image ? `<img src="${esc(item.image)}" alt="" />` : `<em>${esc(item.icon)}</em>`}</span>
+      <b>${esc(item.name)}</b>
+      <i class="card-price">${price}</i>
+      <em class="card-count">${available}</em>
+    </button>`;
   };
+
+  const tableCard = (side: 'ask' | 'offer', entry: { id: ItemId; quantity: number }): string => {
+    const item = items[entry.id];
+    if (!item) return '';
+    return `<button class="deal-card" data-action="trade-adjust" data-test-action="trade-adjust" data-side="${side}" data-item="${esc(entry.id)}" data-amount="-1" title="Tirar ${esc(item.name)} da mesa">
+      <span class="card-art">${item.image ? `<img src="${esc(item.image)}" alt="" />` : `<em>${esc(item.icon)}</em>`}</span>
+      <em class="card-count">${entry.quantity}</em>
+    </button>`;
+  };
+
+  const mine = game.inventory;
+  const theirs = memory.stock;
+  const interest = Math.round(game.tradeInterest * 100);
   const enough = totals.offer >= totals.ask;
   const chose = dialogue.ask.length > 0 || dialogue.offer.length > 0;
+  const onTable = pick ? ((pick.side === 'ask' ? dialogue.ask : dialogue.offer).find((entry) => entry.id === pick.id)?.quantity ?? 0) : 0;
+  const available = pick
+    ? (pick.side === 'ask' ? theirs : mine).find((entry) => entry.id === pick.id)?.quantity ?? 0
+    : 0;
+
   return `<div class="trade-layer" role="dialog" aria-label="Troca com ${esc(definition.name)}">
-    <section class="trade-panel">
-      <header>
-        <div><small>TROCA</small><h2>${esc(definition.name)}</h2></div>
-        <div class="trade-mood"><small>DISPOSIÇÃO</small><b>${esc(moodLabel(memory.reputation))}</b><i><u style="width:${memory.reputation}%"></u></i></div>
-        <button class="trade-close" data-action="trade-close" data-test-action="trade-close" aria-label="Fechar a troca">&times;</button>
-      </header>
-      ${tense ? '<p class="trade-warning">Ele vê o estado em que você chegou. Cada item custa 1 a mais.</p>' : ''}
-      <div class="trade-columns">
-        <div class="trade-side">
-          <h3>O que ele tem</h3>
-          <ul>${memory.stock.length > 0 ? memory.stock.map((entry) => row('ask', entry.id, entry.quantity)).join('') : '<li class="trade-empty">Os bolsos dele estão vazios.</li>'}</ul>
-        </div>
-        <div class="trade-side">
-          <h3>O que você tem</h3>
-          <ul>${game.inventory.length > 0 ? game.inventory.map((entry) => row('offer', entry.id, entry.quantity)).join('') : '<li class="trade-empty">Você não tem nada para dar.</li>'}</ul>
-        </div>
+    <section class="trade-board">
+      <h2 class="trade-title">Troca improvisada</h2>
+      <button class="trade-close" data-action="trade-close" data-test-action="trade-close" aria-label="Fechar a troca">&times;</button>
+      <div class="trade-grid">
+        <section class="trade-col">
+          <h3>Meus itens</h3>
+          <div class="trade-cards">${mine.length > 0 ? mine.map((entry, index) => card('offer', entry.id, entry.quantity, index)).join('') : '<p class="trade-empty">Você não tem nada para dar.</p>'}</div>
+        </section>
+        <section class="trade-deal">
+          <h3>Troca</h3>
+          <div class="trade-table">
+            <div class="deal-side">${dialogue.offer.map((entry) => tableCard('offer', entry)).join('') || '<i class="deal-slot"></i>'}</div>
+            ${DEAL_ARROW}
+            <div class="deal-side">${dialogue.ask.map((entry) => tableCard('ask', entry)).join('') || '<i class="deal-slot"></i>'}</div>
+          </div>
+          <div class="trade-interest">
+            <span>Interesse na troca</span>
+            <i><u style="width:${interest}%" data-role="trade-interest"></u></i>
+          </div>
+          <p class="trade-feeling">${esc(game.tradeFeeling)}</p>
+          ${tense ? '<p class="trade-warning">Ele vê o estado em que você chegou. Cada item custa 1 a mais.</p>' : ''}
+        </section>
+        <section class="trade-col">
+          <h3>${esc(ownerLabel(definition.name))}</h3>
+          <div class="trade-cards">${theirs.length > 0 ? theirs.map((entry, index) => card('ask', entry.id, entry.quantity, index)).join('') : '<p class="trade-empty">Os bolsos dele estão vazios.</p>'}</div>
+        </section>
       </div>
-      <footer>
-        <div class="trade-scale"><span>Você pede <b>${totals.ask}</b></span><span>Você oferece <b class="${enough ? 'ok' : 'short'}">${totals.offer}</b></span></div>
-        <button class="primary people-cta" data-action="trade-confirm" data-test-action="trade-confirm"${enough && chose ? '' : ' disabled'}>Fechar a troca</button>
-        <button data-action="trade-close" data-test-action="trade-close">Voltar à conversa</button>
+      <footer class="trade-actions">
+        <button data-action="trade-offer" data-test-action="trade-offer"${pick && onTable < available ? '' : ' disabled'}>Oferecer</button>
+        <button data-action="trade-withdraw" data-test-action="trade-withdraw"${pick && onTable > 0 ? '' : ' disabled'}>Retirar</button>
+        <button class="people-cta" data-action="trade-confirm" data-test-action="trade-confirm"${enough && chose ? '' : ' disabled'}>Confirmar troca</button>
+        <button data-action="trade-close" data-test-action="trade-close">Fechar</button>
       </footer>
     </section>
   </div>`;

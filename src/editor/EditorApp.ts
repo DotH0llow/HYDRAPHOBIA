@@ -2617,6 +2617,9 @@ export class EditorApp {
       case 'dialogue-end': game.endDialogue(); break;
       case 'dialogue-trade': game.openTrade(); break;
       case 'trade-close': game.closeTrade(); break;
+      case 'trade-pick': game.pickTrade(data.side === 'ask' ? 'ask' : 'offer', data.item as ItemId); break;
+      case 'trade-offer': game.movePicked(1); break;
+      case 'trade-withdraw': game.movePicked(-1); break;
       case 'trade-adjust': game.adjustTrade(data.side === 'ask' ? 'ask' : 'offer', data.item as ItemId, Number(data.amount) || 0); break;
       case 'trade-confirm': game.confirmTrade(); break;
       case 'history': this.testHistoryOpen = !this.testHistoryOpen; break;
@@ -2650,7 +2653,7 @@ export class EditorApp {
       }
       const dialogue = this.testGame.dialogue;
       const challenge = this.testGame.challenge;
-      const key = JSON.stringify({ position: this.testGame.position, status: this.testGame.status, message: this.testGame.message, inventory: this.testGame.inventory, selected: this.testGame.selectedItem, encounter: this.testGame.encounter?.id, cutscene: this.testGame.cutscene?.hotspotId ?? null, attack: this.testAttackNonce, jump: now < this.testJumpscareUntil, panel: this.testInventoryOpen, flags: this.testGame.flags, history: this.testHistoryOpen, dialogue: dialogue ? `${dialogue.npcId}:${dialogue.lineId}:${dialogue.trading}:${JSON.stringify([dialogue.ask, dialogue.offer])}` : null, challenge: challenge ? `${challenge.intro ? 'intro' : 'panel'}:${Object.keys(challenge.wires.linked).length}:${challenge.wires.holding ?? ''}:${challenge.wires.mistakes}` : null });
+      const key = JSON.stringify({ position: this.testGame.position, status: this.testGame.status, message: this.testGame.message, inventory: this.testGame.inventory, selected: this.testGame.selectedItem, encounter: this.testGame.encounter?.id, cutscene: this.testGame.cutscene?.hotspotId ?? null, attack: this.testAttackNonce, jump: now < this.testJumpscareUntil, panel: this.testInventoryOpen, flags: this.testGame.flags, history: this.testHistoryOpen, dialogue: dialogue ? `${dialogue.npcId}:${dialogue.lineId}:${dialogue.trading}:${JSON.stringify([dialogue.ask, dialogue.offer, dialogue.pick])}` : null, challenge: challenge ? `${challenge.intro ? 'intro' : 'panel'}:${Object.keys(challenge.wires.linked).length}:${challenge.wires.holding ?? ''}:${challenge.wires.mistakes}` : null });
       if (key !== this.lastTestKey) { this.lastTestKey = key; this.render(); }
       else this.updateTestReadouts();
     }
