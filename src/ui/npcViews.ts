@@ -74,9 +74,9 @@ const npcAnchor = (game: Game, npcId: NpcId): { entry: RoomNpc | undefined; x: n
  * como numa HQ. A tira de creme no topo cobre a borda do balão na largura da ponta —
  * é ela que faz as duas peças parecerem uma só, sem emenda.
  */
-const BALLOON_TAIL = `<svg class="balloon-tail" viewBox="0 0 36 36" aria-hidden="true" focusable="false">
-  <path d="M7 0 C 10 13, 16 25, 32 34 C 20 23, 19 11, 21 0" />
-  <rect class="tail-join" x="0" y="0" width="36" height="3.4" />
+const BALLOON_TAIL = `<svg class="balloon-tail" viewBox="0 0 44 44" aria-hidden="true" focusable="false">
+  <path d="M8 0 C 12 15, 19 30, 41 43 C 25 29, 22 14, 25 0" />
+  <rect class="tail-join" x="0" y="0" width="44" height="7" />
 </svg>`;
 
 /**
@@ -132,17 +132,41 @@ const ownerLabel = (name: string): string => {
   return `Itens ${joined} ${parts[2]}`;
 };
 
+/**
+ * Molduras desenhadas à mão.
+ *
+ * O quadro é improvisado, e uma borda de CSS perfeitamente reta denunciava isso na
+ * hora: a tela inteira parecia um formulário. Cada moldura aqui é um retângulo torto,
+ * traçado duas vezes com um deslocamento mínimo, como quem passou a caneta de novo
+ * por cima. O traço não engorda quando a moldura estica porque ele não escala junto.
+ */
+const ROUGH_FRAMES = [
+  'M2.4 3.1 C 30 1.4, 69 2.2, 97.6 1.9 C 98.8 29, 98.1 71, 98.3 97.2 C 70 98.9, 29 98.1, 2.2 98.4 C 1.3 70, 3.1 29, 2.4 3.1',
+  'M1.9 2.2 C 35 3.4, 64 1.2, 98.1 2.8 C 97.2 33, 99 67, 97.4 98.1 C 65 96.9, 33 98.8, 2.6 97.2 C 1.8 67, 2.9 33, 1.9 2.2',
+  'M3.1 2.6 C 27 2.1, 72 3.2, 97.1 2.2 C 98.4 31, 97.6 69, 98.6 97.6 C 73 98.2, 28 97.1, 2.4 98.1 C 2.2 69, 1.9 31, 3.1 2.6',
+];
+
+const roughFrame = (seed = 0, extra = ''): string => {
+  const first = ROUGH_FRAMES[seed % ROUGH_FRAMES.length]!;
+  const second = ROUGH_FRAMES[(seed + 1) % ROUGH_FRAMES.length]!;
+  return `<svg class="rough-frame ${extra}" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+    <path d="${first}" vector-effect="non-scaling-stroke" />
+    <path class="rough-second" d="${second}" vector-effect="non-scaling-stroke" />
+  </svg>`;
+};
+
 /** A seta grossa que separa o que sai do que entra, na mesa de trocas. */
-const DEAL_ARROW = `<svg class="deal-arrow" viewBox="0 0 48 32" aria-hidden="true"><path d="M2 13 h28 l-6 -10 l20 15 l-20 15 l6 -10 h-28 z" /></svg>`;
+const DEAL_ARROW = `<svg class="deal-arrow" viewBox="0 0 54 34" aria-hidden="true"><path d="M1.5 12.5 C 12 11.8, 22 12.2, 31 11.6 L 24.5 1.5 L 52.5 17.2 L 25 33 L 31.5 22.4 C 22 21.8, 12 22.2, 1.8 21.6 Z" /></svg>`;
 
 /**
  * A mesa de trocas. Não há dinheiro: os dois lados são medidos na mesma escala de
  * valor, e o que o jogador oferece precisa alcançar o que ele pede. O número não
  * aparece — aparece a vontade do vendedor, que é o mesmo cálculo dito de outro jeito.
  *
- * O desenho é o de uma mesa improvisada: as cartas são recortes de papel colados num
- * quadro escuro, e a arte de cada item é invertida para imprimir no papel como um
- * desenho a traço, em vez de ficar uma foto preta colada ali.
+ * A tela toma o lugar inteiro, e não uma caixa no meio dele: é uma chapa suja de
+ * parede com recortes de papel colados em cima. O papel, a fita e a chapa são
+ * fotografias; as molduras e a seta são desenhadas aqui. A arte de cada item entra
+ * invertida no papel, imprimindo como desenho a traço em vez de foto colada.
  */
 export const tradeMarkup = (game: Game, items: ItemLibrary, definition: NpcDefinition): string => {
   const dialogue = game.dialogue!;
@@ -164,13 +188,14 @@ export const tradeMarkup = (game: Game, items: ItemLibrary, definition: NpcDefin
       <b>${esc(item.name)}</b>
       <i class="card-price">${price}</i>
       <em class="card-count">${available}</em>
+      ${chosen ? roughFrame(index + 1, 'frame-acid') : ''}
     </button>`;
   };
 
-  const tableCard = (side: 'ask' | 'offer', entry: { id: ItemId; quantity: number }): string => {
+  const tableCard = (side: 'ask' | 'offer', entry: { id: ItemId; quantity: number }, index: number): string => {
     const item = items[entry.id];
     if (!item) return '';
-    return `<button class="deal-card" data-action="trade-adjust" data-test-action="trade-adjust" data-side="${side}" data-item="${esc(entry.id)}" data-amount="-1" title="Tirar ${esc(item.name)} da mesa">
+    return `<button class="deal-card" style="--tilt:${(index % 3) - 1}" data-action="trade-adjust" data-test-action="trade-adjust" data-side="${side}" data-item="${esc(entry.id)}" data-amount="-1" title="Tirar ${esc(item.name)} da mesa">
       <span class="card-art">${item.image ? `<img src="${esc(item.image)}" alt="" />` : `<em>${esc(item.icon)}</em>`}</span>
       <em class="card-count">${entry.quantity}</em>
     </button>`;
@@ -182,44 +207,53 @@ export const tradeMarkup = (game: Game, items: ItemLibrary, definition: NpcDefin
   const enough = totals.offer >= totals.ask;
   const chose = dialogue.ask.length > 0 || dialogue.offer.length > 0;
   const onTable = pick ? ((pick.side === 'ask' ? dialogue.ask : dialogue.offer).find((entry) => entry.id === pick.id)?.quantity ?? 0) : 0;
-  const available = pick
-    ? (pick.side === 'ask' ? theirs : mine).find((entry) => entry.id === pick.id)?.quantity ?? 0
-    : 0;
+  const available = pick ? (pick.side === 'ask' ? theirs : mine).find((entry) => entry.id === pick.id)?.quantity ?? 0 : 0;
+
+  const acao = (action: string, label: string, ligado: boolean, forte = false): string =>
+    `<button class="trade-action${forte ? ' strong' : ''}" data-action="${action}" data-test-action="${action}"${ligado ? '' : ' disabled'}>${roughFrame(label.length)}<span>${esc(label)}</span></button>`;
 
   return `<div class="trade-layer" role="dialog" aria-label="Troca com ${esc(definition.name)}">
     <section class="trade-board">
-      <h2 class="trade-title">Troca improvisada</h2>
-      <button class="trade-close" data-action="trade-close" data-test-action="trade-close" aria-label="Fechar a troca">&times;</button>
+      <header class="trade-top">
+        <h2 class="paper-note trade-title"><span>Troca improvisada</span></h2>
+        <button class="trade-close" data-action="trade-close" data-test-action="trade-close" aria-label="Fechar a troca">&times;</button>
+      </header>
+      <div class="trade-middle">
       <div class="trade-grid">
         <section class="trade-col">
-          <h3>Meus itens</h3>
+          ${roughFrame(0)}
+          <h3 class="paper-note"><span>Meus itens</span></h3>
           <div class="trade-cards">${mine.length > 0 ? mine.map((entry, index) => card('offer', entry.id, entry.quantity, index)).join('') : '<p class="trade-empty">Você não tem nada para dar.</p>'}</div>
         </section>
         <section class="trade-deal">
-          <h3>Troca</h3>
+          ${roughFrame(1)}
+          <h3 class="paper-note"><span>Troca</span></h3>
           <div class="trade-table">
-            <div class="deal-side">${dialogue.offer.map((entry) => tableCard('offer', entry)).join('') || '<i class="deal-slot"></i>'}</div>
+            ${roughFrame(2, 'frame-dashed')}
+            <div class="deal-side">${dialogue.offer.map((entry, index) => tableCard('offer', entry, index)).join('') || '<i class="deal-slot"></i>'}</div>
             ${DEAL_ARROW}
-            <div class="deal-side">${dialogue.ask.map((entry) => tableCard('ask', entry)).join('') || '<i class="deal-slot"></i>'}</div>
+            <div class="deal-side">${dialogue.ask.map((entry, index) => tableCard('ask', entry, index)).join('') || '<i class="deal-slot"></i>'}</div>
           </div>
           <div class="trade-interest">
             <span>Interesse na troca</span>
-            <i><u style="width:${interest}%" data-role="trade-interest"></u></i>
+            <i>${roughFrame(0)}<u style="width:${interest}%" data-role="trade-interest"></u></i>
           </div>
           <p class="trade-feeling">${esc(game.tradeFeeling)}</p>
           ${tense ? '<p class="trade-warning">Ele vê o estado em que você chegou. Cada item custa 1 a mais.</p>' : ''}
         </section>
         <section class="trade-col">
-          <h3>${esc(ownerLabel(definition.name))}</h3>
+          ${roughFrame(2)}
+          <h3 class="paper-note"><span>${esc(ownerLabel(definition.name))}</span></h3>
           <div class="trade-cards">${theirs.length > 0 ? theirs.map((entry, index) => card('ask', entry.id, entry.quantity, index)).join('') : '<p class="trade-empty">Os bolsos dele estão vazios.</p>'}</div>
         </section>
       </div>
       <footer class="trade-actions">
-        <button data-action="trade-offer" data-test-action="trade-offer"${pick && onTable < available ? '' : ' disabled'}>Oferecer</button>
-        <button data-action="trade-withdraw" data-test-action="trade-withdraw"${pick && onTable > 0 ? '' : ' disabled'}>Retirar</button>
-        <button class="people-cta" data-action="trade-confirm" data-test-action="trade-confirm"${enough && chose ? '' : ' disabled'}>Confirmar troca</button>
-        <button data-action="trade-close" data-test-action="trade-close">Fechar</button>
+        ${acao('trade-offer', 'Oferecer', Boolean(pick) && onTable < available)}
+        ${acao('trade-withdraw', 'Retirar', Boolean(pick) && onTable > 0)}
+        ${acao('trade-confirm', 'Confirmar troca', enough && chose, true)}
+        ${acao('trade-close', 'Fechar', true)}
       </footer>
+      </div>
     </section>
   </div>`;
 };
